@@ -75,6 +75,15 @@ examples/setlist/    a runnable example set list
 - [x] Phase 0 — repo, build, CI, test harness
 - [x] Phase 1 — model, JSON, click, mixer, routing, transport (headless)
 - [ ] Phase 2 — PortAudio device layer (WASAPI -> ASIO). Resampling: done.
+
+## Shipping
+
+Nothing but CI needs a compiler. Every green `ci` run uploads a runnable
+`btrender` per platform (30-day artifacts); a `v*` tag runs `release.yml`,
+which tests the Release build and publishes packaged binaries. MSVC links the
+CRT statically so a released .exe needs no VC++ redistributable.
+
+All three platforms build warning-clean with `-Werror`. Keep it that way.
 - [ ] Phase 3 — cimgui stage UI
 - [ ] Phase 4 — MIDI in (footswitch) / MIDI out (patch changes)
 - [ ] Phase 5 — DMX via Art-Net / sACN

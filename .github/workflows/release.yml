@@ -34,8 +34,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Warnings are a CI gate, not a release blocker: a Release-config warning
+      # that CI's Debug build never saw should not be what stops a release.
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBT_BUILD_TESTS=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBT_BUILD_TESTS=ON -DBT_WERROR=OFF
 
       - name: Build
         run: cmake --build build --config Release

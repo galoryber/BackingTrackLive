@@ -18,10 +18,8 @@ jobs:
             werror: "ON"
           - os: macos-latest
             werror: "ON"
-          # MSVC's /W4 set differs enough from GCC's that -Werror there needs a
-          # triage pass on real Windows output first. Tighten to ON once done.
           - os: windows-latest
-            werror: "OFF"
+            werror: "ON"
     steps:
       - uses: actions/checkout@v4
 
