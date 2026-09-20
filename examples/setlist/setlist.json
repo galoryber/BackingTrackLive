@@ -29,7 +29,9 @@
       "tracks": [
         { "name": "Click", "type": "click", "bus": "inear" },
         { "name": "Pad",   "type": "audio", "bus": "foh",
-          "file": "tracks/demo-two/pad.wav", "gain_db": -4.0 }
+          "file": "tracks/demo-two/pad.wav", "gain_db": -4.0 },
+        { "name": "Lead",  "type": "audio", "bus": "foh",
+          "file": "tracks/demo-two/lead.mp3", "gain_db": -8.0, "offset_ms": 500 }
       ]
     }
   ]

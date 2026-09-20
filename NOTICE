@@ -15,6 +15,18 @@ limitations under the License.
 
 ---
 
+This product bundles the following third-party source, unmodified, under
+third_party/. Both are dual-licensed public domain / MIT-0, which imposes no
+conditions on this distribution:
+
+  dr_mp3.h   v0.7.4   MP3 decoder    https://github.com/mackron/dr_libs
+  dr_flac.h  v0.13.4  FLAC decoder   https://github.com/mackron/dr_libs
+
+  Copyright (C) 2025 David Reid. See the license statements at the end of
+  each file.
+
+---
+
 This product does not bundle the Steinberg ASIO SDK. ASIO is a trademark
 and software of Steinberg Media Technologies GmbH. Building with ASIO
 support requires obtaining the SDK and agreeing to Steinberg's license

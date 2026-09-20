@@ -3,7 +3,7 @@
  * Tempo mathematics and song bookkeeping.
  */
 #include "backtrack/bt_model.h"
-#include "backtrack/bt_wav.h"
+#include "backtrack/bt_audio.h"
 #include "backtrack/bt_resample.h"
 
 #include <stdlib.h>
@@ -131,14 +131,14 @@ bt_err bt_song_load_audio(bt_song *song, const char *dir, int32_t sample_rate) {
         char path[BT_MAX_PATH * 2];
         path_join(path, sizeof(path), dir, t->file);
 
-        bt_wav w;
-        bt_err e = bt_wav_read_file(path, &w);
+        bt_audio w;
+        bt_err e = bt_audio_decode_file(path, &w);
         if (e != BT_OK) { bt_song_free_audio(song); return e; }
 
         /* Stems arrive at whatever rate they were sold at - 44.1k and 48k in
          * the same set list is the normal case, not the exception. Convert
          * here, once, on the loader thread. Never in the callback. */
-        const int32_t ch = w.channels;   /* bt_wav_free clears the struct */
+        const int32_t ch = w.channels;   /* bt_audio_free clears the struct */
 
         if (w.sample_rate != sample_rate) {
             float  **rs = NULL;
@@ -146,7 +146,7 @@ bt_err bt_song_load_audio(bt_song *song, const char *dir, int32_t sample_rate) {
             e = bt_resample_planar((const float *const *)w.pcm, ch,
                                    w.frames, w.sample_rate, sample_rate,
                                    &rs, &rn);
-            bt_wav_free(&w);
+            bt_audio_free(&w);
             if (e != BT_OK) { bt_song_free_audio(song); return e; }
             t->pcm    = rs;
             t->frames = rn;

@@ -39,8 +39,12 @@ channels. The set list folder is therefore portable - copy it to the backup
 laptop with a different interface in it and it just works - and it is a text
 file you can diff and commit.
 
-Stems are resampled to the device rate once, at load. There is no tempo
-detection and no time-stretching. A song stores its BPM,
+Stems are decoded (WAV, FLAC or MP3) and resampled to the device rate once, at
+load, so by the time the engine sees a track the format it arrived in has
+stopped mattering. Format is detected from content rather than extension - a
+stem named `.wav` that is really an MP3 is what happens when somebody re-saves
+a file, and it should simply work. There is no tempo detection and no
+time-stretching. A song stores its BPM,
 time signature and the offset of its first downbeat, taken from wherever you
 bought the stems. Collapsing the hardest problem in this domain into three
 metadata fields is the single reason this project is tractable.
@@ -155,6 +159,8 @@ hardware.
 - **Tempo** - exact sample positions, no drift across 30,000 beats, correct
   accenting through negative (count-in) beats, and `frame_beat` proven to be
   an exact inverse of `beat_frame`.
+- **Decoding** - FLAC is asserted to decode *bit-identically* to a WAV holding
+  the same 16-bit samples, so losslessness is verified rather than claimed.
 - **Resampling** - the filter is *measured*, not assumed: passband flatness,
   stopband rejection, alias suppression and round-trip residual. See
   [`docs/resampling.md`](docs/resampling.md) for the numbers.
@@ -169,15 +175,15 @@ hardware.
 | 0 | Repo, build, CI, test harness | done |
 | 1 | Model, JSON, click, mixer, routing, transport | done |
 | 1.5 | Load-time resampling, set list player, preload window | done |
+| 1.6 | WAV / FLAC / MP3 decode | done |
 | 2 | PortAudio device layer (WASAPI, then ASIO) | next |
 | 3 | Stage UI (Dear ImGui via cimgui) | |
 | 4 | MIDI in (footswitch) and out (patch changes) | |
 | 5 | DMX lighting via Art-Net / sACN | |
 
-Known gaps, in priority order: only WAV is decoded (MP3 and FLAC next - most
-bought stems arrive as MP3); loading happens on the calling thread inside
-`bt_player_tick()`, which stalls the UI but never the audio, and moves to a
-dedicated loader thread in Phase 2.
+Known gap: loading happens on the calling thread inside `bt_player_tick()`,
+which stalls the UI but never the audio, and moves to a dedicated loader
+thread in Phase 2.
 
 See [`docs/asio.md`](docs/asio.md) for why the ASIO SDK is not, and will not
 be, committed to this repository.

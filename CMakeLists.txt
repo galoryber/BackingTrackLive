@@ -49,12 +49,25 @@ add_library(backtrack STATIC
   src/json/bt_json.c
   src/audio/bt_wav.c
   src/audio/bt_resample.c
+  src/audio/bt_audio.c
+  src/audio/bt_dr_impl.c
   src/model/bt_model.c
   src/model/bt_model_json.c
   src/engine/bt_engine.c
   src/player/bt_player.c
 )
-target_include_directories(backtrack PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_include_directories(backtrack
+  PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
+  PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/third_party/dr_libs)
+
+# Vendored decoders are held to their own standards, not ours. Silencing them
+# here keeps -Werror strict across every line of code we actually wrote.
+if(MSVC)
+  set(BT_VENDOR_QUIET /W0)
+else()
+  set(BT_VENDOR_QUIET -w)
+endif()
+set_source_files_properties(src/audio/bt_dr_impl.c PROPERTIES COMPILE_OPTIONS "${BT_VENDOR_QUIET}")
 target_compile_options(backtrack PRIVATE ${BT_WARN})
 
 if(NOT MSVC)
@@ -73,7 +86,7 @@ target_compile_options(btrender PRIVATE ${BT_WARN})
 if(BT_BUILD_TESTS)
   enable_testing()
 
-  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden test_resample test_player)
+  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden test_resample test_player test_audio)
   foreach(t ${BT_TESTS})
     add_executable(${t} tests/${t}.c)
     target_link_libraries(${t} PRIVATE backtrack)
@@ -81,6 +94,9 @@ if(BT_BUILD_TESTS)
     target_compile_options(${t} PRIVATE ${BT_WARN})
     add_test(NAME ${t} COMMAND ${t})
   endforeach()
+
+  target_compile_definitions(test_audio PRIVATE
+    BT_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
 
   # Real-time safety: wraps the allocator and asserts that a render performs
   # no allocation at all. GNU ld / lld only, so not built under MSVC.
@@ -97,7 +113,7 @@ endif()
 
 # -------------------------------------------------------------------- fuzz
 if(BT_BUILD_FUZZ)
-  foreach(f fuzz_json fuzz_wav fuzz_setlist)
+  foreach(f fuzz_json fuzz_wav fuzz_setlist fuzz_audio)
     add_executable(${f} fuzz/${f}.c)
     target_link_libraries(${f} PRIVATE backtrack)
     target_compile_options(${f} PRIVATE -fsanitize=fuzzer,address,undefined -g)

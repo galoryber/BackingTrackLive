@@ -43,7 +43,7 @@ static void test_pcm16(void) {
     unsigned char buf[256];
     size_t n = build_wav(buf, 1, 2, 16, 48000, pay, sizeof(pay));
 
-    bt_wav w;
+    bt_audio w;
     BT_CHECK_EQI(bt_wav_decode(buf, n, &w), BT_OK);
     BT_CHECK_EQI(w.channels, 2);
     BT_CHECK_EQI(w.sample_rate, 48000);
@@ -52,7 +52,7 @@ static void test_pcm16(void) {
     BT_CHECK_NEAR(w.pcm[1][0],  0.5, 1e-4);
     BT_CHECK_NEAR(w.pcm[0][1], -1.0, 1e-6);
     BT_CHECK_NEAR(w.pcm[1][1], -0.5, 1e-4);
-    bt_wav_free(&w);
+    bt_audio_free(&w);
     BT_CHECK(w.pcm == NULL);
 }
 
@@ -62,13 +62,13 @@ static void test_pcm24(void) {
     unsigned char buf[256];
     size_t n = build_wav(buf, 1, 1, 24, 44100, pay, sizeof(pay));
 
-    bt_wav w;
+    bt_audio w;
     BT_CHECK_EQI(bt_wav_decode(buf, n, &w), BT_OK);
     BT_CHECK_EQI(w.frames, 2);
     BT_CHECK_EQI(w.sample_rate, 44100);
     BT_CHECK_NEAR(w.pcm[0][0],  0.5, 1e-5);
     BT_CHECK_NEAR(w.pcm[0][1], -0.5, 1e-5);
-    bt_wav_free(&w);
+    bt_audio_free(&w);
 }
 
 static void test_float32(void) {
@@ -79,11 +79,11 @@ static void test_float32(void) {
     unsigned char buf[256];
     size_t n = build_wav(buf, 3, 1, 32, 48000, pay, sizeof(pay));
 
-    bt_wav w;
+    bt_audio w;
     BT_CHECK_EQI(bt_wav_decode(buf, n, &w), BT_OK);
     BT_CHECK_NEAR(w.pcm[0][0],  0.25, 1e-7);
     BT_CHECK_NEAR(w.pcm[0][1], -0.75, 1e-7);
-    bt_wav_free(&w);
+    bt_audio_free(&w);
 }
 
 static void test_roundtrip_file(void) {
@@ -97,7 +97,7 @@ static void test_roundtrip_file(void) {
     const char *path = "test_roundtrip.wav";
     BT_CHECK_EQI(bt_wav_write_file(path, pl, 2, 48000, N), BT_OK);
 
-    bt_wav w;
+    bt_audio w;
     BT_CHECK_EQI(bt_wav_read_file(path, &w), BT_OK);
     BT_CHECK_EQI(w.frames, N);
     BT_CHECK_EQI(w.channels, 2);
@@ -105,7 +105,7 @@ static void test_roundtrip_file(void) {
         BT_CHECK_NEAR(w.pcm[0][i], l[i], 1.0 / 8388607.0 * 2.0);
         BT_CHECK_NEAR(w.pcm[1][i], r[i], 1.0 / 8388607.0 * 2.0);
     }
-    bt_wav_free(&w);
+    bt_audio_free(&w);
     free(l); free(r);
     remove(path);
 }
@@ -115,7 +115,7 @@ static void test_malformed(void) {
     unsigned char buf[256];
     size_t n = build_wav(buf, 1, 2, 16, 48000, pay, sizeof(pay));
 
-    bt_wav w;
+    bt_audio w;
 
     /* Not a RIFF file. */
     BT_CHECK(bt_wav_decode("not a wav at all", 16, &w) != BT_OK);
@@ -138,7 +138,7 @@ static void test_malformed(void) {
     put32(buf + 40, 0xFFFFFF00u);
     BT_CHECK_EQI(bt_wav_decode(buf, n, &w), BT_OK);
     BT_CHECK_EQI(w.frames, 1);
-    bt_wav_free(&w);
+    bt_audio_free(&w);
 }
 
 int main(void) {

@@ -7,6 +7,7 @@ immediately after cloning.
 """
 import math
 import os
+import shutil
 import struct
 import wave
 
@@ -50,6 +51,14 @@ def main():
     # example exercise load-time resampling rather than only the easy path.
     write_wav(os.path.join(here, "tracks/demo-two/pad.wav"), 2, 12.0,
               tone(220, 0.25, rate=44100), rate=44100)
+
+    # Stems bought online usually arrive as MP3. Reuse the committed test
+    # fixture rather than depending on an encoder being installed: this makes
+    # the demo render exercise MP3 decode *and* 44.1k -> 48k resampling.
+    src = os.path.join(here, "../../tests/fixtures/tone_mono.mp3")
+    dst = os.path.join(here, "tracks/demo-two/lead.mp3")
+    shutil.copyfile(src, dst)
+    print(f"  {dst}  1ch  0.5s  44100 Hz  (MP3, copied fixture)")
 
 
 if __name__ == "__main__":

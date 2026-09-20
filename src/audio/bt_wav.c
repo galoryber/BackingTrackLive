@@ -76,7 +76,7 @@ static float sample_at(const unsigned char *b, size_t o, int bits, bool is_float
     }
 }
 
-bt_err bt_wav_decode(const void *data, size_t len, bt_wav *out) {
+bt_err bt_wav_decode(const void *data, size_t len, bt_audio *out) {
     if (!data || !out) return BT_ERR_RANGE;
     memset(out, 0, sizeof(*out));
 
@@ -173,7 +173,7 @@ bt_err bt_wav_decode(const void *data, size_t len, bt_wav *out) {
     return BT_OK;
 }
 
-bt_err bt_wav_read_file(const char *path, bt_wav *out) {
+bt_err bt_wav_read_file(const char *path, bt_audio *out) {
     if (!path || !out) return BT_ERR_RANGE;
     FILE *f = fopen(path, "rb");
     if (!f) return BT_ERR_IO;
@@ -192,13 +192,6 @@ bt_err bt_wav_read_file(const char *path, bt_wav *out) {
     bt_err e = bt_wav_decode(buf, got, out);
     free(buf);
     return e;
-}
-
-void bt_wav_free(bt_wav *w) {
-    if (!w || !w->pcm) return;
-    for (int c = 0; c < w->channels; c++) free(w->pcm[c]);
-    free(w->pcm);
-    memset(w, 0, sizeof(*w));
 }
 
 /* ------------------------------------------------------------------ writer */

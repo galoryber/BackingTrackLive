@@ -76,6 +76,7 @@ examples/setlist/    a runnable example set list
 - [x] Phase 0 — repo, build, CI, test harness
 - [x] Phase 1 — model, JSON, click, mixer, routing, transport (headless)
 - [x] Phase 1.5 — resampling, set list player, preload window
+- [x] Phase 1.6 — WAV / FLAC / MP3 decode
 - [ ] Phase 2 — PortAudio device layer (WASAPI -> ASIO)
 
 ## Shipping
