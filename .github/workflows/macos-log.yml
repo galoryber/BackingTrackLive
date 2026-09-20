@@ -1,0 +1,54 @@
+name: macos-log
+
+# Temporary. GitHub's API exposes only "exit code 2" for a failed job, and the
+# logs themselves need authentication, so this builds on macOS, captures the
+# output and force-pushes it to a single-commit `ci-reports` branch readable
+# with plain git. Delete once the macOS failure is understood.
+
+on:
+  push:
+    branches: [ 'feat/alloc-failure-tests' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  capture:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+
+      - name: Build and test, capturing everything
+        shell: bash
+        run: |
+          mkdir -p reports
+          {
+            echo "=== uname / toolchain ==="
+            uname -a
+            cc --version
+            ld -v 2>&1 | head -3 || true
+            cmake --version | head -1
+            echo
+            echo "=== configure ==="
+            cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBT_WITH_DEVICE=OFF 2>&1
+            echo
+            echo "=== build ==="
+            cmake --build build 2>&1
+            echo
+            echo "=== ctest ==="
+            ctest --test-dir build --output-on-failure 2>&1
+          } > reports/macos.txt 2>&1 || true
+          echo "--- tail of captured log ---"
+          tail -60 reports/macos.txt
+
+      - name: Publish
+        shell: bash
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout --orphan ci-reports
+          git rm -rf --cached . >/dev/null 2>&1 || true
+          git add -f reports/macos.txt
+          git commit -q -m "macos build log for ${GITHUB_SHA::7}"
+          git push -f origin ci-reports
