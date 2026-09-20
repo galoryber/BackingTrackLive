@@ -133,9 +133,12 @@ if(BT_BUILD_TESTS)
     add_test(NAME test_concurrency COMMAND test_concurrency)
   endif()
 
-  # Real-time safety: wraps the allocator and asserts that a render performs
-  # no allocation at all. GNU ld / lld only, so not built under MSVC.
-  if(NOT MSVC)
+  # Two tests wrap the allocator at link time with -Wl,--wrap. That is a GNU
+  # ld / lld feature: Apple's linker rejects it outright with "unknown
+  # options: --wrap=malloc", and MSVC has no equivalent. What they verify is
+  # platform-independent, so building them on Linux alone is sufficient
+  # coverage - but they must not be built where they cannot link.
+  if(NOT MSVC AND NOT APPLE)
     add_executable(test_rtsafe tests/test_rtsafe.c)
     target_link_libraries(test_rtsafe PRIVATE backtrack)
     target_include_directories(test_rtsafe PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

@@ -41,6 +41,19 @@ git push -u origin feat/<thing>
 `main` is what `release.yml` builds from and what the band laptop downloads.
 It should never be red, even for the three minutes it takes CI to notice.
 
+## Checking CI
+
+```bash
+tools/ci-status.sh            # current HEAD
+tools/ci-status.sh <sha|ref>
+```
+
+Use this, not the Actions web page. Every `ci` run from the first commit to
+commit a61b7e0 was reported here as green on the strength of reading that
+page, and every one of them had in fact failed: macOS could not link the two
+`-Wl,--wrap` tests, and the rendered page was misread as success each time.
+A run's conclusion from the API is the only thing worth trusting.
+
 ## Testing standards
 
 Coverage floors are enforced in CI (92% line, 70% branch over `src/`). They
