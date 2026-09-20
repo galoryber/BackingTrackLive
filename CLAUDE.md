@@ -60,6 +60,10 @@ These are enforced by tests. Do not work around a failing rtsafe test.
    `bt_engine_render()`** or anything it calls. All memory is acquired during
    load, on the loader thread. `tests/test_rtsafe.c` wraps `malloc`/`free` and
    asserts zero activity across a render.
+1a. **Only the loader thread writes `bt_track::pcm`.** Everyone else reads it,
+   and only after the loader has published that the song is resident. That is
+   the whole ownership rule; violating it is a use-after-free on the audio
+   thread.
 1b. **Never mutate engine state the audio thread reads.** The engine keeps two
    resolved song slots and publishes the live index with release/acquire;
    `bt_engine_set_song()` writes the other one. Before freeing any PCM a
@@ -88,11 +92,12 @@ src/json/            minimal strict JSON parser (a fuzz target)
 src/model/           setlist/song/track model, JSON read and write
 src/audio/           WAV decode (a fuzz target)
 src/engine/          transport, click synthesis, mixer, routing
-src/player/          set list player: selection, on_end, preload window
+src/player/          set list player + loader thread: selection, on_end,
+                     and the only code that loads or frees stems
 src/device/          PortAudio backend. A SEPARATE library: libbacktrack has
                      no device dependency, and nothing in tests/ links this.
 tools/btplay.c       CLI: plays a set list through a real device
-src/util/            allocation shims, small helpers
+src/util/            error strings, portable thread/mutex/condvar shim
 tools/btrender.c     CLI: setlist.json -> rendered WAV (offline, deterministic)
 tests/               unit + golden-render + rtsafe tests
 fuzz/                libFuzzer targets for the parsers
@@ -115,6 +120,7 @@ examples/setlist/    a runnable example set list
 - [x] Phase 1.5 — resampling, set list player, preload window
 - [x] Phase 1.6 — WAV / FLAC / MP3 decode
 - [x] Phase 1.7 — set list / device.json writing (lossless, byte-stable)
+- [x] Phase 1.8 — background loader thread; loading never blocks the UI
 - [~] Phase 2 — PortAudio device layer. Enumeration, open, callback and
       btplay are written and build on all three platforms; ASIO and real
       dropout behaviour need the band laptop and its UMC404HD.

@@ -5,6 +5,7 @@
  */
 #include "bt_test.h"
 #include "backtrack/bt_player.h"
+#include "backtrack/bt_thread.h"
 #include "backtrack/bt_wav.h"
 
 #define SR       48000
@@ -94,7 +95,7 @@ static void rig_up(rig *r, uint32_t next_mask, int32_t preload_ahead) {
     BT_CHECK_EQI(bt_setlist_load_file(g_setlist_path, &r->sl, &line), BT_OK);
 
     bt_device_cfg d = mk_dev();
-    bt_player_cfg c = { SR, 4, 1024, preload_ahead };
+    bt_player_cfg c = { SR, 4, 1024, preload_ahead, 10000 };
     r->p = NULL;
     BT_CHECK_EQI(bt_player_create(&c, r->sl, &d, &r->p), BT_OK);
 
@@ -109,6 +110,28 @@ static void rig_down(rig *r) {
     bt_player_destroy(r->p);
     bt_setlist_free(r->sl);
     cleanup_fixture();
+}
+
+/* Loading happens on the loader thread now, so residency is something you
+ * wait for rather than something a tick performs. These bound the wait so a
+ * genuine failure is a test failure and not a hang. */
+static bool wait_until(rig *r, int32_t song, bool want, int ms) {
+    for (int i = 0; i < ms; i++) {
+        bt_tick_result t = BT_TICK_IDLE;
+        bt_player_tick(r->p, &t);
+        if (bt_player_song_resident(r->p, song) == want) return true;
+        bt_thread_sleep_ms(1);
+    }
+    return false;
+}
+
+static void check_resident(rig *r, int32_t song, bool want, const char *what) {
+    bt_checks++;
+    if (!wait_until(r, song, want, 5000)) {
+        bt_fails++;
+        fprintf(stderr, "  FAIL song %d should%s be resident (%s)\n",
+                song, want ? "" : " not", what);
+    }
 }
 
 /* Renders up to `blocks` blocks, ticking between each, stopping once `tick`
@@ -160,17 +183,18 @@ static void test_preload_window(void) {
     rig r;
     rig_up(&r, 0, 1);
 
+    /* select() waits for the song it selects - that one is needed now. */
     BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+    BT_CHECK(bt_player_song_resident(r.p, 0));
+
+    /* The rest of the window arrives behind it, on the loader thread. */
+    check_resident(&r, 1, true,  "next song preloads");
+    check_resident(&r, 2, false, "outside the window");
+    check_resident(&r, 5, false, "outside the window");
+
+    /* Once settled, a tick has nothing new to report. */
     bt_tick_result t = BT_TICK_IDLE;
     BT_CHECK_EQI(bt_player_tick(r.p, &t), BT_OK);
-    BT_CHECK_EQI(t, BT_TICK_PRELOADED);          /* song 1 came in */
-
-    BT_CHECK(bt_player_song_resident(r.p, 0));
-    BT_CHECK(bt_player_song_resident(r.p, 1));
-    BT_CHECK(!bt_player_song_resident(r.p, 2));
-    BT_CHECK(!bt_player_song_resident(r.p, 5));
-
-    /* A second tick has nothing left to do. */
     BT_CHECK_EQI(bt_player_tick(r.p, &t), BT_OK);
     BT_CHECK_EQI(t, BT_TICK_IDLE);
 
@@ -179,11 +203,10 @@ static void test_preload_window(void) {
 
     /* Jumping across the set frees what is behind and loads what is ahead. */
     BT_CHECK_EQI(bt_player_select(r.p, 4), BT_OK);
-    BT_CHECK_EQI(bt_player_tick(r.p, &t), BT_OK);
-    BT_CHECK(!bt_player_song_resident(r.p, 0));
-    BT_CHECK(!bt_player_song_resident(r.p, 1));
-    BT_CHECK(bt_player_song_resident(r.p, 4));
-    BT_CHECK(bt_player_song_resident(r.p, 5));
+    check_resident(&r, 0, false, "freed behind");
+    check_resident(&r, 1, false, "freed behind");
+    check_resident(&r, 4, true,  "selected");
+    check_resident(&r, 5, true,  "preloaded ahead");
     /* Still two songs' worth - the window does not grow as you move. */
     BT_CHECK_EQI(bt_player_resident_bytes(r.p), (long long)two_songs);
 
@@ -195,10 +218,8 @@ static void test_preload_ahead_zero(void) {
     rig_up(&r, 0, 0);
 
     BT_CHECK_EQI(bt_player_select(r.p, 2), BT_OK);
-    bt_tick_result t = BT_TICK_IDLE;
-    BT_CHECK_EQI(bt_player_tick(r.p, &t), BT_OK);
-    BT_CHECK(bt_player_song_resident(r.p, 2));
-    BT_CHECK(!bt_player_song_resident(r.p, 3));
+    check_resident(&r, 2, true,  "selected");
+    check_resident(&r, 3, false, "no lookahead requested");
 
     rig_down(&r);
 }

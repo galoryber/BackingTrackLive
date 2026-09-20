@@ -56,6 +56,7 @@ endif()
 # ------------------------------------------------------------------ library
 add_library(backtrack STATIC
   src/util/bt_error.c
+  src/util/bt_thread.c
   src/json/bt_json.c
   src/audio/bt_wav.c
   src/audio/bt_resample.c
@@ -66,6 +67,7 @@ add_library(backtrack STATIC
   src/model/bt_model_write.c
   src/engine/bt_engine.c
   src/player/bt_player.c
+  src/player/bt_loader.c
 )
 target_include_directories(backtrack
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -87,6 +89,10 @@ if(NOT MSVC)
     target_link_libraries(backtrack PUBLIC ${BT_LIBM})
   endif()
 endif()
+
+# Threads, not an audio backend: libbacktrack still has no device dependency.
+find_package(Threads REQUIRED)
+target_link_libraries(backtrack PUBLIC Threads::Threads)
 
 # ------------------------------------------------------------------- tools
 add_executable(btrender tools/btrender.c)
@@ -115,7 +121,6 @@ if(BT_BUILD_TESTS)
   # they cover is platform-independent, and Windows CI still runs everything
   # else.
   if(NOT WIN32)
-    find_package(Threads REQUIRED)
     add_executable(test_concurrency tests/test_concurrency.c)
     target_link_libraries(test_concurrency PRIVATE backtrack Threads::Threads)
     target_include_directories(test_concurrency PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)

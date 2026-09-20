@@ -130,7 +130,7 @@ int main(int argc, char **argv) {
                     dev.device);
     }
 
-    bt_player_cfg pc = { dev.sample_rate, nch, dev.buffer_frames, 1 };
+    bt_player_cfg pc = { dev.sample_rate, nch, dev.buffer_frames, 1, 30000 };
     bt_player *p = NULL;
     e = bt_player_create(&pc, sl, &dev, &p);
     if (e != BT_OK) {

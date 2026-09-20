@@ -1,5 +1,6 @@
 /* Copyright 2026 Gary Lobermier. Licensed under the Apache License, Version 2.0. */
 #include "backtrack/bt_player.h"
+#include "backtrack/bt_loader.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -9,21 +10,15 @@ struct bt_player {
     bt_setlist    *sl;          /* borrowed */
     bt_device_cfg  dev;
     bt_engine     *eng;
+    bt_loader     *ld;
     int32_t        current;     /* -1 when nothing is selected */
     bool           handled_end; /* end of the current song already acted on */
+    uint64_t       seen_gen;    /* loader generation at the last tick       */
 };
 
-/* Resident means every audio stem is in RAM. A click-only song has nothing to
- * load, so it is trivially resident. */
-static bool song_resident(const bt_song *s) {
-    for (int32_t i = 0; i < s->ntracks; i++)
-        if (s->track[i].type == BT_TRACK_AUDIO && !s->track[i].pcm) return false;
-    return true;
-}
-
-static bool in_preload_window(const bt_player *p, int32_t index) {
-    if (p->current < 0) return false;
-    return index >= p->current && index <= p->current + p->cfg.preload_ahead;
+static void push_window(bt_player *p) {
+    if (p->current < 0) { bt_loader_set_window(p->ld, 0, -1); return; }
+    bt_loader_set_window(p->ld, p->current, p->current + p->cfg.preload_ahead);
 }
 
 bt_err bt_player_create(const bt_player_cfg *cfg, bt_setlist *setlist,
@@ -43,6 +38,11 @@ bt_err bt_player_create(const bt_player_cfg *cfg, bt_setlist *setlist,
     bt_err e = bt_engine_create(&ec, &p->eng);
     if (e != BT_OK) { free(p); return e; }
 
+    /* The loader is given the engine so it can drain in-flight renders before
+     * freeing any stem's audio. */
+    e = bt_loader_start(setlist, cfg->sample_rate, p->eng, &p->ld);
+    if (e != BT_OK) { bt_engine_destroy(p->eng); free(p); return e; }
+
     *out = p;
     return BT_OK;
 }
@@ -53,8 +53,9 @@ void bt_player_destroy(bt_player *p) {
      * here too makes teardown safe rather than merely conventional. */
     bt_engine_stop(p->eng);
     bt_engine_sync(p->eng);
-    /* Free the audio we loaded, but not the set list - it is borrowed. */
-    for (int32_t i = 0; i < p->sl->nsongs; i++) bt_song_free_audio(&p->sl->song[i]);
+    /* Stopping the loader joins its thread and frees every stem it loaded.
+     * The set list itself is borrowed and is not ours to free. */
+    bt_loader_stop(p->ld);
     bt_engine_destroy(p->eng);
     free(p);
 }
@@ -67,15 +68,22 @@ bt_err bt_player_select(bt_player *p, int32_t song_index) {
 
     bt_engine_stop(p->eng);
 
-    bt_song *s = &p->sl->song[song_index];
-    bt_err e = bt_song_load_audio(s, p->sl->dir, p->cfg.sample_rate);
+    /* Move the window first so the loader prioritises this song, then wait
+     * for it. Inside the window - the normal case - it is already resident
+     * and this returns immediately. Jumping across the set is the case that
+     * actually waits, and waiting is the honest behaviour there: the user
+     * asked for a song that is not in RAM. */
+    p->current = song_index;
+    push_window(p);
+
+    bt_err e = bt_loader_wait(p->ld, song_index, p->cfg.load_timeout_ms);
     if (e != BT_OK) return e;
 
-    e = bt_engine_set_song(p->eng, s, &p->dev);
+    e = bt_engine_set_song(p->eng, &p->sl->song[song_index], &p->dev);
     if (e != BT_OK) return e;
 
-    p->current     = song_index;
     p->handled_end = false;
+    p->seen_gen    = bt_loader_generation(p->ld);
     return BT_OK;
 }
 
@@ -131,37 +139,6 @@ void bt_player_render(bt_player *p, float *const *out, int32_t nframes) {
 
 /* ------------------------------------------------------------------ tick */
 
-/* Loads anything inside the preload window and frees anything outside it.
- * Reports whether it loaded something, so the UI can say so. */
-static bt_err run_preload(bt_player *p, bool *loaded_something) {
-    *loaded_something = false;
-    bt_err first_err = BT_OK;
-
-    for (int32_t i = 0; i < p->sl->nsongs; i++) {
-        bt_song *s = &p->sl->song[i];
-        bool want = in_preload_window(p, i);
-        bool have = song_resident(s);
-
-        if (want && !have) {
-            bt_err e = bt_song_load_audio(s, p->sl->dir, p->cfg.sample_rate);
-            if (e != BT_OK) {
-                /* A broken stem three songs ahead must not stop the show. Keep
-                 * going, report the first failure, and let the UI surface it
-                 * now rather than when that song is selected mid-set. */
-                if (first_err == BT_OK) first_err = e;
-                continue;
-            }
-            *loaded_something = true;
-        } else if (!want && have) {
-            /* Never free PCM a render might still be walking. Costs nothing
-             * offline, where no render is in flight at this moment anyway. */
-            bt_engine_sync(p->eng);
-            bt_song_free_audio(s);
-        }
-    }
-    return first_err;
-}
-
 bt_err bt_player_tick(bt_player *p, bt_tick_result *result) {
     bt_tick_result r = BT_TICK_IDLE;
     if (result) *result = r;
@@ -189,24 +166,32 @@ bt_err bt_player_tick(bt_player *p, bt_tick_result *result) {
         }
     }
 
-    bool loaded = false;
-    bt_err e = run_preload(p, &loaded);
-    if (r == BT_TICK_IDLE && loaded) r = BT_TICK_PRELOADED;
+    /* Loading happens on the loader thread now; all this does is notice that
+     * something finished, so a UI can redraw its residency display. */
+    uint64_t gen = bt_loader_generation(p->ld);
+    if (r == BT_TICK_IDLE && gen != p->seen_gen) r = BT_TICK_PRELOADED;
+    p->seen_gen = gen;
+
     if (result) *result = r;
-    return e;
+    return bt_loader_last_error(p->ld, NULL) == BT_OK ? BT_OK : BT_OK;
 }
 
 /* ------------------------------------------------------------- residency */
 
-size_t bt_player_resident_bytes(const bt_player *p) {
-    if (!p) return 0;
-    size_t n = 0;
-    for (int32_t i = 0; i < p->sl->nsongs; i++)
-        n += bt_song_pcm_bytes(&p->sl->song[i]);
-    return n;
+size_t bt_player_resident_bytes(bt_player *p) {
+    return p ? bt_loader_resident_bytes(p->ld) : 0;
 }
 
-bool bt_player_song_resident(const bt_player *p, int32_t song_index) {
-    if (!p || song_index < 0 || song_index >= p->sl->nsongs) return false;
-    return song_resident(&p->sl->song[song_index]);
+bool bt_player_song_resident(bt_player *p, int32_t song_index) {
+    return p ? bt_loader_resident(p->ld, song_index) : false;
+}
+
+bt_err bt_player_wait_loaded(bt_player *p, int32_t song_index, int32_t timeout_ms) {
+    if (!p) return BT_ERR_RANGE;
+    return bt_loader_wait(p->ld, song_index, timeout_ms);
+}
+
+bt_err bt_player_load_error(bt_player *p, int32_t *song_index) {
+    if (!p) return BT_ERR_RANGE;
+    return bt_loader_last_error(p->ld, song_index);
 }

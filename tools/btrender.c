@@ -56,7 +56,7 @@ static int render_set(bt_setlist *sl, const bt_device_cfg *dev,
     /* 30 minutes is a guard against a malformed set list, not a real limit. */
     const bt_frame LIMIT = (bt_frame)dev->sample_rate * 60 * 30;
 
-    bt_player_cfg pc = { dev->sample_rate, nch, block, 1 };
+    bt_player_cfg pc = { dev->sample_rate, nch, block, 1, 30000 };
     bt_player *pl = NULL;
     bt_err e = bt_player_create(&pc, sl, dev, &pl);
     if (e != BT_OK) { fprintf(stderr, "player: %s\n", bt_strerror(e)); return 1; }

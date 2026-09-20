@@ -12,6 +12,8 @@
  */
 #include "bt_test.h"
 #include "backtrack/bt_engine.h"
+#include "backtrack/bt_player.h"
+#include "backtrack/bt_wav.h"
 
 #include <pthread.h>
 #include <unistd.h>
@@ -107,7 +109,115 @@ static void test_swap_song_while_rendering(void) {
     bt_song_free_audio(&b);
 }
 
+/* ------------------------------------------------------------------------
+ * Three threads, which is what the real program is: the driver calling
+ * render(), the UI selecting songs, and the loader deciding what is in RAM
+ * and freeing what is not. The loader frees the very buffers render() walks,
+ * so this is the arrangement most able to go wrong.
+ * --------------------------------------------------------------------- */
+
+#define CSONGS 6
+
+static bt_player *g_player;
+
+static void *player_render_thread(void *arg) {
+    (void)arg;
+    float *buf[4], *win[4];
+    for (int c = 0; c < 4; c++) { buf[c] = (float *)calloc(256, sizeof(float));
+                                  win[c] = buf[c]; }
+    while (!atomic_load_explicit(&g_stop, memory_order_relaxed))
+        bt_player_render(g_player, win, 256);
+    for (int c = 0; c < 4; c++) free(buf[c]);
+    return NULL;
+}
+
+static void cstem(char *dst, size_t cap, int32_t i) {
+    snprintf(dst, cap, "conc_stem_%d.wav", i);
+}
+
+static const char *CSETLIST = "conc_setlist.json";
+
+static void build_conc_fixture(void) {
+    char json[8192];
+    size_t o = 0;
+    o += (size_t)snprintf(json + o, sizeof(json) - o,
+                          "{\"version\":1,\"name\":\"C\",\"songs\":[");
+    for (int32_t i = 0; i < CSONGS; i++) {
+        bt_frame n = SR / 4 + i * 100;
+        float *b = (float *)malloc((size_t)n * sizeof(float));
+        for (bt_frame k = 0; k < n; k++) b[k] = 0.05f;
+        char path[64];
+        cstem(path, sizeof(path), i);
+        const float *p[1] = { b };
+        BT_CHECK_EQI(bt_wav_write_file(path, p, 1, SR, n), BT_OK);
+        free(b);
+        o += (size_t)snprintf(json + o, sizeof(json) - o,
+            "%s{\"title\":\"S%d\",\"tempo\":{\"bpm\":120},"
+            "\"count_in_bars\":0,\"on_end\":\"stop\",\"tracks\":["
+            "{\"type\":\"click\",\"bus\":\"inear\"},"
+            "{\"type\":\"audio\",\"bus\":\"foh\",\"file\":\"%s\"}]}",
+            i ? "," : "", i, path);
+    }
+    snprintf(json + o, sizeof(json) - o, "]}");
+
+    FILE *f = fopen(CSETLIST, "wb");
+    BT_CHECK(f != NULL);
+    if (f) { fputs(json, f); fclose(f); }
+}
+
+static void cleanup_conc_fixture(void) {
+    remove(CSETLIST);
+    for (int32_t i = 0; i < CSONGS; i++) {
+        char path[64];
+        cstem(path, sizeof(path), i);
+        remove(path);
+    }
+}
+
+static void test_select_while_rendering_and_loading(void) {
+    build_conc_fixture();
+
+    bt_setlist *sl = NULL;
+    int line = 0;
+    BT_CHECK_EQI(bt_setlist_load_file(CSETLIST, &sl, &line), BT_OK);
+    if (!sl) { cleanup_conc_fixture(); return; }
+
+    bt_device_cfg d = mk_dev();
+    bt_player_cfg c = { SR, 4, 256, 1, 10000 };
+    BT_CHECK_EQI(bt_player_create(&c, sl, &d, &g_player), BT_OK);
+
+    BT_CHECK_EQI(bt_player_select(g_player, 0), BT_OK);
+    bt_player_play(g_player);
+
+    atomic_store_explicit(&g_stop, 0, memory_order_relaxed);
+    pthread_t th;
+    BT_CHECK_EQI(pthread_create(&th, NULL, player_render_thread, NULL), 0);
+
+    /* Jump around the set. Every move drags the preload window with it, so
+     * the loader is continuously loading ahead and freeing behind while the
+     * render thread is walking whatever is bound. */
+    const int order[] = { 1, 4, 0, 5, 2, 3, 5, 0, 4, 1 };
+    for (int pass = 0; pass < 12; pass++) {
+        for (size_t k = 0; k < sizeof(order) / sizeof(order[0]); k++) {
+            BT_CHECK_EQI(bt_player_select(g_player, order[k]), BT_OK);
+            bt_player_play(g_player);
+            usleep(500);
+        }
+    }
+
+    atomic_store_explicit(&g_stop, 1, memory_order_relaxed);
+    pthread_join(th, NULL);
+
+    BT_CHECK_EQI(bt_player_load_error(g_player, NULL), BT_OK);
+
+    bt_player_destroy(g_player);
+    g_player = NULL;
+    bt_setlist_free(sl);
+    cleanup_conc_fixture();
+}
+
 int main(void) {
     BT_RUN(test_swap_song_while_rendering);
+    BT_RUN(test_select_while_rendering_and_loading);
     BT_REPORT();
 }

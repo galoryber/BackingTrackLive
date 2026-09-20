@@ -11,14 +11,13 @@
  *
  *   bt_player_render()  is the audio callback. It forwards to the engine and
  *                       does nothing else. RT-safe.
- *   bt_player_tick()    is called from the UI thread, regularly. Everything
- *                       that allocates, reads a file or decides anything lives
- *                       here.
+ *   bt_player_tick()    is called from the UI thread, regularly. It decides
+ *                       what end-of-song means and reports what changed. It
+ *                       does not load anything and does not block.
  *
- * A load inside tick() blocks the caller, but not the audio: the device drives
- * the callback, and the currently playing song is already resident. So a slow
- * load stalls the UI, never the music. Phase 2 moves loading to its own thread
- * behind this same API.
+ * Decoding and resampling happen on a third thread, owned by bt_loader, which
+ * is also the only thing that frees stems - and it drains the engine before it
+ * does, so it can never pull audio out from under a render.
  */
 #ifndef BT_PLAYER_H
 #define BT_PLAYER_H
@@ -42,6 +41,10 @@ typedef struct {
      * what makes `on_end: next` seamless and song switching instant. Raise it
      * only if RAM is free; a full 40-song set will not fit. */
     int32_t preload_ahead;
+    /* How long bt_player_select() will wait for a song that is not resident
+     * yet - which only happens when jumping outside the preload window.
+     * Negative waits indefinitely. */
+    int32_t load_timeout_ms;
 } bt_player_cfg;
 
 /* The set list is borrowed, not owned: the caller keeps it alive for the
@@ -96,8 +99,16 @@ typedef enum {
 bt_err bt_player_tick(bt_player *p, bt_tick_result *result);
 
 /* ---- Residency, for the UI to show and for tests to assert. ------------- */
-size_t bt_player_resident_bytes(const bt_player *p);
-bool   bt_player_song_resident(const bt_player *p, int32_t song_index);
+size_t bt_player_resident_bytes(bt_player *p);
+bool   bt_player_song_resident(bt_player *p, int32_t song_index);
+
+/* Blocks until a song's stems are in RAM. Mostly useful in tests and for a UI
+ * that wants to show progress rather than let select() block. */
+bt_err bt_player_wait_loaded(bt_player *p, int32_t song_index, int32_t timeout_ms);
+
+/* The most recent background load failure, or BT_OK. A missing stem three
+ * songs ahead should reach the UI now, not when that song is selected. */
+bt_err bt_player_load_error(bt_player *p, int32_t *song_index);
 
 #ifdef __cplusplus
 }

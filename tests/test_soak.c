@@ -89,7 +89,7 @@ static void test_whole_set_residency_is_bounded(void) {
     if (!sl) { cleanup_set(); return; }
 
     bt_device_cfg d = mk_dev();
-    bt_player_cfg c = { SR, 4, 512, 1 };         /* current + next resident */
+    bt_player_cfg c = { SR, 4, 512, 1, 10000 };         /* current + next resident */
     bt_player *p = NULL;
     BT_CHECK_EQI(bt_player_create(&c, sl, &d, &p), BT_OK);
 

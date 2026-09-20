@@ -24,7 +24,7 @@ check: build test
 tsan:
 	cmake -S . -B $(BUILD)-tsan -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DBT_TSAN=ON -DBT_WITH_DEVICE=OFF
 	cmake --build $(BUILD)-tsan
-	setarch $$(uname -m) -R ctest --test-dir $(BUILD)-tsan --output-on-failure
+	TSAN_OPTIONS=halt_on_error=1 setarch $$(uname -m) -R ctest --test-dir $(BUILD)-tsan --output-on-failure
 
 device:
 	cmake -S . -B $(BUILD)-dev -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DBT_WITH_DEVICE=ON

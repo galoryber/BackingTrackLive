@@ -22,6 +22,14 @@ version of the same thing, and you cannot get there by turning features off.
 
 Three decisions carry most of the weight:
 
+**Three threads, with one job each.** The driver calls `bt_player_render()`,
+which forwards to the engine and does nothing else. The UI thread calls
+`bt_player_tick()`, which decides what end-of-song means and never blocks. A
+loader thread owns every decode, every resample and every `free` - and drains
+the engine before releasing any buffer, so it cannot pull audio out from under
+a render. `tests/test_concurrency.c` runs all three at once under
+ThreadSanitizer, which is the only tool that reliably sees this class of bug.
+
 **The engine is headless.** `bt_engine_render()` is a pure function of engine
 state - no device, no clock, no threads, no allocation. Every question about
 timing, alignment and routing is answered offline, on any platform, with no
@@ -182,6 +190,9 @@ hardware.
 - **Block-size invariance** - the same song must render bit-identically at
   every buffer size from 32 to 4096 frames. Any difference means state is
   leaking across a block boundary.
+- **Concurrency** - a render thread, a UI thread selecting songs and the
+  loader thread loading and freeing, all at once, under TSan with
+  `halt_on_error`. Removing the drain before a free fails it immediately.
 - **Real-time safety** - `test_rtsafe` wraps the allocator at link time and
   asserts that a render performs **zero** allocations. The most common cause of
   a rig glitching on stage is a `malloc` that crept into the audio callback;
@@ -211,14 +222,15 @@ hardware.
 | 1.5 | Load-time resampling, set list player, preload window | done |
 | 1.6 | WAV / FLAC / MP3 decode | done |
 | 1.7 | Set list / device.json writing | done |
+| 1.8 | Background loader thread | done |
 | 2 | PortAudio device layer (WASAPI, then ASIO) | builds; needs hardware |
 | 3 | Stage UI (Dear ImGui via cimgui) | |
 | 4 | MIDI in (footswitch) and out (patch changes) | |
 | 5 | DMX lighting via Art-Net / sACN | |
 
-Known gap: loading happens on the calling thread inside `bt_player_tick()`,
-which stalls the UI but never the audio, and moves to a dedicated loader
-thread in Phase 2.
+Known gaps: branch coverage sits at ~70%, concentrated in allocation-failure
+paths that nothing currently exercises; and the device layer has never met a
+real interface.
 
 See [`docs/asio.md`](docs/asio.md) for why the ASIO SDK is not, and will not
 be, committed to this repository.
