@@ -126,7 +126,7 @@ jobs:
           gcovr --root . --filter 'src/' --exclude 'third_party/' \
                 --print-summary --txt | tee cov.txt
           gcovr --root . --filter 'src/' --exclude 'third_party/' \
-                --fail-under-line 90 --fail-under-branch 65 >/dev/null
+                --fail-under-line 92 --fail-under-branch 70 >/dev/null
           {
             echo '### Coverage'
             echo '```'

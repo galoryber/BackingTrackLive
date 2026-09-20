@@ -43,9 +43,14 @@ It should never be red, even for the three minutes it takes CI to notice.
 
 ## Testing standards
 
-Coverage floors are enforced in CI (90% line, 65% branch over `src/`). They
+Coverage floors are enforced in CI (92% line, 70% branch over `src/`). They
 are floors, not targets: raise them when the real number moves up, never lower
 them to go green.
+
+`tests/test_allocfail.c` fails the Nth allocation and sweeps N across every
+allocation a workload makes, requiring that no error path leaks. If you add
+code that allocates, add it to a workload there - the `if (!p) return
+BT_ERR_ALLOC;` branches are otherwise never executed by anything.
 
 A new test that passes on the first run has not yet been shown to work. Break
 the code it covers and confirm the test fails, in the assertion you expect.

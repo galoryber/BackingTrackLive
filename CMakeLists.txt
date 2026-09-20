@@ -143,6 +143,14 @@ if(BT_BUILD_TESTS)
     target_link_options(test_rtsafe PRIVATE
       -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free)
     add_test(NAME test_rtsafe COMMAND test_rtsafe)
+
+    add_executable(test_allocfail tests/test_allocfail.c)
+    target_link_libraries(test_allocfail PRIVATE backtrack)
+    target_include_directories(test_allocfail PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(test_allocfail PRIVATE ${BT_WARN})
+    target_link_options(test_allocfail PRIVATE
+      -Wl,--wrap=malloc -Wl,--wrap=calloc -Wl,--wrap=realloc -Wl,--wrap=free)
+    add_test(NAME test_allocfail COMMAND test_allocfail)
   endif()
 endif()
 

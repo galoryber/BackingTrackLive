@@ -225,6 +225,10 @@ hardware.
 - **Concurrency** - a render thread, a UI thread selecting songs and the
   loader thread loading and freeing, all at once, under TSan with
   `halt_on_error`. Removing the drain before a free fails it immediately.
+- **Allocation failure** - `test_allocfail` fails the Nth allocation and
+  sweeps N across every allocation a workload makes, requiring that no error
+  path leaks. Those `if (!p) return BT_ERR_ALLOC;` branches are otherwise
+  never executed, so nobody would know whether their cleanup was right.
 - **Real-time safety** - `test_rtsafe` wraps the allocator at link time and
   asserts that a render performs **zero** allocations. The most common cause of
   a rig glitching on stage is a `malloc` that crept into the audio callback;
@@ -261,9 +265,10 @@ hardware.
 | 4 | MIDI in (footswitch) and out (patch changes) | |
 | 5 | DMX lighting via Art-Net / sACN | |
 
-Known gaps: branch coverage sits at ~70%, concentrated in allocation-failure
-paths that nothing currently exercises; and the device layer has never met a
-real interface.
+Known gap: the device layer has never met a real interface. Enumeration,
+stream open, the callback bridge, underrun counting and device-loss detection
+are written and build on all three platforms, but ASIO and real dropout
+behaviour need hardware.
 
 See [`docs/asio.md`](docs/asio.md) for why the ASIO SDK is not, and will not
 be, committed to this repository.
