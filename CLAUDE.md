@@ -12,6 +12,7 @@ make build          # configure + build only
 make test           # ctest only (assumes built)
 make asan           # build + run tests under ASan/UBSan
 make cov            # coverage report for our own code
+make device         # build the device layer (fetches PortAudio) + enumerate
 make clean
 ```
 
@@ -81,6 +82,9 @@ src/model/           setlist/song/track model + JSON binding
 src/audio/           WAV decode (a fuzz target)
 src/engine/          transport, click synthesis, mixer, routing
 src/player/          set list player: selection, on_end, preload window
+src/device/          PortAudio backend. A SEPARATE library: libbacktrack has
+                     no device dependency, and nothing in tests/ links this.
+tools/btplay.c       CLI: plays a set list through a real device
 src/util/            allocation shims, small helpers
 tools/btrender.c     CLI: setlist.json -> rendered WAV (offline, deterministic)
 tests/               unit + golden-render + rtsafe tests
@@ -103,7 +107,9 @@ examples/setlist/    a runnable example set list
 - [x] Phase 1 — model, JSON, click, mixer, routing, transport (headless)
 - [x] Phase 1.5 — resampling, set list player, preload window
 - [x] Phase 1.6 — WAV / FLAC / MP3 decode
-- [ ] Phase 2 — PortAudio device layer (WASAPI -> ASIO)
+- [~] Phase 2 — PortAudio device layer. Enumeration, open, callback and
+      btplay are written and build on all three platforms; ASIO and real
+      dropout behaviour need the band laptop and its UMC404HD.
 
 ## Shipping
 

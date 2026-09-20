@@ -2,12 +2,16 @@
 BUILD ?= build
 GEN   ?= Ninja
 
-.PHONY: all build check test asan cov fuzz clean format
+.PHONY: all build check test asan cov device fuzz clean format
+
+# The test suite links no device code, so the default build does not fetch or
+# compile PortAudio. `make device` is the one that does.
+DEVICE ?= OFF
 
 all: build
 
 build:
-	cmake -S . -B $(BUILD) -G $(GEN) -DCMAKE_BUILD_TYPE=Debug
+	cmake -S . -B $(BUILD) -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DBT_WITH_DEVICE=$(DEVICE)
 	cmake --build $(BUILD)
 
 test:
@@ -15,13 +19,18 @@ test:
 
 check: build test
 
+device:
+	cmake -S . -B $(BUILD)-dev -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DBT_WITH_DEVICE=ON
+	cmake --build $(BUILD)-dev
+	./$(BUILD)-dev/btplay --list-devices
+
 asan:
-	cmake -S . -B $(BUILD)-asan -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DBT_SANITIZE=ON
+	cmake -S . -B $(BUILD)-asan -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DBT_SANITIZE=ON -DBT_WITH_DEVICE=OFF
 	cmake --build $(BUILD)-asan
 	ctest --test-dir $(BUILD)-asan --output-on-failure
 
 cov:
-	cmake -S . -B $(BUILD)-cov -G $(GEN) -DCMAKE_BUILD_TYPE=Debug \
+	cmake -S . -B $(BUILD)-cov -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DBT_WITH_DEVICE=OFF \
 		-DCMAKE_C_FLAGS="--coverage -O0" -DCMAKE_EXE_LINKER_FLAGS="--coverage"
 	cmake --build $(BUILD)-cov
 	ctest --test-dir $(BUILD)-cov --output-on-failure
@@ -34,4 +43,4 @@ fuzz:
 	cmake --build $(BUILD)-fuzz
 
 clean:
-	rm -rf $(BUILD) $(BUILD)-asan $(BUILD)-fuzz $(BUILD)-cov
+	rm -rf $(BUILD) $(BUILD)-asan $(BUILD)-fuzz $(BUILD)-cov $(BUILD)-dev

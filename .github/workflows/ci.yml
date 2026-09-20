@@ -25,8 +25,10 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # The test suite links no device code at all - that is the whole point of
+      # the headless engine - so PortAudio is not fetched here.
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBT_WERROR=${{ matrix.werror }}
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBT_WERROR=${{ matrix.werror }} -DBT_WITH_DEVICE=OFF
 
       - name: Build
         run: cmake --build build --config Debug
@@ -55,7 +57,7 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBT_SANITIZE=ON
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBT_SANITIZE=ON -DBT_WITH_DEVICE=OFF
       - name: Build
         run: cmake --build build
       - name: Test
@@ -95,7 +97,7 @@ jobs:
         run: pipx install gcovr
       - name: Build instrumented
         run: |
-          cmake -S . -B build-cov -DCMAKE_BUILD_TYPE=Debug \
+          cmake -S . -B build-cov -DCMAKE_BUILD_TYPE=Debug -DBT_WITH_DEVICE=OFF \
             -DCMAKE_C_FLAGS="--coverage -O0" \
             -DCMAKE_EXE_LINKER_FLAGS="--coverage"
           cmake --build build-cov
@@ -116,6 +118,30 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  device:
+    name: device layer (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ ubuntu-latest, macos-latest, windows-latest ]
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: ALSA headers
+        if: runner.os == 'Linux'
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libasound2-dev
+      - name: Configure and build with the device layer
+        run: |
+          cmake -S . -B build-dev -DCMAKE_BUILD_TYPE=Release -DBT_WITH_DEVICE=ON
+          cmake --build build-dev --config Release
+      # Runners have no interface attached, so this cannot make a sound. What
+      # it proves is that enumeration runs and that having no device at all is
+      # handled as a normal outcome rather than a crash - which is also what a
+      # user sees before they plug their interface in.
+      - name: Enumerate devices
+        shell: bash
+        run: ./build-dev/btplay --list-devices || ./build-dev/Release/btplay.exe --list-devices
+
   demo:
     name: end-to-end render
     runs-on: ubuntu-latest
@@ -123,7 +149,7 @@ jobs:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Configure and build
         run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBT_WITH_DEVICE=OFF
           cmake --build build
       - name: Generate demo stems
         run: python3 examples/setlist/make_demo_tracks.py

@@ -85,6 +85,29 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+## Playing through a real device
+
+```bash
+make device                  # builds the device layer (fetches PortAudio)
+./build-dev/btplay --list-devices
+./build-dev/btplay examples/setlist/setlist.json examples/setlist/device.json 0
+```
+
+`device.json`'s `device` field selects the interface by case-insensitive
+substring - `"UMC404HD"` finds it without anyone transcribing the full name -
+and `"default"` means whatever the machine calls default.
+
+The device layer is a **separate library** from `libbacktrack`. The engine has
+no platform or device dependency at all, and nothing in `tests/` links the
+device code; that is what lets every question about timing, mixing and routing
+be answered offline on any machine.
+
+Phase 2 is not finished. Enumeration, opening a stream, the callback bridge,
+underrun counting and device-loss detection are written and build on Windows,
+macOS and Linux, but they have not yet met a real interface. ASIO is still
+behind `-DBT_ENABLE_ASIO=ON` and needs the Steinberg SDK supplied out of band -
+see [`docs/asio.md`](docs/asio.md).
+
 ## Try it
 
 ```bash
@@ -176,7 +199,7 @@ hardware.
 | 1 | Model, JSON, click, mixer, routing, transport | done |
 | 1.5 | Load-time resampling, set list player, preload window | done |
 | 1.6 | WAV / FLAC / MP3 decode | done |
-| 2 | PortAudio device layer (WASAPI, then ASIO) | next |
+| 2 | PortAudio device layer (WASAPI, then ASIO) | builds; needs hardware |
 | 3 | Stage UI (Dear ImGui via cimgui) | |
 | 4 | MIDI in (footswitch) and out (patch changes) | |
 | 5 | DMX lighting via Art-Net / sACN | |

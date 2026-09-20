@@ -11,6 +11,8 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 option(BT_BUILD_TESTS "Build the test suite"        ON)
+option(BT_WITH_DEVICE "Build the audio device layer" ON)
+option(BT_ENABLE_ASIO "Build ASIO support (needs the Steinberg SDK)" OFF)
 option(BT_BUILD_FUZZ  "Build libFuzzer targets"     OFF)
 option(BT_SANITIZE    "Build with ASan + UBSan"     OFF)
 option(BT_WERROR      "Treat warnings as errors"    ON)
@@ -119,4 +121,44 @@ if(BT_BUILD_FUZZ)
     target_compile_options(${f} PRIVATE -fsanitize=fuzzer,address,undefined -g)
     target_link_options(${f}    PRIVATE -fsanitize=fuzzer,address,undefined)
   endforeach()
+endif()
+
+# ---------------------------------------------------------------- device
+#
+# Kept as a SEPARATE target on purpose. libbacktrack has no platform or device
+# dependency at all, which is what lets the entire engine be tested on Linux
+# against a Windows target. Nothing in tests/ links this.
+if(BT_WITH_DEVICE)
+  include(FetchContent)
+
+  # Pinned to a master commit rather than v19.7.0: that release is from 2021
+  # and declares cmake_minimum_required(VERSION 2.8), which CMake 4 refuses
+  # outright. Master requires 3.10 and carries five years of fixes, including
+  # to the Windows backends this project depends on.
+  set(PA_BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+  set(PA_BUILD_TESTS       OFF CACHE BOOL "" FORCE)
+  set(PA_BUILD_EXAMPLES    OFF CACHE BOOL "" FORCE)
+
+  if(BT_ENABLE_ASIO)
+    # The SDK is never in this repository - see docs/asio.md. Supply it out of
+    # band and point ASIOSDK_PATH_HINT at it.
+    set(PA_USE_ASIO ON CACHE BOOL "" FORCE)
+  endif()
+
+  FetchContent_Declare(portaudio
+    GIT_REPOSITORY https://github.com/PortAudio/portaudio.git
+    GIT_TAG        17967f32de95f2179e7f7caa9632a79c5d59a2ea
+    GIT_SHALLOW    OFF
+  )
+  FetchContent_MakeAvailable(portaudio)
+
+  add_library(backtrack_device STATIC src/device/bt_device_pa.c)
+  target_include_directories(backtrack_device
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(backtrack_device PUBLIC backtrack PRIVATE portaudio)
+  target_compile_options(backtrack_device PRIVATE ${BT_WARN})
+
+  add_executable(btplay tools/btplay.c)
+  target_link_libraries(btplay PRIVATE backtrack_device)
+  target_compile_options(btplay PRIVATE ${BT_WARN})
 endif()
