@@ -11,6 +11,7 @@ make check          # configure + build + full test suite. THIS is "green".
 make build          # configure + build only
 make test           # ctest only (assumes built)
 make asan           # build + run tests under ASan/UBSan
+make tsan           # build + run tests under ThreadSanitizer
 make cov            # coverage report for our own code
 make device         # build the device layer (fetches PortAudio) + enumerate
 make clean
@@ -59,6 +60,12 @@ These are enforced by tests. Do not work around a failing rtsafe test.
    `bt_engine_render()`** or anything it calls. All memory is acquired during
    load, on the loader thread. `tests/test_rtsafe.c` wraps `malloc`/`free` and
    asserts zero activity across a render.
+1b. **Never mutate engine state the audio thread reads.** The engine keeps two
+   resolved song slots and publishes the live index with release/acquire;
+   `bt_engine_set_song()` writes the other one. Before freeing any PCM a
+   render could be walking, call `bt_engine_sync()`. `tests/test_concurrency.c`
+   under `make tsan` is what proves this, and it caught the original version
+   of this code doing exactly the wrong thing.
 2. **The sample counter is the only clock.** Never call `time()`,
    `clock_gettime()`, or any wall-clock source for anything musical — click,
    transport, cues, and (later) DMX all derive from `playhead_frames`.

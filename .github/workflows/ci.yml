@@ -88,6 +88,22 @@ jobs:
             ./build-fuzz/$t -max_total_time=60 -print_final_stats=1
           done
 
+  thread-sanitizer:
+    name: tsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # TSan is the only tool that sees the audio thread racing the UI thread,
+      # and that race is invisible almost every run without it.
+      - name: Configure
+        run: cmake -S . -B build-tsan -DCMAKE_BUILD_TYPE=Debug -DBT_TSAN=ON -DBT_WITH_DEVICE=OFF
+      - name: Build
+        run: cmake --build build-tsan
+      - name: Test
+        env:
+          TSAN_OPTIONS: halt_on_error=1:second_deadlock_stack=1
+        run: ctest --test-dir build-tsan --output-on-failure
+
   coverage:
     name: coverage
     runs-on: ubuntu-latest

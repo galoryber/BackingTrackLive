@@ -15,6 +15,7 @@ option(BT_WITH_DEVICE "Build the audio device layer" ON)
 option(BT_ENABLE_ASIO "Build ASIO support (needs the Steinberg SDK)" OFF)
 option(BT_BUILD_FUZZ  "Build libFuzzer targets"     OFF)
 option(BT_SANITIZE    "Build with ASan + UBSan"     OFF)
+option(BT_TSAN        "Build with ThreadSanitizer"  OFF)
 option(BT_WERROR      "Treat warnings as errors"    ON)
 
 # ---------------------------------------------------------------- warnings
@@ -43,6 +44,13 @@ endif()
 if(BT_SANITIZE AND NOT MSVC)
   add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer -g)
   add_link_options(-fsanitize=address,undefined)
+endif()
+
+# TSan is the only tool that reliably sees the audio thread racing the UI
+# thread. It cannot be combined with ASan.
+if(BT_TSAN AND NOT MSVC)
+  add_compile_options(-fsanitize=thread -fno-omit-frame-pointer -g)
+  add_link_options(-fsanitize=thread)
 endif()
 
 # ------------------------------------------------------------------ library
@@ -102,6 +110,18 @@ if(BT_BUILD_TESTS)
     BT_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
   target_compile_definitions(test_write PRIVATE
     BT_EXAMPLE_SETLIST="${CMAKE_CURRENT_SOURCE_DIR}/examples/setlist/setlist.json")
+
+  # Threaded tests need pthreads and are POSIX-only for now; the behaviour
+  # they cover is platform-independent, and Windows CI still runs everything
+  # else.
+  if(NOT WIN32)
+    find_package(Threads REQUIRED)
+    add_executable(test_concurrency tests/test_concurrency.c)
+    target_link_libraries(test_concurrency PRIVATE backtrack Threads::Threads)
+    target_include_directories(test_concurrency PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/tests)
+    target_compile_options(test_concurrency PRIVATE ${BT_WARN})
+    add_test(NAME test_concurrency COMMAND test_concurrency)
+  endif()
 
   # Real-time safety: wraps the allocator and asserts that a render performs
   # no allocation at all. GNU ld / lld only, so not built under MSVC.

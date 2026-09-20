@@ -222,6 +222,9 @@ int main(int argc, char **argv) {
 
     printf("\n\nxruns: %llu\n", (unsigned long long)bt_device_xruns(d));
 
+    /* Stop the stream before tearing down the player: once the device is
+     * closed no callback can be in flight, which is what makes freeing the
+     * songs safe. */
     bt_device_stop(d);
     bt_device_close(d);
     bt_player_destroy(p);

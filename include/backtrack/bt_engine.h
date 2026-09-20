@@ -30,8 +30,21 @@ void   bt_engine_destroy(bt_engine *e);
 
 /* Bind a song (already audio-loaded) and a bus map. Resolves every track's
  * logical bus to physical channels *now*, so render() never does a lookup.
- * Not RT-safe: call from the UI/loader thread while stopped. */
+ *
+ * Safe to call while the audio thread is rendering. The engine keeps two
+ * resolved slots and publishes the live one atomically, so a render either
+ * sees the whole previous song or the whole new one, never a mixture. Not
+ * RT-safe itself - call it from the UI/loader thread. */
 bt_err bt_engine_set_song(bt_engine *e, const bt_song *song, const bt_device_cfg *dev);
+
+/* Blocks until no render is executing, so the audio buffers a previously
+ * bound song owned can be freed. Call it before freeing a song's PCM.
+ *
+ * Needs no configuration and costs nothing when render() is driven from the
+ * calling thread, as it is offline: the in-flight count is provably zero at
+ * that moment. Bounded, so a stalled or vanished stream cannot hang the
+ * caller. */
+void bt_engine_sync(bt_engine *e);
 
 /* ---- Transport. All RT-safe and lock-free. ---------------------------- */
 void     bt_engine_play(bt_engine *e);     /* from the current playhead     */

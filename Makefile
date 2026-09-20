@@ -2,7 +2,7 @@
 BUILD ?= build
 GEN   ?= Ninja
 
-.PHONY: all build check test asan cov device fuzz clean format
+.PHONY: all build check test asan tsan cov device fuzz clean format
 
 # The test suite links no device code, so the default build does not fetch or
 # compile PortAudio. `make device` is the one that does.
@@ -18,6 +18,13 @@ test:
 	ctest --test-dir $(BUILD) --output-on-failure
 
 check: build test
+
+# TSan needs a low-entropy address space; this container's default ASLR
+# settings make it refuse to start, hence setarch -R.
+tsan:
+	cmake -S . -B $(BUILD)-tsan -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DBT_TSAN=ON -DBT_WITH_DEVICE=OFF
+	cmake --build $(BUILD)-tsan
+	setarch $$(uname -m) -R ctest --test-dir $(BUILD)-tsan --output-on-failure
 
 device:
 	cmake -S . -B $(BUILD)-dev -G $(GEN) -DCMAKE_BUILD_TYPE=Debug -DBT_WITH_DEVICE=ON
@@ -43,4 +50,4 @@ fuzz:
 	cmake --build $(BUILD)-fuzz
 
 clean:
-	rm -rf $(BUILD) $(BUILD)-asan $(BUILD)-fuzz $(BUILD)-cov $(BUILD)-dev
+	rm -rf $(BUILD) $(BUILD)-asan $(BUILD)-tsan $(BUILD)-fuzz $(BUILD)-cov $(BUILD)-dev

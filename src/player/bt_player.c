@@ -49,6 +49,10 @@ bt_err bt_player_create(const bt_player_cfg *cfg, bt_setlist *setlist,
 
 void bt_player_destroy(bt_player *p) {
     if (!p) return;
+    /* The caller is expected to have stopped the device first, but draining
+     * here too makes teardown safe rather than merely conventional. */
+    bt_engine_stop(p->eng);
+    bt_engine_sync(p->eng);
     /* Free the audio we loaded, but not the set list - it is borrowed. */
     for (int32_t i = 0; i < p->sl->nsongs; i++) bt_song_free_audio(&p->sl->song[i]);
     bt_engine_destroy(p->eng);
@@ -149,6 +153,9 @@ static bt_err run_preload(bt_player *p, bool *loaded_something) {
             }
             *loaded_something = true;
         } else if (!want && have) {
+            /* Never free PCM a render might still be walking. Costs nothing
+             * offline, where no render is in flight at this moment anyway. */
+            bt_engine_sync(p->eng);
             bt_song_free_audio(s);
         }
     }

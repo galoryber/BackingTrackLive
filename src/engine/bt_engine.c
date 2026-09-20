@@ -18,6 +18,17 @@
 #define M_PI 3.14159265358979323846
 #endif
 
+#if defined(_WIN32)
+  #include <windows.h>
+  static void bt_sleep_100us(void) { Sleep(1); }
+#else
+  #include <time.h>
+  static void bt_sleep_100us(void) {
+      struct timespec ts = { 0, 100000L };   /* 100 us */
+      nanosleep(&ts, NULL);
+  }
+#endif
+
 #if defined(__STDC_NO_ATOMICS__)
   /* Fallback for toolchains without C11 atomics. The only shared scalars are
    * a 64-bit position and two flags, written by one thread and read by one
@@ -26,11 +37,28 @@
   #define _bt_atomic          volatile
   #define bt_load(p)          (*(p))
   #define bt_store(p, v)      (*(p) = (v))
+  #define bt_load_acq(p)      (*(p))
+  #define bt_store_rel(p, v)  (*(p) = (v))
+  #define bt_load_seq(p)      (*(p))
+  #define bt_inc_seq(p)       (++*(p))
+  #define bt_dec_rel(p)       (--*(p))
 #else
   #include <stdatomic.h>
   #define _bt_atomic          _Atomic
   #define bt_load(p)          atomic_load_explicit((p), memory_order_relaxed)
   #define bt_store(p, v)      atomic_store_explicit((p), (v), memory_order_relaxed)
+  /* Publishing a freshly built slot needs release/acquire: relaxed would let
+   * the audio thread observe the new slot index before the slot's contents. */
+  #define bt_load_acq(p)      atomic_load_explicit((p), memory_order_acquire)
+  #define bt_store_rel(p, v)  atomic_store_explicit((p), (v), memory_order_release)
+  /* The in-flight count needs a real read-modify-write, and the increment
+   * needs to be sequentially consistent: a relaxed store would be free to
+   * sink below the acquire-load of `active`, letting sync() observe zero for
+   * a render that has already chosen its slot. That is not theoretical -
+   * ThreadSanitizer catches it on the second song change. */
+  #define bt_load_seq(p)      atomic_load_explicit((p), memory_order_seq_cst)
+  #define bt_inc_seq(p)       atomic_fetch_add_explicit((p), 1, memory_order_seq_cst)
+  #define bt_dec_rel(p)       atomic_fetch_sub_explicit((p), 1, memory_order_release)
 #endif
 
 /* A resolved track: logical names already turned into pointers and channel
@@ -47,20 +75,39 @@ typedef struct {
     bool     active;
 } bt_rtrack;
 
+/* One fully resolved song. The engine keeps two and publishes the index of
+ * the live one atomically, so the audio thread only ever walks a slot that is
+ * completely written. Rewriting the array in place - which is what this used
+ * to do - is a data race against every render in flight, and the kind that
+ * works in testing and crashes on stage. */
+typedef struct {
+    bt_rtrack    trk[BT_MAX_TRACKS];
+    int32_t      ntrk;
+    bt_tempo_map tempo;
+    bt_frame     end_frame;
+    bt_frame     count_in_frame;
+} bt_slot;
+
 struct bt_engine {
     bt_engine_cfg  cfg;
-    bt_tempo_map   tempo;
 
-    bt_rtrack      trk[BT_MAX_TRACKS];
-    int32_t        ntrk;
+    bt_slot        slot[2];
+    _bt_atomic int active;            /* slot index render() walks           */
 
     float         *click_accent;
     float         *click_beat;
     int32_t        click_len;
     bt_click_voice voice;
 
-    bt_frame       end_frame;
-    bt_frame       count_in_frame;
+    /* Number of renders currently executing. bt_engine_sync() drains it.
+     *
+     * A count of in-flight renders, rather than a flag saying "a device is
+     * attached", is the whole trick: when render() is driven from the calling
+     * thread - btrender, every offline test - it is provably zero at the
+     * moment set_song runs, so nothing waits. When a driver thread is calling
+     * it, the count is what set_song actually needs to know. There is no
+     * configuration to get wrong. */
+    _bt_atomic int in_render;
 
     _bt_atomic bt_frame playhead;
     _bt_atomic int      playing;   /* int, not bool: atomic_bool is awkward   */
@@ -142,8 +189,32 @@ bt_err bt_engine_create(const bt_engine_cfg *cfg, bt_engine **out) {
     bt_store(&e->playhead, (bt_frame)0);
     bt_store(&e->playing, 0);
     bt_store(&e->finished, 0);
+    bt_store(&e->in_render, 0);
+    bt_store_rel(&e->active, 0);
     *out = e;
     return BT_OK;
+}
+
+/* Waits until no render is executing, so the slot a render might have been
+ * reading - and the PCM that slot points at - can be rewritten or freed.
+ *
+ * Once this returns, any render that starts will acquire the currently
+ * published slot, so the other slot is nobody's. */
+void bt_engine_sync(bt_engine *e) {
+    if (!e) return;
+
+    /* Bounded so a stalled or vanished stream cannot hang the UI thread. The
+     * bound is a safety net, not the expected path: draining takes at most
+     * one callback. */
+    double block_ms = 1000.0 * (double)e->cfg.max_block_frames
+                             / (double)e->cfg.sample_rate;
+    int budget_100us = (int)(block_ms * 40.0) + 200;
+    if (budget_100us > 5000) budget_100us = 5000;      /* 500 ms ceiling */
+
+    for (int i = 0; i < budget_100us; i++) {
+        if (bt_load_seq(&e->in_render) == 0) return;
+        bt_sleep_100us();
+    }
 }
 
 void bt_engine_destroy(bt_engine *e) {
@@ -161,13 +232,19 @@ bt_err bt_engine_set_song(bt_engine *e, const bt_song *song, const bt_device_cfg
     bt_store(&e->finished, 0);
     bt_store(&e->playhead, (bt_frame)0);
 
-    memset(e->trk, 0, sizeof(e->trk));
-    e->ntrk  = 0;
-    e->tempo = song->tempo;
+    /* Build into the slot render() is NOT walking. Waiting first is what
+     * guarantees no render is still inside it from the previous swap. */
+    const int cur = bt_load(&e->active);
+    const int nxt = 1 - cur;
+    bt_engine_sync(e);
+
+    bt_slot *sl = &e->slot[nxt];
+    memset(sl, 0, sizeof(*sl));
+    sl->tempo = song->tempo;
 
     for (int32_t i = 0; i < song->ntracks; i++) {
         const bt_track *t = &song->track[i];
-        bt_rtrack      *r = &e->trk[e->ntrk];
+        bt_rtrack      *r = &sl->trk[sl->ntrk];
 
         /* Resolve the logical bus now. A set list that names a bus this
          * machine does not have is a configuration error worth surfacing at
@@ -191,14 +268,17 @@ bt_err bt_engine_set_song(bt_engine *e, const bt_song *song, const bt_device_cfg
             r->frames   = t->frames;
         }
         r->active = true;
-        e->ntrk++;
+        sl->ntrk++;
     }
 
-    e->end_frame = bt_song_length(song, e->cfg.sample_rate);
+    sl->end_frame = bt_song_length(song, e->cfg.sample_rate);
 
     int64_t beats_in = (int64_t)song->count_in_bars * (int64_t)song->tempo.sig_num;
-    e->count_in_frame = bt_tempo_beat_frame(&e->tempo, -beats_in, e->cfg.sample_rate);
+    sl->count_in_frame = bt_tempo_beat_frame(&sl->tempo, -beats_in, e->cfg.sample_rate);
 
+    /* Publish. Release pairs with the acquire in render(), so a thread that
+     * sees the new index is guaranteed to see the fully written slot. */
+    bt_store_rel(&e->active, nxt);
     return BT_OK;
 }
 
@@ -230,7 +310,7 @@ void bt_engine_seek(bt_engine *e, bt_frame f) {
 
 void bt_engine_start_with_count_in(bt_engine *e) {
     if (!e) return;
-    bt_store(&e->playhead, e->count_in_frame);
+    bt_store(&e->playhead, e->slot[bt_load_acq(&e->active)].count_in_frame);
     bt_store(&e->finished, 0);
     bt_store(&e->playing, 1);
 }
@@ -278,7 +358,8 @@ static void render_audio(const bt_rtrack *r, float *const *out,
     }
 }
 
-static void render_click(const bt_engine *e, const bt_rtrack *r,
+static void render_click(const bt_engine *e, const bt_slot *sl,
+                         const bt_rtrack *r,
                          float *const *out, bt_frame ph, int32_t n) {
     const int32_t clen = e->click_len;
 
@@ -286,11 +367,11 @@ static void render_click(const bt_engine *e, const bt_rtrack *r,
      * frames ago is still sounding, so the search starts behind the playhead.
      * Handling the tail this way means the click needs no voice state, which
      * is what keeps render() free of anything that has to be reset on seek. */
-    int64_t b0 = bt_tempo_frame_beat(&e->tempo, ph - clen, e->cfg.sample_rate);
-    int64_t b1 = bt_tempo_frame_beat(&e->tempo, ph + n,    e->cfg.sample_rate) + 1;
+    int64_t b0 = bt_tempo_frame_beat(&sl->tempo, ph - clen, e->cfg.sample_rate);
+    int64_t b1 = bt_tempo_frame_beat(&sl->tempo, ph + n,    e->cfg.sample_rate) + 1;
 
     for (int64_t b = b0; b <= b1; b++) {
-        bt_frame bf = bt_tempo_beat_frame(&e->tempo, b, e->cfg.sample_rate);
+        bt_frame bf = bt_tempo_beat_frame(&sl->tempo, b, e->cfg.sample_rate);
 
         bt_frame start = bf - ph;             /* offset of the burst in block */
         int32_t  lo    = (start > 0) ? (int32_t)start : 0;
@@ -303,7 +384,7 @@ static void render_click(const bt_engine *e, const bt_rtrack *r,
         if (len > n - lo) len = n - lo;
         if (len <= 0) continue;
 
-        const float *src = bt_tempo_is_downbeat(&e->tempo, b)
+        const float *src = bt_tempo_is_downbeat(&sl->tempo, b)
                          ? e->click_accent : e->click_beat;
 
         if (r->nch >= 1) {
@@ -319,24 +400,35 @@ void bt_engine_render(bt_engine *e, float *const *out, int32_t nframes) {
     for (int32_t c = 0; c < e->cfg.out_channels; c++)
         memset(out[c], 0, (size_t)nframes * sizeof(float));
 
-    if (bt_load(&e->playing) == 0) return;
+    /* Announce before choosing a slot, so bt_engine_sync() cannot miss us. */
+    bt_inc_seq(&e->in_render);
 
-    const bt_frame ph = bt_load(&e->playhead);
+    /* Read the slot index exactly once. Re-reading it mid-block could mix the
+     * first half of one song with the second half of another. */
+    const bt_slot *sl = &e->slot[bt_load_acq(&e->active)];
 
-    for (int32_t i = 0; i < e->ntrk; i++) {
-        const bt_rtrack *r = &e->trk[i];
-        if (!r->active || r->gain == 0.0f) continue;
-        if (r->is_click) render_click(e, r, out, ph, nframes);
-        else             render_audio(r, out, ph, nframes);
+    if (bt_load(&e->playing) != 0) {
+        const bt_frame ph = bt_load(&e->playhead);
+
+        for (int32_t i = 0; i < sl->ntrk; i++) {
+            const bt_rtrack *r = &sl->trk[i];
+            if (!r->active || r->gain == 0.0f) continue;
+            if (r->is_click) render_click(e, sl, r, out, ph, nframes);
+            else             render_audio(r, out, ph, nframes);
+        }
+
+        const bt_frame next = ph + nframes;
+        bt_store(&e->playhead, next);
+
+        /* End of song: stop on the sample, and let the UI thread decide what
+         * on_end means. The engine never loads anything itself. */
+        if (next >= sl->end_frame) {
+            bt_store(&e->playing, 0);
+            bt_store(&e->finished, 1);
+        }
     }
 
-    const bt_frame next = ph + nframes;
-    bt_store(&e->playhead, next);
-
-    /* End of song: stop on the sample, and let the UI thread decide what
-     * on_end means. The engine never loads anything itself. */
-    if (next >= e->end_frame) {
-        bt_store(&e->playing, 0);
-        bt_store(&e->finished, 1);
-    }
+    /* Released last: a thread that sees the count reach zero knows the whole
+     * block above is finished with `sl`. */
+    bt_dec_rel(&e->in_render);
 }
