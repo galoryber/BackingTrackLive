@@ -55,6 +55,7 @@ add_library(backtrack STATIC
   src/audio/bt_dr_impl.c
   src/model/bt_model.c
   src/model/bt_model_json.c
+  src/model/bt_model_write.c
   src/engine/bt_engine.c
   src/player/bt_player.c
 )
@@ -88,7 +89,7 @@ target_compile_options(btrender PRIVATE ${BT_WARN})
 if(BT_BUILD_TESTS)
   enable_testing()
 
-  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden test_resample test_player test_audio test_soak)
+  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden test_resample test_player test_audio test_soak test_write)
   foreach(t ${BT_TESTS})
     add_executable(${t} tests/${t}.c)
     target_link_libraries(${t} PRIVATE backtrack)
@@ -99,6 +100,8 @@ if(BT_BUILD_TESTS)
 
   target_compile_definitions(test_audio PRIVATE
     BT_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures")
+  target_compile_definitions(test_write PRIVATE
+    BT_EXAMPLE_SETLIST="${CMAKE_CURRENT_SOURCE_DIR}/examples/setlist/setlist.json")
 
   # Real-time safety: wraps the allocator and asserts that a render performs
   # no allocation at all. GNU ld / lld only, so not built under MSVC.

@@ -78,7 +78,7 @@ These are enforced by tests. Do not work around a failing rtsafe test.
 ```
 include/backtrack/   public C API (the library's contract)
 src/json/            minimal strict JSON parser (a fuzz target)
-src/model/           setlist/song/track model + JSON binding
+src/model/           setlist/song/track model, JSON read and write
 src/audio/           WAV decode (a fuzz target)
 src/engine/          transport, click synthesis, mixer, routing
 src/player/          set list player: selection, on_end, preload window
@@ -107,6 +107,7 @@ examples/setlist/    a runnable example set list
 - [x] Phase 1 — model, JSON, click, mixer, routing, transport (headless)
 - [x] Phase 1.5 — resampling, set list player, preload window
 - [x] Phase 1.6 — WAV / FLAC / MP3 decode
+- [x] Phase 1.7 — set list / device.json writing (lossless, byte-stable)
 - [~] Phase 2 — PortAudio device layer. Enumeration, open, callback and
       btplay are written and build on all three platforms; ASIO and real
       dropout behaviour need the band laptop and its UMC404HD.

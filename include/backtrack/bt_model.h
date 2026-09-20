@@ -119,6 +119,25 @@ bt_err bt_device_cfg_load_file(const char *path, bt_device_cfg *out, int *err_li
 bt_err bt_device_cfg_load_mem (const char *text, size_t len, bt_device_cfg *out, int *err_line);
 void   bt_device_cfg_defaults(bt_device_cfg *cfg);
 
+/* ---------------------------------------------------------------------------
+ * Saving
+ *
+ * Serialisation is exact: numbers are emitted at the shortest precision that
+ * parses back to the identical value, so load -> save -> load is lossless and
+ * saving twice produces byte-identical output. A set list is a text file the
+ * user may also edit by hand and keep in git; gratuitous churn in a diff is a
+ * defect.
+ *
+ * The *_to_json forms allocate; the caller frees. The *_save_file forms write
+ * to a temporary alongside the target and rename over it, so an interrupted
+ * save cannot leave a half-written set list where a working one used to be.
+ * ------------------------------------------------------------------------ */
+bt_err bt_setlist_to_json  (const bt_setlist *sl, char **out, size_t *len);
+bt_err bt_setlist_save_file(const bt_setlist *sl, const char *path);
+
+bt_err bt_device_cfg_to_json  (const bt_device_cfg *cfg, char **out, size_t *len);
+bt_err bt_device_cfg_save_file(const bt_device_cfg *cfg, const char *path);
+
 const bt_bus *bt_device_find_bus(const bt_device_cfg *cfg, const char *name);
 
 /* Decode every audio stem of `song` into RAM. Off the RT thread. */

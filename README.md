@@ -164,6 +164,13 @@ To render the whole set list as one continuous file, following each song's
 `device.json` is machine-local and gitignored - see
 `examples/setlist/device.example.json`.
 
+Both files can be written as well as read (`bt_setlist_save_file`,
+`bt_device_cfg_save_file`). Saves go to a temporary alongside the target and
+are renamed over it, so an interrupted save cannot leave a half-written set
+list where a working one used to be. Numbers are emitted at the shortest
+precision that parses back exactly, so a 156.37 BPM stays `156.37` rather than
+becoming `156.36999999999999`.
+
 ## Testing
 
 The test suite runs headless on Linux, macOS and Windows and needs no audio
@@ -184,6 +191,10 @@ hardware.
   an exact inverse of `beat_frame`.
 - **Decoding** - FLAC is asserted to decode *bit-identically* to a WAV holding
   the same 16-bit samples, so losslessness is verified rather than claimed.
+- **Serialisation** - load, save and load again must return the identical
+  model, and saving an unchanged set list must produce byte-identical text.
+  The second property is what keeps a set list you keep in git from churning
+  its diff every time it is opened.
 - **Resampling** - the filter is *measured*, not assumed: passband flatness,
   stopband rejection, alias suppression and round-trip residual. See
   [`docs/resampling.md`](docs/resampling.md) for the numbers.
@@ -199,6 +210,7 @@ hardware.
 | 1 | Model, JSON, click, mixer, routing, transport | done |
 | 1.5 | Load-time resampling, set list player, preload window | done |
 | 1.6 | WAV / FLAC / MP3 decode | done |
+| 1.7 | Set list / device.json writing | done |
 | 2 | PortAudio device layer (WASAPI, then ASIO) | builds; needs hardware |
 | 3 | Stage UI (Dear ImGui via cimgui) | |
 | 4 | MIDI in (footswitch) and out (patch changes) | |
