@@ -134,6 +134,38 @@ To render the whole set list as one continuous file, following each song's
 ./build/btrender examples/setlist/setlist.json examples/setlist/device.json --set set.wav
 ```
 
+## Checking a set list before the gig
+
+```bash
+./build/btcheck setlist.json device.json
+```
+
+`btrender` and `btplay` stop at the first problem, one song at a time.
+`btcheck` decodes every stem once and reports everything wrong in a single
+pass, then exits non-zero if anything would actually stop the set playing:
+
+```
+Gig Night - 3 song(s), 7 track(s)
+
+  error   song 2 (Real Song) track 1 (Keys): routes to bus "monitor3", which
+          device.json does not define
+  error   song 2 (Real Song) track 1 (Keys): missing.wav: file could not be read
+  warning song 2 (Real Song) track 2 (Vox): silent.wav is entirely silent - wrong file?
+  warning song 2 (Real Song) track 3 (Lead): hot.wav peaks at full scale and may
+          already be clipped
+  warning song 2 (Real Song): no click track - was that intended?
+  warning song 3 (Closer): on_end is "next" but this is the last song; it will stop
+
+  set length      0m 08s of audio (longest song 0m 03s)
+  preload peak    1.3 MB   (current + next song)
+  whole set       1.8 MB   if every song were held at once
+```
+
+Errors are things that will fail. Warnings are things that are probably not
+what anyone meant - a set list full of warnings still plays. The preload peak
+is the largest *adjacent pair* of songs, because that is what the window
+actually holds.
+
 ## Set list format
 
 ```json
@@ -223,6 +255,7 @@ hardware.
 | 1.6 | WAV / FLAC / MP3 decode | done |
 | 1.7 | Set list / device.json writing | done |
 | 1.8 | Background loader thread | done |
+| 1.9 | Set list checker (`btcheck`) | done |
 | 2 | PortAudio device layer (WASAPI, then ASIO) | builds; needs hardware |
 | 3 | Stage UI (Dear ImGui via cimgui) | |
 | 4 | MIDI in (footswitch) and out (patch changes) | |

@@ -175,6 +175,8 @@ jobs:
           ./build/btrender examples/setlist/setlist.json examples/setlist/device.json 0 /tmp/demo0.wav
           ./build/btrender examples/setlist/setlist.json examples/setlist/device.json 1 /tmp/demo1.wav
           ./build/btrender examples/setlist/setlist.json examples/setlist/device.json --set /tmp/demo-set.wav
+      - name: Check the example set list
+        run: ./build/btcheck examples/setlist/setlist.json examples/setlist/device.json
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: demo-renders

@@ -65,6 +65,7 @@ add_library(backtrack STATIC
   src/model/bt_model.c
   src/model/bt_model_json.c
   src/model/bt_model_write.c
+  src/model/bt_validate.c
   src/engine/bt_engine.c
   src/player/bt_player.c
   src/player/bt_loader.c
@@ -99,11 +100,15 @@ add_executable(btrender tools/btrender.c)
 target_link_libraries(btrender PRIVATE backtrack)
 target_compile_options(btrender PRIVATE ${BT_WARN})
 
+add_executable(btcheck tools/btcheck.c)
+target_link_libraries(btcheck PRIVATE backtrack)
+target_compile_options(btcheck PRIVATE ${BT_WARN})
+
 # ------------------------------------------------------------------- tests
 if(BT_BUILD_TESTS)
   enable_testing()
 
-  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden test_resample test_player test_audio test_soak test_write)
+  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden test_resample test_player test_audio test_soak test_write test_validate)
   foreach(t ${BT_TESTS})
     add_executable(${t} tests/${t}.c)
     target_link_libraries(${t} PRIVATE backtrack)

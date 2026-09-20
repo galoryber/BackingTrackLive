@@ -99,6 +99,7 @@ src/device/          PortAudio backend. A SEPARATE library: libbacktrack has
 tools/btplay.c       CLI: plays a set list through a real device
 src/util/            error strings, portable thread/mutex/condvar shim
 tools/btrender.c     CLI: setlist.json -> rendered WAV (offline, deterministic)
+tools/btcheck.c      CLI: validate a set list, report every problem at once
 tests/               unit + golden-render + rtsafe tests
 fuzz/                libFuzzer targets for the parsers
 examples/setlist/    a runnable example set list
@@ -121,6 +122,7 @@ examples/setlist/    a runnable example set list
 - [x] Phase 1.6 — WAV / FLAC / MP3 decode
 - [x] Phase 1.7 — set list / device.json writing (lossless, byte-stable)
 - [x] Phase 1.8 — background loader thread; loading never blocks the UI
+- [x] Phase 1.9 — set list checker (btcheck)
 - [~] Phase 2 — PortAudio device layer. Enumeration, open, callback and
       btplay are written and build on all three platforms; ASIO and real
       dropout behaviour need the band laptop and its UMC404HD.
