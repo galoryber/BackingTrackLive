@@ -41,3 +41,34 @@ send to outputs 3/4 depends on. Plan to support both and let the machine's
 ASIO exposes exactly one device at a time; there is no aggregation on Windows
 the way CoreAudio offers on macOS. The routing model assumes one multi-channel
 interface, and this is a constraint to design around rather than work around.
+
+## Distributing a build that actually works on our rig
+
+This is a real tension worth stating plainly rather than discovering later.
+
+Public CI cannot build ASIO support, because the SDK cannot live in this
+repository. So the binaries attached to a public Release are WASAPI-only.
+
+And WASAPI is not sufficient for the interface this project is being built
+against. Windows presents the Behringer UMC404HD to WASAPI as **two separate
+stereo endpoints** (1/2 and 3/4) rather than one four-channel device. Two
+endpoints means two clocks, and two clocks means the click drifts against the
+backing track over the length of a song. The routing model deliberately assumes
+a single device, because aggregating devices is exactly where sync goes to die.
+
+So for a four-output interface, ASIO is not an optimisation - it is the only
+path that works.
+
+The way out, once the Steinberg agreement is signed:
+
+- A separate, manually-triggered workflow fetches the SDK from a private
+  location - a URL held in a repository secret - builds with
+  `-DBT_ENABLE_ASIO=ON`, and leaves the result as a **run artifact only**.
+- That artifact is never attached to a public Release, and the SDK never enters
+  the repository, a public artifact, or the git history.
+- The public Release stays WASAPI-only and is honest about it: fine for a
+  single-device interface, not sufficient for separate click routing on a
+  UMC404HD.
+
+That workflow lands with Phase 2, when there is ASIO code for it to build.
+Building the machinery before the code exists would only rot.

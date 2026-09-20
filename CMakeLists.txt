@@ -16,6 +16,13 @@ option(BT_SANITIZE    "Build with ASan + UBSan"     OFF)
 option(BT_WERROR      "Treat warnings as errors"    ON)
 
 # ---------------------------------------------------------------- warnings
+# Link the CRT statically on MSVC so a release .exe runs on a laptop with no
+# Visual C++ redistributable installed. The whole point of shipping a binary is
+# that the target machine needs nothing.
+if(MSVC)
+  set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
+
 if(MSVC)
   set(BT_WARN /W4)
   if(BT_WERROR)

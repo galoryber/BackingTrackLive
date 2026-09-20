@@ -45,7 +45,27 @@ time signature and the offset of its first downbeat, taken from wherever you
 bought the stems. Collapsing the hardest problem in this domain into three
 metadata fields is the single reason this project is tractable.
 
-## Build
+## Getting a build
+
+You do not need a compiler. CI builds Windows, macOS and Linux binaries on
+every push:
+
+- **Latest build** - the Actions tab, open the most recent green `ci` run, and
+  download the `btrender-windows-latest` artifact. Kept 30 days.
+- **Tagged release** - push a `v*` tag and the `release` workflow publishes
+  packaged builds to GitHub Releases.
+
+Windows binaries link the C runtime statically, so the target machine needs no
+Visual C++ redistributable - unzip and run.
+
+One caveat worth reading before trusting a public build on stage: released
+binaries are **WASAPI-only**, because the ASIO SDK cannot be committed to this
+repository. Windows presents a four-output interface such as the UMC404HD to
+WASAPI as two separate stereo devices, which means two clocks and a click that
+drifts against the tracks. Separate click routing needs ASIO. See
+[`docs/asio.md`](docs/asio.md) for how that build gets produced.
+
+## Build from source
 
 Requires CMake 3.16+ and a C11 compiler.
 

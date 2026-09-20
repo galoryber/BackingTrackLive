@@ -1,0 +1,95 @@
+name: release
+
+# Produces runnable binaries so that no machine except this runner ever needs
+# a compiler: not the band laptop, not a dev laptop, not anyone's.
+#
+#   push a tag v*      -> builds all three platforms and publishes a Release
+#   run manually       -> builds all three and leaves downloadable artifacts
+#
+# Windows binaries link the CRT statically, so the target machine needs no
+# Visual C++ redistributable.
+
+on:
+  push:
+    tags: [ 'v*' ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            name: windows-x64
+          - os: macos-latest
+            name: macos-arm64
+          - os: ubuntu-latest
+            name: linux-x64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DBT_BUILD_TESTS=ON
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      # A binary nobody has tested is not a release.
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
+      - name: Stage package (POSIX)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p stage/examples
+          cp build/btrender stage/
+          cp README.md LICENSE NOTICE stage/
+          cp -r examples/setlist stage/examples/
+          cp docs/asio.md docs/resampling.md stage/ 2>/dev/null || true
+          tar -czf backingtracklive-${{ matrix.name }}.tar.gz -C stage .
+
+      - name: Stage package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path stage/examples | Out-Null
+          Copy-Item build/Release/btrender.exe stage/
+          Copy-Item README.md,LICENSE,NOTICE stage/
+          Copy-Item -Recurse examples/setlist stage/examples/
+          Copy-Item docs/asio.md,docs/resampling.md stage/
+          Compress-Archive -Path stage/* -DestinationPath backingtracklive-${{ matrix.name }}.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: backingtracklive-${{ matrix.name }}
+          path: |
+            backingtracklive-${{ matrix.name }}.zip
+            backingtracklive-${{ matrix.name }}.tar.gz
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    name: publish release
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          find dist -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print
+          gh release create "${GITHUB_REF_NAME}" \
+            --title "${GITHUB_REF_NAME}" \
+            --generate-notes \
+            $(find dist -type f \( -name '*.zip' -o -name '*.tar.gz' \))
