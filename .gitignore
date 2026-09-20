@@ -1,0 +1,33 @@
+# Build
+build/
+out/
+*.o
+*.a
+*.so
+*.dylib
+*.exe
+*.pdb
+compile_commands.json
+.cache/
+
+# Machine-local device routing (NEVER commit - differs per laptop/interface)
+device.json
+**/device.json
+
+# Vendored SDK that cannot be redistributed (see docs/asio.md)
+third_party/asiosdk/
+
+# Test + render artifacts
+*.wav.actual
+tests/golden/*.actual
+fuzz/corpus/
+fuzz/crashes/
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Generated demo stems (regenerate with examples/setlist/make_demo_tracks.py)
+examples/setlist/tracks/

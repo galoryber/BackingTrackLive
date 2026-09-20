@@ -1,0 +1,79 @@
+# BackingTrackLive — working notes for Claude
+
+Multi-track backing-track player for live bands. A **player**, not a DAW: fixed
+files, fixed routing, fixed set order. Windows is the primary target; macOS and
+Linux are supported build targets.
+
+## Build & test
+
+```bash
+make check          # configure + build + full test suite. THIS is "green".
+make build          # configure + build only
+make test           # ctest only (assumes built)
+make asan           # build + run tests under ASan/UBSan
+make clean
+```
+
+CMake directly, if needed:
+```bash
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
+cmake --build build
+ctest --test-dir build --output-on-failure
+```
+
+`cmake`/`ninja` are installed via pip into `~/.local/bin` in this dev container;
+ensure it is on `PATH`.
+
+## Non-negotiable rules
+
+These are enforced by tests. Do not work around a failing rtsafe test.
+
+1. **No allocation, locks, file I/O, logging, or syscalls inside
+   `bt_engine_render()`** or anything it calls. All memory is acquired during
+   load, on the loader thread. `tests/test_rtsafe.c` wraps `malloc`/`free` and
+   asserts zero activity across a render.
+2. **The sample counter is the only clock.** Never call `time()`,
+   `clock_gettime()`, or any wall-clock source for anything musical — click,
+   transport, cues, and (later) DMX all derive from `playhead_frames`.
+3. **Beat positions are computed from the beat index, never accumulated.**
+   `frame = downbeat + llround(beat * 60.0 / bpm * sr)`. Accumulating a
+   per-beat delta drifts audibly over a 3-hour set.
+4. **Resample at load, never in the callback.**
+5. **Paths in `setlist.json` are relative to the setlist file.** The setlist
+   folder must be copyable to the backup laptop as a self-contained unit.
+6. **Never commit `device.json`.** Bus→channel mapping is machine-local.
+   `setlist.json` refers only to logical bus names (`inear`, `foh`, ...).
+7. **Never commit the ASIO SDK.** It is not redistributable. See `docs/asio.md`.
+
+## Layout
+
+```
+include/backtrack/   public C API (the library's contract)
+src/json/            minimal strict JSON parser (a fuzz target)
+src/model/           setlist/song/track model + JSON binding
+src/audio/           WAV decode (a fuzz target)
+src/engine/          transport, click synthesis, mixer, routing
+src/util/            allocation shims, small helpers
+tools/btrender.c     CLI: setlist.json -> rendered WAV (offline, deterministic)
+tests/               unit + golden-render + rtsafe tests
+fuzz/                libFuzzer targets for the parsers
+examples/setlist/    a runnable example set list
+```
+
+## Conventions
+
+- C11. `bt_` prefix on everything public. Opaque structs where practical.
+- Errors: return `bt_err` (see `bt_error.h`); never `exit()` in the library.
+- Everything in `libbacktrack` is free of platform and device dependencies —
+  it is pure computation over buffers, which is what makes it testable on Linux
+  against a Windows target.
+- Tests are deterministic. Golden renders compare against committed hashes.
+
+## Phase status
+
+- [x] Phase 0 — repo, build, CI, test harness
+- [x] Phase 1 — model, JSON, click, mixer, routing, transport (headless)
+- [ ] Phase 2 — PortAudio device layer (WASAPI -> ASIO), libsamplerate
+- [ ] Phase 3 — cimgui stage UI
+- [ ] Phase 4 — MIDI in (footswitch) / MIDI out (patch changes)
+- [ ] Phase 5 — DMX via Art-Net / sACN

@@ -1,0 +1,15 @@
+{
+  "_comment": [
+    "Copy this to device.json next to setlist.json and edit it for THIS machine.",
+    "device.json is gitignored on purpose: the gig laptop and the backup laptop",
+    "have different interfaces, and the set list must stay portable between them.",
+    "Buses are named here; setlist.json only ever refers to the names."
+  ],
+  "device": "default",
+  "sample_rate": 48000,
+  "buffer_frames": 512,
+  "buses": [
+    { "name": "foh",   "channels": [0, 1] },
+    { "name": "inear", "channels": [2, 3] }
+  ]
+}

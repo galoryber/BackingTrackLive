@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(cmake:*)",
+      "Bash(ctest:*)",
+      "Bash(ninja:*)",
+      "Bash(make:*)",
+      "Bash(gcc:*)",
+      "Bash(clang:*)",
+      "Bash(./build/*)",
+      "Bash(./build-asan/*)",
+      "Bash(./build-fuzz/*)",
+      "Bash(git status:*)",
+      "Bash(git diff:*)",
+      "Bash(git log:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(python3 examples/setlist/make_demo_tracks.py)"
+    ]
+  }
+}

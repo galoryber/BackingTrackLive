@@ -1,0 +1,93 @@
+name: ci
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            werror: "ON"
+          - os: macos-latest
+            werror: "ON"
+          # MSVC's /W4 set differs enough from GCC's that -Werror there needs a
+          # triage pass on real Windows output first. Tighten to ON once done.
+          - os: windows-latest
+            werror: "OFF"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBT_WERROR=${{ matrix.werror }}
+
+      - name: Build
+        run: cmake --build build --config Debug
+
+      - name: Test
+        run: ctest --test-dir build --build-config Debug --output-on-failure
+
+  sanitizers:
+    name: asan + ubsan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBT_SANITIZE=ON
+      - name: Build
+        run: cmake --build build
+      - name: Test
+        env:
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+          ASAN_OPTIONS: detect_leaks=1
+        run: ctest --test-dir build --output-on-failure
+
+  fuzz:
+    name: fuzz smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install clang
+        run: sudo apt-get update && sudo apt-get install -y clang
+      - name: Build fuzz targets
+        run: |
+          cmake -S . -B build-fuzz -DCMAKE_BUILD_TYPE=Debug \
+            -DBT_BUILD_FUZZ=ON -DBT_BUILD_TESTS=OFF \
+            -DCMAKE_C_COMPILER=clang
+          cmake --build build-fuzz
+      # A short run on every push is a regression gate, not a fuzzing campaign.
+      # Long campaigns belong in a scheduled job with a persisted corpus.
+      - name: Run
+        run: |
+          for t in fuzz_json fuzz_wav fuzz_setlist; do
+            echo "== $t"
+            ./build-fuzz/$t -max_total_time=60 -print_final_stats=1
+          done
+
+  demo:
+    name: end-to-end render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure and build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Generate demo stems
+        run: python3 examples/setlist/make_demo_tracks.py
+      - name: Render both demo songs
+        run: |
+          cp examples/setlist/device.example.json examples/setlist/device.json
+          ./build/btrender examples/setlist/setlist.json examples/setlist/device.json 0 /tmp/demo0.wav
+          ./build/btrender examples/setlist/setlist.json examples/setlist/device.json 1 /tmp/demo1.wav
+      - uses: actions/upload-artifact@v4
+        with:
+          name: demo-renders
+          path: /tmp/demo*.wav

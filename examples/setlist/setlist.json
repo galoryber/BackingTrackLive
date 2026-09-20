@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "name": "Set List #1",
+  "songs": [
+    {
+      "title": "Demo One",
+      "artist": "BackingTrackLive",
+      "tempo": { "bpm": 120.0, "sig": [4, 4], "downbeat_ms": 0 },
+      "count_in_bars": 1,
+      "on_end": "next",
+      "tracks": [
+        { "name": "Click", "type": "click", "bus": "inear" },
+        { "name": "Cues",  "type": "audio", "bus": "inear",
+          "file": "tracks/demo-one/cues.wav", "gain_db": -6.0 },
+        { "name": "Synth", "type": "audio", "bus": "foh",
+          "file": "tracks/demo-one/synth.wav", "gain_db": -2.0, "offset_ms": 0 },
+        { "name": "Bass",  "type": "audio", "bus": "foh",
+          "file": "tracks/demo-one/bass.wav",  "gain_db": 0.0,  "offset_ms": -12 }
+      ]
+    },
+    {
+      "title": "Demo Two",
+      "artist": "BackingTrackLive",
+      "tempo": { "map": [ { "beat": 0, "bpm": 96.0 },
+                          { "beat": 8, "bpm": 132.0 } ],
+                 "sig": [4, 4], "downbeat_ms": 250 },
+      "count_in_bars": 2,
+      "on_end": "stop",
+      "tracks": [
+        { "name": "Click", "type": "click", "bus": "inear" },
+        { "name": "Pad",   "type": "audio", "bus": "foh",
+          "file": "tracks/demo-two/pad.wav", "gain_db": -4.0 }
+      ]
+    }
+  ]
+}
