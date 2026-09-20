@@ -4,6 +4,7 @@
  */
 #include "backtrack/bt_model.h"
 #include "backtrack/bt_wav.h"
+#include "backtrack/bt_resample.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -134,18 +135,26 @@ bt_err bt_song_load_audio(bt_song *song, const char *dir, int32_t sample_rate) {
         bt_err e = bt_wav_read_file(path, &w);
         if (e != BT_OK) { bt_song_free_audio(song); return e; }
 
-        /* Phase 2 replaces this with a load-time libsamplerate conversion.
-         * Until then, refuse rather than silently degrade: a resampler that
-         * is "good enough for now" is exactly the kind of thing that ships. */
-        if (w.sample_rate != sample_rate) {
-            bt_wav_free(&w);
-            bt_song_free_audio(song);
-            return BT_ERR_RATE;
-        }
+        /* Stems arrive at whatever rate they were sold at - 44.1k and 48k in
+         * the same set list is the normal case, not the exception. Convert
+         * here, once, on the loader thread. Never in the callback. */
+        const int32_t ch = w.channels;   /* bt_wav_free clears the struct */
 
-        t->pcm      = w.pcm;
-        t->channels = w.channels;
-        t->frames   = w.frames;
+        if (w.sample_rate != sample_rate) {
+            float  **rs = NULL;
+            bt_frame rn = 0;
+            e = bt_resample_planar((const float *const *)w.pcm, ch,
+                                   w.frames, w.sample_rate, sample_rate,
+                                   &rs, &rn);
+            bt_wav_free(&w);
+            if (e != BT_OK) { bt_song_free_audio(song); return e; }
+            t->pcm    = rs;
+            t->frames = rn;
+        } else {
+            t->pcm    = w.pcm;
+            t->frames = w.frames;
+        }
+        t->channels = ch;
     }
     return BT_OK;
 }

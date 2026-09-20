@@ -38,7 +38,8 @@ These are enforced by tests. Do not work around a failing rtsafe test.
 3. **Beat positions are computed from the beat index, never accumulated.**
    `frame = downbeat + llround(beat * 60.0 / bpm * sr)`. Accumulating a
    per-beat delta drifts audibly over a 3-hour set.
-4. **Resample at load, never in the callback.**
+4. **Resample at load, never in the callback.** `bt_resample_planar()`
+   runs in `bt_song_load_audio()`; see `docs/resampling.md`.
 5. **Paths in `setlist.json` are relative to the setlist file.** The setlist
    folder must be copyable to the backup laptop as a self-contained unit.
 6. **Never commit `device.json`.** Bus→channel mapping is machine-local.
@@ -73,7 +74,7 @@ examples/setlist/    a runnable example set list
 
 - [x] Phase 0 — repo, build, CI, test harness
 - [x] Phase 1 — model, JSON, click, mixer, routing, transport (headless)
-- [ ] Phase 2 — PortAudio device layer (WASAPI -> ASIO), libsamplerate
+- [ ] Phase 2 — PortAudio device layer (WASAPI -> ASIO). Resampling: done.
 - [ ] Phase 3 — cimgui stage UI
 - [ ] Phase 4 — MIDI in (footswitch) / MIDI out (patch changes)
 - [ ] Phase 5 — DMX via Art-Net / sACN

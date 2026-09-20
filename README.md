@@ -39,7 +39,8 @@ channels. The set list folder is therefore portable - copy it to the backup
 laptop with a different interface in it and it just works - and it is a text
 file you can diff and commit.
 
-There is no tempo detection and no time-stretching. A song stores its BPM,
+Stems are resampled to the device rate once, at load. There is no tempo
+detection and no time-stretching. A song stores its BPM,
 time signature and the offset of its first downbeat, taken from wherever you
 bought the stems. Collapsing the hardest problem in this domain into three
 metadata fields is the single reason this project is tractable.
@@ -124,6 +125,9 @@ hardware.
 - **Tempo** - exact sample positions, no drift across 30,000 beats, correct
   accenting through negative (count-in) beats, and `frame_beat` proven to be
   an exact inverse of `beat_frame`.
+- **Resampling** - the filter is *measured*, not assumed: passband flatness,
+  stopband rejection, alias suppression and round-trip residual. See
+  [`docs/resampling.md`](docs/resampling.md) for the numbers.
 - **Fuzzing** - libFuzzer targets over the JSON parser, the WAV decoder and the
   full set list binding path. `make fuzz` builds them.
 - **Sanitizers** - ASan and UBSan on every push.
@@ -134,15 +138,15 @@ hardware.
 |---|---|---|
 | 0 | Repo, build, CI, test harness | done |
 | 1 | Model, JSON, click, mixer, routing, transport | done |
-| 2 | PortAudio device layer (WASAPI, then ASIO), load-time resampling | next |
+| 2 | PortAudio device layer (WASAPI, then ASIO) | next |
 | 3 | Stage UI (Dear ImGui via cimgui) | |
 | 4 | MIDI in (footswitch) and out (patch changes) | |
 | 5 | DMX lighting via Art-Net / sACN | |
 
-Known gaps in Phase 1, in priority order: stems must already be at the device
-sample rate (`BT_ERR_RATE` rather than a silent quality compromise - Phase 2
-adds libsamplerate); MP3 and FLAC are not decoded yet; there is no preload
-scheduler for the next song.
+Known gaps, in priority order: only WAV is decoded (MP3 and FLAC next - most
+bought stems arrive as MP3); there is no preload scheduler, so the next song is
+not made resident while the current one plays; and there is no set list
+transport above the engine yet, so `on_end: next` is parsed but not acted on.
 
 See [`docs/asio.md`](docs/asio.md) for why the ASIO SDK is not, and will not
 be, committed to this repository.

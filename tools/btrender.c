@@ -74,10 +74,6 @@ int main(int argc, char **argv) {
     e = bt_song_load_audio(song, sl->dir, dev.sample_rate);
     if (e != BT_OK) {
         fprintf(stderr, "loading stems: %s\n", bt_strerror(e));
-        if (e == BT_ERR_RATE)
-            fprintf(stderr, "  stems must currently be %d Hz "
-                            "(load-time resampling lands in Phase 2)\n",
-                    dev.sample_rate);
         bt_setlist_free(sl);
         return 1;
     }

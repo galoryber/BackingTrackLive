@@ -1,5 +1,5 @@
-# Build
-build/
+# Build (build/, build-asan/, build-fuzz/, ...)
+build*/
 out/
 *.o
 *.a

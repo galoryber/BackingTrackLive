@@ -41,6 +41,7 @@ add_library(backtrack STATIC
   src/util/bt_error.c
   src/json/bt_json.c
   src/audio/bt_wav.c
+  src/audio/bt_resample.c
   src/model/bt_model.c
   src/model/bt_model_json.c
   src/engine/bt_engine.c
@@ -64,7 +65,7 @@ target_compile_options(btrender PRIVATE ${BT_WARN})
 if(BT_BUILD_TESTS)
   enable_testing()
 
-  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden)
+  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden test_resample)
   foreach(t ${BT_TESTS})
     add_executable(${t} tests/${t}.c)
     target_link_libraries(${t} PRIVATE backtrack)
