@@ -22,6 +22,12 @@ jobs:
             werror: "ON"
           - os: windows-latest
             werror: "ON"
+          # A second Windows image on purpose. MSVC's warning behaviour varies
+          # between 17.x releases: test_golden built clean on windows-latest
+          # while failing C4127 on a local 17.14, so one image is not evidence
+          # that the code is portable.
+          - os: windows-2022
+            werror: "ON"
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 

@@ -123,18 +123,21 @@ static void test_golden(void) {
     BT_CHECK_EQI(render_and_hash(1024), (long long)h);
     BT_CHECK_EQI(render_and_hash(4096), (long long)h);
 
-    if (GOLDEN_HASH == 0ULL) {
-        fprintf(stderr, "  golden hash not pinned yet; observed 0x%016llxULL\n",
-                (unsigned long long)h);
-    } else {
-        bt_checks++;
-        if (h != GOLDEN_HASH) {
-            bt_fails++;
-            fprintf(stderr, "  FAIL golden render changed: got 0x%016llxULL, "
-                            "expected 0x%016llxULL\n",
-                    (unsigned long long)h, (unsigned long long)GOLDEN_HASH);
-        }
+    /* Whether the hash is pinned is a compile-time fact, so decide it in the
+     * preprocessor. Written as a runtime `if`, MSVC raises C4127 (constant
+     * conditional expression) and -Werror turns that into a build failure. */
+#if GOLDEN_HASH == 0ULL
+    fprintf(stderr, "  golden hash not pinned yet; observed 0x%016llxULL\n",
+            (unsigned long long)h);
+#else
+    bt_checks++;
+    if (h != GOLDEN_HASH) {
+        bt_fails++;
+        fprintf(stderr, "  FAIL golden render changed: got 0x%016llxULL, "
+                        "expected 0x%016llxULL\n",
+                (unsigned long long)h, (unsigned long long)GOLDEN_HASH);
     }
+#endif
     cleanup();
 }
 
