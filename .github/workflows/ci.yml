@@ -1,8 +1,10 @@
 name: ci
 
+# Runs on every branch, not just main. Work happens on branches and merges to
+# main only once green, so CI has to actually run on the branch for that to
+# mean anything.
 on:
   push:
-    branches: [ main ]
   pull_request:
   workflow_dispatch:
 
