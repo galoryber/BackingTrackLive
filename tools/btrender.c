@@ -9,6 +9,7 @@
  * here - on any platform, with no audio hardware attached.
  */
 #include "backtrack/bt_engine.h"
+#include "backtrack/bt_player.h"
 #include "backtrack/bt_wav.h"
 
 #include <stdio.h>
@@ -18,8 +19,105 @@
 static int usage(void) {
     fprintf(stderr,
         "usage: btrender <setlist.json> <device.json> <song-index> <out.wav>\n"
-        "                [--no-count-in] [--block N]\n");
+        "                [--no-count-in] [--block N]\n"
+        "       btrender <setlist.json> <device.json> --set <out.wav> [--block N]\n"
+        "\n"
+        "  --set  render the whole set list as one continuous file, following\n"
+        "         each song's on_end. Songs marked \"stop\" would wait for a\n"
+        "         human on stage; an offline render continues through them.\n");
     return 2;
+}
+
+/* Growable planar output. The length of a whole set is not known up front. */
+typedef struct {
+    float  **ch;
+    int32_t  nch;
+    bt_frame cap, len;
+} growbuf;
+
+static bool grow_to(growbuf *g, bt_frame need) {
+    if (need <= g->cap) return true;
+    bt_frame cap = g->cap ? g->cap : 1 << 16;
+    while (cap < need) cap *= 2;
+    for (int32_t c = 0; c < g->nch; c++) {
+        float *q = (float *)realloc(g->ch[c], (size_t)cap * sizeof(float));
+        if (!q) return false;
+        memset(q + g->cap, 0, (size_t)(cap - g->cap) * sizeof(float));
+        g->ch[c] = q;
+    }
+    g->cap = cap;
+    return true;
+}
+
+/* Renders the whole set list through bt_player, which is what exercises song
+ * advance, on_end and the preload window against real files. */
+static int render_set(bt_setlist *sl, const bt_device_cfg *dev,
+                      int32_t nch, int32_t block, const char *out_path) {
+    /* 30 minutes is a guard against a malformed set list, not a real limit. */
+    const bt_frame LIMIT = (bt_frame)dev->sample_rate * 60 * 30;
+
+    bt_player_cfg pc = { dev->sample_rate, nch, block, 1 };
+    bt_player *pl = NULL;
+    bt_err e = bt_player_create(&pc, sl, dev, &pl);
+    if (e != BT_OK) { fprintf(stderr, "player: %s\n", bt_strerror(e)); return 1; }
+
+    e = bt_player_select(pl, 0);
+    if (e != BT_OK) {
+        fprintf(stderr, "selecting song 0: %s\n", bt_strerror(e));
+        bt_player_destroy(pl);
+        return 1;
+    }
+
+    growbuf g;
+    memset(&g, 0, sizeof(g));
+    g.nch = nch;
+    g.ch = (float **)calloc((size_t)nch, sizeof(float *));
+    if (!g.ch || !grow_to(&g, block)) { bt_player_destroy(pl); return 1; }
+
+    printf("rendering set \"%s\" (%d songs)\n", sl->name, sl->nsongs);
+    printf("  %2d. %s - %s\n", 1, sl->song[0].title, sl->song[0].artist);
+
+    bt_player_start(pl);      /* count-in on the first song only */
+
+    float *win[BT_MAX_OUT_CH];
+    bool done = false;
+    while (!done && g.len < LIMIT) {
+        if (!grow_to(&g, g.len + block)) break;
+        for (int32_t c = 0; c < nch; c++) win[c] = g.ch[c] + g.len;
+        bt_player_render(pl, win, block);
+        g.len += block;
+
+        bt_tick_result t = BT_TICK_IDLE;
+        if (bt_player_tick(pl, &t) != BT_OK) break;
+
+        if (t == BT_TICK_ADVANCED) {
+            printf("  %2d. %s - %s   (segue)\n", bt_player_current(pl) + 1,
+                   bt_player_song(pl)->title, bt_player_song(pl)->artist);
+        } else if (t == BT_TICK_SONG_ENDED) {
+            if (bt_player_current(pl) + 1 >= bt_player_count(pl)) {
+                done = true;
+            } else {
+                if (bt_player_next(pl) != BT_OK) { done = true; break; }
+                printf("  %2d. %s - %s\n", bt_player_current(pl) + 1,
+                       bt_player_song(pl)->title, bt_player_song(pl)->artist);
+                bt_player_play(pl);
+            }
+        }
+    }
+
+    printf("  peak resident %.1f MB\n",
+           (double)bt_player_resident_bytes(pl) / (1024.0 * 1024.0));
+
+    e = bt_wav_write_file(out_path, (const float *const *)g.ch, nch,
+                          dev->sample_rate, g.len);
+    if (e != BT_OK) fprintf(stderr, "%s: %s\n", out_path, bt_strerror(e));
+    else printf("  wrote %s: %d ch, %lld frames (%.2f s)\n", out_path, nch,
+                (long long)g.len, (double)g.len / dev->sample_rate);
+
+    for (int32_t c = 0; c < nch; c++) free(g.ch[c]);
+    free(g.ch);
+    bt_player_destroy(pl);
+    return e == BT_OK ? 0 : 1;
 }
 
 static int32_t max_channel(const bt_device_cfg *d) {
@@ -35,7 +133,8 @@ int main(int argc, char **argv) {
 
     const char *setlist_path = argv[1];
     const char *device_path  = argv[2];
-    int         song_index   = atoi(argv[3]);
+    const bool  whole_set    = (strcmp(argv[3], "--set") == 0);
+    int         song_index   = whole_set ? 0 : atoi(argv[3]);
     const char *out_path     = argv[4];
 
     bool    count_in = true;
@@ -63,6 +162,19 @@ int main(int argc, char **argv) {
         fprintf(stderr, "%s: %s (line %d)\n", setlist_path, bt_strerror(e), line);
         return 1;
     }
+    int32_t nch_all = max_channel(&dev);
+    if (nch_all <= 0) {
+        fprintf(stderr, "device.json defines no buses\n");
+        bt_setlist_free(sl);
+        return 1;
+    }
+
+    if (whole_set) {
+        int rc = render_set(sl, &dev, nch_all, block, out_path);
+        bt_setlist_free(sl);
+        return rc;
+    }
+
     if (song_index < 0 || song_index >= sl->nsongs) {
         fprintf(stderr, "song index %d out of range (%d songs)\n",
                 song_index, sl->nsongs);

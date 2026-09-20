@@ -54,6 +54,7 @@ src/json/            minimal strict JSON parser (a fuzz target)
 src/model/           setlist/song/track model + JSON binding
 src/audio/           WAV decode (a fuzz target)
 src/engine/          transport, click synthesis, mixer, routing
+src/player/          set list player: selection, on_end, preload window
 src/util/            allocation shims, small helpers
 tools/btrender.c     CLI: setlist.json -> rendered WAV (offline, deterministic)
 tests/               unit + golden-render + rtsafe tests
@@ -74,7 +75,8 @@ examples/setlist/    a runnable example set list
 
 - [x] Phase 0 — repo, build, CI, test harness
 - [x] Phase 1 — model, JSON, click, mixer, routing, transport (headless)
-- [ ] Phase 2 — PortAudio device layer (WASAPI -> ASIO). Resampling: done.
+- [x] Phase 1.5 — resampling, set list player, preload window
+- [ ] Phase 2 — PortAudio device layer (WASAPI -> ASIO)
 
 ## Shipping
 

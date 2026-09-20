@@ -92,6 +92,13 @@ cp examples/setlist/device.example.json examples/setlist/device.json
 `out.wav` is a 4-channel file: the band mix on 1/2, click and cues on 3/4 -
 exactly the samples an interface would have been handed.
 
+To render the whole set list as one continuous file, following each song's
+`on_end`:
+
+```bash
+./build/btrender examples/setlist/setlist.json examples/setlist/device.json --set set.wav
+```
+
 ## Set list format
 
 ```json
@@ -118,7 +125,10 @@ exactly the samples an interface would have been handed.
   music instead of with the file.
 - `offset_ms` - per-stem nudge, positive or negative.
 - `on_end` - `stop` waits for a human (the singer is talking); `next` runs
-  straight into the following song.
+  straight into the following song. The seam is one render block wide -
+  measured at 5.4 ms at a 512-frame block - so it is gapless to an audience but
+  not sample-accurate. A medley that must be musically locked belongs in one
+  song file with the segue rendered in.
 - `tempo.map` - an array of `{beat, bpm}` for songs that change tempo. The
   format accepts one from day one so that song never forces a migration.
 - Stem paths are relative to the set list file, and absolute paths and `..`
@@ -158,15 +168,16 @@ hardware.
 |---|---|---|
 | 0 | Repo, build, CI, test harness | done |
 | 1 | Model, JSON, click, mixer, routing, transport | done |
+| 1.5 | Load-time resampling, set list player, preload window | done |
 | 2 | PortAudio device layer (WASAPI, then ASIO) | next |
 | 3 | Stage UI (Dear ImGui via cimgui) | |
 | 4 | MIDI in (footswitch) and out (patch changes) | |
 | 5 | DMX lighting via Art-Net / sACN | |
 
 Known gaps, in priority order: only WAV is decoded (MP3 and FLAC next - most
-bought stems arrive as MP3); there is no preload scheduler, so the next song is
-not made resident while the current one plays; and there is no set list
-transport above the engine yet, so `on_end: next` is parsed but not acted on.
+bought stems arrive as MP3); loading happens on the calling thread inside
+`bt_player_tick()`, which stalls the UI but never the audio, and moves to a
+dedicated loader thread in Phase 2.
 
 See [`docs/asio.md`](docs/asio.md) for why the ASIO SDK is not, and will not
 be, committed to this repository.

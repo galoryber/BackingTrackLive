@@ -100,6 +100,7 @@ jobs:
           cp examples/setlist/device.example.json examples/setlist/device.json
           ./build/btrender examples/setlist/setlist.json examples/setlist/device.json 0 /tmp/demo0.wav
           ./build/btrender examples/setlist/setlist.json examples/setlist/device.json 1 /tmp/demo1.wav
+          ./build/btrender examples/setlist/setlist.json examples/setlist/device.json --set /tmp/demo-set.wav
       - uses: actions/upload-artifact@v4
         with:
           name: demo-renders

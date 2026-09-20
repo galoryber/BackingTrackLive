@@ -52,6 +52,7 @@ add_library(backtrack STATIC
   src/model/bt_model.c
   src/model/bt_model_json.c
   src/engine/bt_engine.c
+  src/player/bt_player.c
 )
 target_include_directories(backtrack PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_options(backtrack PRIVATE ${BT_WARN})
@@ -72,7 +73,7 @@ target_compile_options(btrender PRIVATE ${BT_WARN})
 if(BT_BUILD_TESTS)
   enable_testing()
 
-  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden test_resample)
+  set(BT_TESTS test_json test_wav test_tempo test_model test_engine test_golden test_resample test_player)
   foreach(t ${BT_TESTS})
     add_executable(${t} tests/${t}.c)
     target_link_libraries(${t} PRIVATE backtrack)
