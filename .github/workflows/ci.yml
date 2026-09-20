@@ -21,7 +21,7 @@ jobs:
           - os: windows-latest
             werror: "ON"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBT_WERROR=${{ matrix.werror }}
@@ -40,7 +40,7 @@ jobs:
           mkdir -p bin
           cp build/btrender bin/ 2>/dev/null || cp build/Debug/btrender.exe bin/
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: btrender-${{ matrix.os }}
           path: bin/*
@@ -51,7 +51,7 @@ jobs:
     name: asan + ubsan
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Configure
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug -DBT_SANITIZE=ON
       - name: Build
@@ -66,7 +66,7 @@ jobs:
     name: fuzz smoke
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Install clang
         run: sudo apt-get update && sudo apt-get install -y clang
       - name: Build fuzz targets
@@ -84,11 +84,41 @@ jobs:
             ./build-fuzz/$t -max_total_time=60 -print_final_stats=1
           done
 
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - name: Install gcovr
+        run: pipx install gcovr
+      - name: Build instrumented
+        run: |
+          cmake -S . -B build-cov -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_C_FLAGS="--coverage -O0" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+          cmake --build build-cov
+      - name: Test
+        run: ctest --test-dir build-cov --output-on-failure
+      # Floors, not targets. They exist so coverage cannot quietly rot; raise
+      # them when the real number moves up, never lower them to go green.
+      - name: Report and enforce floors
+        run: |
+          gcovr --root . --filter 'src/' --exclude 'third_party/' \
+                --print-summary --txt | tee cov.txt
+          gcovr --root . --filter 'src/' --exclude 'third_party/' \
+                --fail-under-line 90 --fail-under-branch 65 >/dev/null
+          {
+            echo '### Coverage'
+            echo '```'
+            cat cov.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   demo:
     name: end-to-end render
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
       - name: Configure and build
         run: |
           cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
@@ -101,7 +131,7 @@ jobs:
           ./build/btrender examples/setlist/setlist.json examples/setlist/device.json 0 /tmp/demo0.wav
           ./build/btrender examples/setlist/setlist.json examples/setlist/device.json 1 /tmp/demo1.wav
           ./build/btrender examples/setlist/setlist.json examples/setlist/device.json --set /tmp/demo-set.wav
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: demo-renders
           path: /tmp/demo*.wav

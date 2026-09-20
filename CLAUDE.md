@@ -11,6 +11,7 @@ make check          # configure + build + full test suite. THIS is "green".
 make build          # configure + build only
 make test           # ctest only (assumes built)
 make asan           # build + run tests under ASan/UBSan
+make cov            # coverage report for our own code
 make clean
 ```
 
@@ -23,6 +24,31 @@ ctest --test-dir build --output-on-failure
 
 `cmake`/`ninja` are installed via pip into `~/.local/bin` in this dev container;
 ensure it is on `PATH`.
+
+## Workflow
+
+Work on a branch, never directly on `main`:
+
+```bash
+git checkout -b feat/<thing>
+# ... work, with `make check` green ...
+git push -u origin feat/<thing>
+# wait for CI, then fast-forward main only once it is green
+```
+
+`main` is what `release.yml` builds from and what the band laptop downloads.
+It should never be red, even for the three minutes it takes CI to notice.
+
+## Testing standards
+
+Coverage floors are enforced in CI (90% line, 65% branch over `src/`). They
+are floors, not targets: raise them when the real number moves up, never lower
+them to go green.
+
+A new test that passes on the first run has not yet been shown to work. Break
+the code it covers and confirm the test fails, in the assertion you expect.
+Watch for the mutation that fails to *compile* - `-Werror` will reject it and
+you will run a stale binary and see a false pass.
 
 ## Non-negotiable rules
 

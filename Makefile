@@ -2,7 +2,7 @@
 BUILD ?= build
 GEN   ?= Ninja
 
-.PHONY: all build check test asan fuzz clean format
+.PHONY: all build check test asan cov fuzz clean format
 
 all: build
 
@@ -20,6 +20,13 @@ asan:
 	cmake --build $(BUILD)-asan
 	ctest --test-dir $(BUILD)-asan --output-on-failure
 
+cov:
+	cmake -S . -B $(BUILD)-cov -G $(GEN) -DCMAKE_BUILD_TYPE=Debug \
+		-DCMAKE_C_FLAGS="--coverage -O0" -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+	cmake --build $(BUILD)-cov
+	ctest --test-dir $(BUILD)-cov --output-on-failure
+	gcovr --root . --filter 'src/' --exclude 'third_party/' --print-summary --txt
+
 fuzz:
 	cmake -S . -B $(BUILD)-fuzz -G $(GEN) -DCMAKE_BUILD_TYPE=Debug \
 		-DBT_BUILD_FUZZ=ON -DBT_BUILD_TESTS=OFF \
@@ -27,4 +34,4 @@ fuzz:
 	cmake --build $(BUILD)-fuzz
 
 clean:
-	rm -rf $(BUILD) $(BUILD)-asan $(BUILD)-fuzz
+	rm -rf $(BUILD) $(BUILD)-asan $(BUILD)-fuzz $(BUILD)-cov

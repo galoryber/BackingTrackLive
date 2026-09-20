@@ -159,6 +159,23 @@ static void test_device_cfg(void) {
     BT_CHECK(bt_device_cfg_load_mem(badch, strlen(badch), &cfg, &line) != BT_OK);
 }
 
+static void test_error_strings(void) {
+    /* Every code must have a message, and they must be distinguishable - an
+     * error the UI renders as "unknown error" is one nobody can act on. */
+    const bt_err all[] = {
+        BT_OK, BT_ERR_ALLOC, BT_ERR_IO, BT_ERR_PARSE, BT_ERR_SCHEMA,
+        BT_ERR_FORMAT, BT_ERR_RATE, BT_ERR_RANGE, BT_ERR_NOT_FOUND, BT_ERR_STATE
+    };
+    const size_t n = sizeof(all) / sizeof(all[0]);
+    for (size_t i = 0; i < n; i++) {
+        const char *m = bt_strerror(all[i]);
+        BT_CHECK(m != NULL && strlen(m) > 0);
+        for (size_t k = i + 1; k < n; k++)
+            BT_CHECK(strcmp(m, bt_strerror(all[k])) != 0);
+    }
+    BT_CHECK(strcmp(bt_strerror((bt_err)9999), "unknown error") == 0);
+}
+
 int main(void) {
     BT_RUN(test_good);
     BT_RUN(test_defaults);
@@ -166,5 +183,6 @@ int main(void) {
     BT_RUN(test_rejects);
     BT_RUN(test_path_containment);
     BT_RUN(test_device_cfg);
+    BT_RUN(test_error_strings);
     BT_REPORT();
 }
