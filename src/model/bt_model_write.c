@@ -200,6 +200,8 @@ bt_err bt_device_cfg_to_json(const bt_device_cfg *cfg, char **out, size_t *len) 
 
     sb_str(&s, "{\n  \"device\": ");
     sb_json_string(&s, cfg->device);
+    sb_str(&s, ",\n  \"api\": ");
+    sb_json_string(&s, cfg->api);
     sb_fmt(&s, ",\n  \"sample_rate\": %d,\n  \"buffer_frames\": %d,\n",
            cfg->sample_rate, cfg->buffer_frames);
     sb_str(&s, "  \"buses\": [\n");

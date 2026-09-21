@@ -103,7 +103,25 @@ make device                  # builds the device layer (fetches PortAudio)
 
 `device.json`'s `device` field selects the interface by case-insensitive
 substring - `"UMC404HD"` finds it without anyone transcribing the full name -
-and `"default"` means whatever the machine calls default.
+and `"default"` means "pick the best available".
+
+The `api` field picks the driver family, and on Windows it matters more than
+anything else in the file. The same speakers appear under four host APIs with
+very different latency; measured on one machine:
+
+| API | reported latency |
+|---|---|
+| WASAPI | 2.7 ms |
+| WDM-KS | 10 ms |
+| MME | 90 ms |
+| DirectSound | 120 ms |
+
+The backend's own "default output device" is the **MME** one. Leaving `api`
+empty therefore does not mean "default" - it means *pick the best API
+present*, in the order ASIO > WASAPI > WDM-KS > Core Audio > JACK > ALSA >
+DirectSound > MME. Naming an API explicitly makes it a requirement: ask for
+`"ASIO"` without the driver installed and it fails loudly rather than quietly
+handing you a hundred milliseconds of latency.
 
 The device layer is a **separate library** from `libbacktrack`. The engine has
 no platform or device dependency at all, and nothing in `tests/` links the

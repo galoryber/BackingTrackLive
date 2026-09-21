@@ -3,9 +3,16 @@
     "Copy this to device.json next to setlist.json and edit it for THIS machine.",
     "device.json is gitignored on purpose: the gig laptop and the backup laptop",
     "have different interfaces, and the set list must stay portable between them.",
-    "Buses are named here; setlist.json only ever refers to the names."
+    "Buses are named here; setlist.json only ever refers to the names.",
+    "\"device\" matches part of the interface name, so \"UMC404HD\" is enough.",
+    "\"api\" picks the driver family. Leave it empty to take the best one",
+    "present. On Windows this matters a great deal: the same speakers appear",
+    "under WASAPI at ~3 ms and under MME at ~100 ms, and MME is what the",
+    "backend calls the default. Set it to \"ASIO\" once the interface driver",
+    "is installed - ASIO is the only way to get four separate outputs."
   ],
   "device": "default",
+  "api": "",
   "sample_rate": 48000,
   "buffer_frames": 512,
   "buses": [

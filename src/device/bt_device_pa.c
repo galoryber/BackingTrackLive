@@ -104,6 +104,24 @@ static bool ci_contains(const char *hay, const char *needle) {
     return false;
 }
 
+/* Descending order of how well each host API serves a backing-track rig:
+ * exclusive access, low latency, and honest channel counts. DirectSound and
+ * MME are last because they are where PortAudio's "default device" lives and
+ * where a hundred milliseconds of latency comes from. */
+static const char *const k_api_preference[] = {
+    "ASIO",          /* Windows, the only one that gives real multi-channel */
+    "WASAPI",
+    "WDM-KS",
+    "Core Audio",    /* macOS */
+    "JACK",          /* Linux, when someone is already running it */
+    "ALSA",
+    "DirectSound",
+    "MME",
+    NULL
+};
+
+const char *const *bt_device_api_preference(void) { return k_api_preference; }
+
 int32_t bt_device_find(const char *name_substr, const char *api_substr) {
     int32_t n = bt_device_count();
     for (int32_t i = 0; i < n; i++) {
@@ -115,6 +133,21 @@ int32_t bt_device_find(const char *name_substr, const char *api_substr) {
         return i;
     }
     return BT_DEVICE_DEFAULT;
+}
+
+int32_t bt_device_best(const char *name_substr, const char *api_substr) {
+    /* An explicitly named API is a requirement, not a hint: somebody who
+     * wrote "ASIO" in device.json wants to be told it is missing, not
+     * quietly given MME. */
+    if (api_substr && *api_substr)
+        return bt_device_find(name_substr, api_substr);
+
+    for (int i = 0; k_api_preference[i]; i++) {
+        int32_t idx = bt_device_find(name_substr, k_api_preference[i]);
+        if (idx != BT_DEVICE_DEFAULT) return idx;
+    }
+    /* No API matched - fall back to anything with an output. */
+    return bt_device_find(name_substr, NULL);
 }
 
 /* ------------------------------------------------------------ callback */

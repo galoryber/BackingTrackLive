@@ -47,6 +47,22 @@ bt_err  bt_device_get(int32_t i, bt_device_info *out);
  * not have the band's interface plugged in. */
 int32_t bt_device_find(const char *name_substr, const char *api_substr);
 
+/* Picks the best available device, which is what a caller almost always
+ * wants instead of the backend's idea of "default".
+ *
+ * With an API named, that API is required. With none, host APIs are tried in
+ * descending order of how well they serve this job - ASIO, then WASAPI,
+ * WDM-KS, Core Audio, JACK, ALSA, and only then DirectSound and MME. The
+ * backend's default output device on Windows is the MME one, at around
+ * 100 ms of latency, with the same speakers sitting on WASAPI at under 3 ms.
+ *
+ * Returns BT_DEVICE_DEFAULT if nothing matches at all. */
+int32_t bt_device_best(const char *name_substr, const char *api_substr);
+
+/* The API-preference order, highest first, NULL-terminated. Exposed so a UI
+ * can explain the choice rather than appearing to make it arbitrarily. */
+const char *const *bt_device_api_preference(void);
+
 /* Name of the backend this build can actually use, for diagnostics. */
 const char *bt_device_backend(void);
 

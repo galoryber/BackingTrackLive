@@ -233,6 +233,7 @@ bt_err bt_device_cfg_load_mem(const char *text, size_t len, bt_device_cfg *out,
     if (bt_json_typeof(root) != BT_JSON_OBJECT) { bt_json_free(root); return BT_ERR_SCHEMA; }
 
     copy_str(out->device, sizeof(out->device), bt_json_get(root, "device"), "default");
+    copy_str(out->api,    sizeof(out->api),    bt_json_get(root, "api"),    "");
     out->sample_rate   = (int32_t)bt_json_number(bt_json_get(root, "sample_rate"), 48000);
     out->buffer_frames = (int32_t)bt_json_number(bt_json_get(root, "buffer_frames"), 512);
 

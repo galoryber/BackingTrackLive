@@ -105,6 +105,15 @@ typedef struct {
     int32_t sample_rate;
     int32_t buffer_frames;
     char    device[BT_MAX_NAME];
+    /* Host API to prefer: "ASIO", "WASAPI", "WDM-KS", "DirectSound", "MME",
+     * "Core Audio", "ALSA", "JACK". Matched as a case-insensitive substring.
+     *
+     * This matters more than it looks. On Windows the same speakers appear
+     * under four APIs with wildly different latency - measured on one machine:
+     * WASAPI 2.7 ms, WDM-KS 10 ms, DirectSound 120 ms, MME 90 ms - and
+     * PortAudio's "default device" is the MME one. Leaving this empty picks
+     * the best API present rather than the default. */
+    char    api[BT_MAX_NAME];
 } bt_device_cfg;
 
 /* ---------------------------------------------------------------------------

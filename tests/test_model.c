@@ -140,14 +140,19 @@ static void test_device_cfg(void) {
     BT_CHECK(bt_device_find_bus(&cfg, "inear") != NULL);
     BT_CHECK(bt_device_find_bus(&cfg, "nope")  == NULL);
 
+    /* api is optional and defaults to empty, meaning "pick the best". */
+    BT_CHECK_EQI(cfg.api[0], 0);
+
     const char *dev =
-    "{\"device\":\"ASIO Focusrite\",\"sample_rate\":48000,\"buffer_frames\":512,"
+    "{\"device\":\"Focusrite\",\"api\":\"ASIO\",\"sample_rate\":48000,\"buffer_frames\":512,"
     "\"buses\":[{\"name\":\"foh\",\"channels\":[0,1]},"
     "{\"name\":\"inear\",\"channels\":[2,3]}]}";
     int line = 0;
     BT_CHECK_EQI(bt_device_cfg_load_mem(dev, strlen(dev), &cfg, &line), BT_OK);
     BT_CHECK_EQI(cfg.nbuses, 2);
     BT_CHECK_EQI(cfg.buffer_frames, 512);
+    BT_CHECK(strcmp(cfg.api, "ASIO") == 0);
+    BT_CHECK(strcmp(cfg.device, "Focusrite") == 0);
     const bt_bus *b = bt_device_find_bus(&cfg, "inear");
     BT_CHECK(b != NULL);
     if (b) { BT_CHECK_EQI(b->nch, 2); BT_CHECK_EQI(b->ch[0], 2); BT_CHECK_EQI(b->ch[1], 3); }

@@ -225,6 +225,7 @@ static void test_device_cfg_round_trip(void) {
     bt_device_cfg a;
     bt_device_cfg_defaults(&a);
     snprintf(a.device, sizeof(a.device), "UMC404HD");
+    snprintf(a.api,    sizeof(a.api),    "ASIO");
     a.sample_rate   = 48000;
     a.buffer_frames = 512;
     snprintf(a.bus[0].name, BT_MAX_NAME, "foh");
@@ -242,6 +243,7 @@ static void test_device_cfg_round_trip(void) {
     BT_CHECK_EQI(bt_device_cfg_load_mem(js, len, &b, &line), BT_OK);
 
     BT_CHECK(strcmp(a.device, b.device) == 0);
+    BT_CHECK(strcmp(a.api, b.api) == 0);
     BT_CHECK_EQI(a.sample_rate, b.sample_rate);
     BT_CHECK_EQI(a.buffer_frames, b.buffer_frames);
     BT_CHECK_EQI(a.nbuses, b.nbuses);

@@ -26,6 +26,14 @@ static void audio_cb(float *const *out, int32_t nframes, void *user) {
     bt_player_render((bt_player *)user, out, nframes);
 }
 
+/* Shown with the device list so the ordering is not mysterious. */
+static void print_api_preference(void) {
+    const char *const *p = bt_device_api_preference();
+    printf("\napi preference when device.json does not name one:\n  ");
+    for (int i = 0; p[i]; i++) printf("%s%s", i ? " > " : "", p[i]);
+    printf("\n");
+}
+
 static int list_devices(void) {
     bt_err e = bt_device_init();
     if (e != BT_OK) {
@@ -51,6 +59,7 @@ static int list_devices(void) {
                d.default_sample_rate, d.default_low_latency * 1000.0,
                d.is_default_output ? "  (default)" : "");
     }
+    print_api_preference();
     bt_device_term();
     return 0;
 }
@@ -119,15 +128,20 @@ int main(int argc, char **argv) {
         return 1;
     }
 
-    /* "default" in device.json means whatever the machine calls default;
-     * anything else is matched as a case-insensitive substring, so
-     * "UMC404HD" finds it without anyone transcribing the full name. */
-    int32_t idx = BT_DEVICE_DEFAULT;
-    if (dev.device[0] && strcmp(dev.device, "default") != 0) {
-        idx = bt_device_find(dev.device, NULL);
-        if (idx == BT_DEVICE_DEFAULT)
-            fprintf(stderr, "warning: no device matching \"%s\"; using the default\n",
-                    dev.device);
+    /* "default" in device.json means "pick the best available"; anything
+     * else is matched as a case-insensitive substring, so "UMC404HD" finds
+     * it without anyone transcribing the full name. The API is matched the
+     * same way and, when given, is a requirement. */
+    const char *want_name = (dev.device[0] && strcmp(dev.device, "default") != 0)
+                          ? dev.device : NULL;
+    int32_t idx = bt_device_best(want_name, dev.api[0] ? dev.api : NULL);
+
+    if (idx == BT_DEVICE_DEFAULT && (want_name || dev.api[0])) {
+        fprintf(stderr, "no device matching name \"%s\" api \"%s\"\n",
+                want_name ? want_name : "(any)", dev.api[0] ? dev.api : "(any)");
+        fprintf(stderr, "  run btplay --list-devices to see what is present\n");
+        bt_device_term(); bt_setlist_free(sl);
+        return 1;
     }
 
     bt_player_cfg pc = { dev.sample_rate, nch, dev.buffer_frames, 1, 30000 };
@@ -165,9 +179,7 @@ int main(int argc, char **argv) {
     bt_device_actual(d, &got_rate, &got_buf, &got_lat);
 
     bt_device_info di;
-    if (bt_device_get(idx == BT_DEVICE_DEFAULT ? bt_device_find("", NULL) : idx,
-                      &di) != BT_OK)
-        memset(&di, 0, sizeof(di));
+    if (bt_device_get(idx, &di) != BT_OK) memset(&di, 0, sizeof(di));
 
     printf("device   %s (%s)\n", di.name[0] ? di.name : "default", di.api);
     printf("stream   %d Hz, %d ch, %.1f ms output latency\n",
