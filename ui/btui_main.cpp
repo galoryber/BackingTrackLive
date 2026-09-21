@@ -22,6 +22,7 @@
 #include "imgui_impl_win32.h"
 
 #include "bt_ui.h"
+#include "bt_ui_edit.h"
 
 #include <cstdio>
 #include <cstring>
@@ -110,9 +111,15 @@ void fill_state(bt_ui_state &st, const Sim &sim) {
     st.show_clock    = sim.show_clock;
     st.total_sec     = sim.song_len;
 
-    const bt_song &s = sim.sl->song[sim.current];
-    st.bpm           = s.tempo.seg[0].bpm;
-    st.beats_per_bar = s.tempo.sig_num;
+    const bt_song &s = sim.sl->song[st.current];
+    st.bpm           = s.tempo.nseg ? s.tempo.seg[0].bpm : 120.0;
+    st.beats_per_bar = s.tempo.sig_num > 0 ? s.tempo.sig_num : 4;
+
+    /* Editing can remove songs from under us. */
+    if (st.current >= sim.sl->nsongs) st.current = sim.sl->nsongs - 1;
+    if (st.selected >= sim.sl->nsongs) st.selected = sim.sl->nsongs - 1;
+    if (st.current < 0) st.current = 0;
+    if (st.selected < 0) st.selected = 0;
 
     double el = sim.playing ? sim.now_sec() : 0.0;
     st.elapsed_sec = el;
@@ -178,6 +185,8 @@ void make_rtv() {
 void drop_rtv() { if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; } }
 
 Sim g_sim;
+bt_ui_edit g_edit;
+bool g_editing = false;
 bool g_quit = false;
 bool g_fullscreen = false;
 
@@ -205,6 +214,15 @@ void toggle_fullscreen(HWND hwnd) {
 
 void on_key(HWND hwnd, WPARAM key) {
     Sim &s = g_sim;
+
+    if (g_editing) {
+        /* Edit mode gets the keyboard, except the two that must always work. */
+        if (key == VK_F11) { toggle_fullscreen(hwnd); return; }
+        if (key == 'E' && !ImGui::GetIO().WantTextInput) { g_editing = false; return; }
+        bt_ui_edit_key(g_edit, (int)key);
+        return;
+    }
+
     switch (key) {
     case VK_ESCAPE:
         if (g_fullscreen) toggle_fullscreen(hwnd); else g_quit = true;
@@ -232,6 +250,11 @@ void on_key(HWND hwnd, WPARAM key) {
         break;
     case 'C':
         s.show_clock = !s.show_clock;
+        break;
+    case 'E':
+        /* Blocked while playing, deliberately: the one thing worse than a
+         * fiddly editor is one that can appear over a performance. */
+        if (!s.playing) g_editing = !g_editing;
         break;
     case VK_F11:
         toggle_fullscreen(hwnd);
@@ -324,11 +347,43 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         st.beat_in_bar = 1;
     }
 
+    bt_ui_edit ed;
+    static bt_device_cfg shot_dev;
+    bt_device_cfg_defaults(&shot_dev);
+    const bool edit_shot = !std::strcmp(state, "edit") || !std::strcmp(state, "editsong");
+    if (edit_shot) {
+        ed.sl  = sl;
+        ed.dev = &shot_dev;
+        ed.song = song;
+        ed.track = 1;
+        ed.screen = !std::strcmp(state, "editsong") ? bt_edit_screen::song
+                                                    : bt_edit_screen::setlist;
+        /* Give the shot something to show: the demo songs carry no stems. */
+        if (ed.song >= 0 && ed.song < sl->nsongs) {
+            bt_song &ss = sl->song[ed.song];
+            ss.track[0].type = BT_TRACK_CLICK;
+            std::snprintf(ss.track[0].name, sizeof(ss.track[0].name), "Click");
+            std::snprintf(ss.track[0].bus, sizeof(ss.track[0].bus), "inear");
+            ss.track[1].type = BT_TRACK_AUDIO;
+            std::snprintf(ss.track[1].name, sizeof(ss.track[1].name), "Synth");
+            std::snprintf(ss.track[1].file, sizeof(ss.track[1].file), "stems/synth.wav");
+            std::snprintf(ss.track[1].bus, sizeof(ss.track[1].bus), "foh");
+            ss.track[1].gain_db = -2.0;
+            ss.track[2].type = BT_TRACK_AUDIO;
+            std::snprintf(ss.track[2].name, sizeof(ss.track[2].name), "Bass");
+            std::snprintf(ss.track[2].file, sizeof(ss.track[2].file), "stems/bass.wav");
+            std::snprintf(ss.track[2].bus, sizeof(ss.track[2].bus), "foh");
+            ss.track[2].offset_ms = -12;
+            ss.ntracks = 3;
+        }
+    }
+
     /* Two frames: the first builds the font atlas, the second draws with it. */
     for (int i = 0; i < 2; i++) {
         ImGui_ImplDX11_NewFrame();
         ImGui::NewFrame();
-        bt_ui_draw(st);
+        if (edit_shot) bt_ui_edit_draw(ed);
+        else           bt_ui_draw(st);
         ImGui::Render();
         const float clear[4] = { 0.06f, 0.07f, 0.08f, 1.0f };
         ctx->OMSetRenderTargets(1, &rtv, nullptr);
@@ -352,9 +407,12 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
 
 int usage() {
     std::fprintf(stderr,
-        "usage: btui                     windowed, keyboard-driven prototype\n"
+        "usage: btui [--setlist <file>] [--device <file>]\n"
+        "         windowed and keyboard-driven. Without --setlist it opens a\n"
+        "         built-in demo set, which can be edited but not saved.\n"
+        "\n"
         "       btui --shot <out.raw> [--w N] [--h N]\n"
-        "            [--state stopped|playing|countin] [--song N] [--bar N]\n");
+        "            [--state stopped|playing|countin|edit|editsong] [--song N] [--bar N]\n");
     return 2;
 }
 
@@ -362,10 +420,13 @@ int usage() {
 
 int main(int argc, char **argv) {
     const char *shot = nullptr, *state = "stopped";
+    const char *setlist_path = nullptr, *device_path = nullptr;
     int w = 1280, h = 720, song = 2, bar = 17;
 
     for (int i = 1; i < argc; i++) {
         if (!std::strcmp(argv[i], "--shot") && i + 1 < argc) shot = argv[++i];
+        else if (!std::strcmp(argv[i], "--setlist") && i + 1 < argc) setlist_path = argv[++i];
+        else if (!std::strcmp(argv[i], "--device") && i + 1 < argc) device_path = argv[++i];
         else if (!std::strcmp(argv[i], "--w") && i + 1 < argc) w = atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--h") && i + 1 < argc) h = atoi(argv[++i]);
         else if (!std::strcmp(argv[i], "--state") && i + 1 < argc) state = argv[++i];
@@ -402,10 +463,45 @@ int main(int argc, char **argv) {
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_dev, g_ctx);
 
-    g_sim.sl = make_demo_setlist();
-    g_sim.selected = 2;
-    g_sim.current  = 2;
+    /* A real set list if one was named, otherwise the demo - which is
+     * editable so the screens can be exercised, but has nowhere to save to
+     * and says so rather than pretending. */
+    static bt_device_cfg dev_cfg;
+    bt_device_cfg_defaults(&dev_cfg);
+    bool have_dev = false;
+    if (device_path) {
+        int line = 0;
+        bt_err e = bt_device_cfg_load_file(device_path, &dev_cfg, &line);
+        if (e != BT_OK)
+            std::fprintf(stderr, "%s: %s (line %d) - using defaults\n",
+                         device_path, bt_strerror(e), line);
+        else have_dev = true;
+    }
+
+    bt_setlist *sl = nullptr;
+    if (setlist_path) {
+        int line = 0;
+        bt_err e = bt_setlist_load_file(setlist_path, &sl, &line);
+        if (e != BT_OK) {
+            std::fprintf(stderr, "%s: %s (line %d)\n", setlist_path,
+                         bt_strerror(e), line);
+            return 1;
+        }
+    }
+    if (!sl) sl = make_demo_setlist();
+
+    g_sim.sl = sl;
+    g_sim.selected = 0;
+    g_sim.current  = 0;
     QueryPerformanceFrequency(&g_sim.freq);
+
+    g_edit.sl  = sl;
+    g_edit.dev = &dev_cfg;
+    g_edit.can_save = (setlist_path != nullptr);
+    if (setlist_path) std::snprintf(g_edit.path, sizeof(g_edit.path), "%s", setlist_path);
+    if (!have_dev)
+        std::snprintf(g_edit.status, sizeof(g_edit.status),
+                      "no device.json given - bus names are the built-in defaults");
 
     while (!g_quit) {
         MSG msg;
@@ -421,9 +517,19 @@ int main(int argc, char **argv) {
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
-        bt_ui_state st;
-        fill_state(st, g_sim);
-        bt_ui_draw(st);
+        if (g_editing) {
+            g_edit.song = g_edit.song < 0 ? 0 : g_edit.song;
+            if (!bt_ui_edit_draw(g_edit)) g_editing = false;
+            /* Keep the play view's cursor on something that still exists. */
+            if (g_sim.selected >= g_sim.sl->nsongs)
+                g_sim.selected = g_sim.sl->nsongs - 1;
+            if (g_sim.current >= g_sim.sl->nsongs)
+                g_sim.current = g_sim.sl->nsongs - 1;
+        } else {
+            bt_ui_state st;
+            fill_state(st, g_sim);
+            bt_ui_draw(st);
+        }
 
         ImGui::Render();
         const float clear[4] = { 0.06f, 0.07f, 0.08f, 1.0f };
