@@ -164,6 +164,32 @@ jobs:
         shell: bash
         run: ./build-dev/btplay --list-devices || ./build-dev/Release/btplay.exe --list-devices
 
+  stage-ui:
+    name: stage ui (windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      # The UI is off by default, so nothing else in CI compiles it. Building
+      # it here is what keeps it from rotting while the engine moves.
+      - name: Configure and build
+        run: |
+          cmake -S . -B build-ui -DCMAKE_BUILD_TYPE=Release -DBT_BUILD_UI=ON -DBT_WITH_DEVICE=OFF -DBT_BUILD_TESTS=OFF
+          cmake --build build-ui --config Release
+      # Runners have no GPU, which is the point: this renders through WARP to
+      # an offscreen target, exactly as it does on the dev VM.
+      - name: Render each screen headless
+        shell: bash
+        run: |
+          for s in stopped playing countin; do
+            ./build-ui/Release/btui.exe --shot "shot_$s.raw" --w 1280 --h 720 --state "$s"
+          done
+          ls -l shot_*.raw
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: stage-ui-frames
+          path: shot_*.raw
+          retention-days: 14
+
   demo:
     name: end-to-end render
     runs-on: ubuntu-latest

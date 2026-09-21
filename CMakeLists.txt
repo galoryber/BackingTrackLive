@@ -206,3 +206,50 @@ if(BT_WITH_DEVICE)
   target_link_libraries(btplay PRIVATE backtrack_device)
   target_compile_options(btplay PRIVATE ${BT_WARN})
 endif()
+
+# ------------------------------------------------------------------- ui
+#
+# The stage UI. Windows-only for now: it renders with D3D11, which is the
+# only path that works on a machine with no GPU (WARP is a complete software
+# rasteriser, where Windows' own OpenGL stops at 1.1). The UI code itself is
+# backend-agnostic ImGui, so a GL backend for macOS/Linux is additive later.
+#
+# This target is C++ because Dear ImGui is C++. Everything it talks to -
+# libbacktrack - is still pure C, and nothing here leaks back into the
+# library.
+option(BT_BUILD_UI "Build the stage UI (Windows/D3D11)" OFF)
+
+if(BT_BUILD_UI)
+  if(NOT WIN32)
+    message(FATAL_ERROR "BT_BUILD_UI currently requires Windows (D3D11 backend)")
+  endif()
+  enable_language(CXX)
+  set(CMAKE_CXX_STANDARD 17)
+  set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+  include(FetchContent)
+  FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG        f1cc2ae15e53a861a874c3034aae6798fde194ab  # v1.92.9b
+    GIT_SHALLOW    OFF)
+  FetchContent_MakeAvailable(imgui)
+
+  add_library(imgui_d3d11 STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_dx11.cpp
+    ${imgui_SOURCE_DIR}/backends/imgui_impl_win32.cpp)
+  target_include_directories(imgui_d3d11 PUBLIC
+    ${imgui_SOURCE_DIR} ${imgui_SOURCE_DIR}/backends)
+  target_link_libraries(imgui_d3d11 PUBLIC d3d11 dxgi d3dcompiler)
+  # Vendored: held to its own standards, not ours.
+  if(MSVC)
+    target_compile_options(imgui_d3d11 PRIVATE /W0)
+  endif()
+
+  add_executable(btui ui/btui_main.cpp ui/bt_ui_screens.cpp)
+  target_link_libraries(btui PRIVATE backtrack imgui_d3d11)
+  target_include_directories(btui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ui)
+endif()
