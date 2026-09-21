@@ -27,6 +27,7 @@
 #include "backtrack/bt_wav.h"
 #include "backtrack/bt_resample.h"
 #include "backtrack/bt_engine.h"
+#include "backtrack/bt_peaks.h"
 
 extern void *__real_malloc(size_t);
 extern void *__real_calloc(size_t, size_t);
@@ -170,6 +171,12 @@ static void work_resample(void) {
     }
 }
 
+static void work_peaks(void) {
+    const float *in[1] = { g_src };
+    bt_peaks p;
+    if (bt_peaks_build(in, 1, SRC_FRAMES, 64, &p) == BT_OK) bt_peaks_free(&p);
+}
+
 static void work_engine(void) {
     bt_engine_cfg c = { 48000, 4, 512 };
     bt_engine *e = NULL;
@@ -265,6 +272,7 @@ static void test_every_allocation_failure(void) {
     sweep(work_setlist_write,  "bt_setlist_to_json");
     sweep(work_wav_decode,     "bt_wav_decode");
     sweep(work_resample,       "bt_resample_planar");
+    sweep(work_peaks,          "bt_peaks_build");
     sweep(work_engine,         "bt_engine_create");
     __real_free(g_wav);
     __real_free(g_src);

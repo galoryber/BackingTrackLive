@@ -141,9 +141,12 @@ examples/setlist/    a runnable example set list
 - [x] Phase 1.7 — set list / device.json writing (lossless, byte-stable)
 - [x] Phase 1.8 — background loader thread; loading never blocks the UI
 - [x] Phase 1.9 — set list checker (btcheck)
-- [~] Phase 2 — PortAudio device layer. Enumeration, open, callback and
-      btplay are written and build on all three platforms; ASIO and real
-      dropout behaviour need the band laptop and its UMC404HD.
+- [~] Phase 2 — PortAudio device layer. Enumeration, open, stream and
+      btplay work on real Windows through WASAPI; ASIO and real dropout
+      behaviour need the band laptop and its UMC404HD.
+- [~] Phase 3 — stage UI. Play mode done and reviewed. Edit mode next: a
+      full in-app editor, with stem alignment done against a waveform and a
+      click grid (bt_peaks is the foundation for that).
 
 ## Shipping
 
