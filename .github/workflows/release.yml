@@ -70,10 +70,14 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force -Path stage/examples,stage/docs | Out-Null
-          # Every executable that was built. Copying one by name is how the
-          # v0.1.0 zip shipped with btrender alone.
-          Copy-Item build/Release/*.exe stage/
-          Copy-Item build-ui/Release/*.exe stage/ -Force -ErrorAction SilentlyContinue
+          # Named, not globbed. A glob is how v0.1.1 shipped thirteen test
+          # executables: the release job builds tests in order to run them,
+          # so build/Release/*.exe is not the set of things a user wants.
+          # The verify step below is what makes naming them safe.
+          foreach ($t in 'btrender','btcheck','btplay') {
+            Copy-Item "build/Release/$t.exe" stage/ -ErrorAction SilentlyContinue
+          }
+          Copy-Item build-ui/Release/btui.exe stage/ -Force -ErrorAction SilentlyContinue
           Copy-Item README.md,LICENSE,NOTICE stage/
           Copy-Item -Recurse examples/setlist stage/examples/
           Copy-Item docs/*.md stage/docs/
@@ -98,7 +102,15 @@ jobs:
             done
           fi
           test -f stage/docs/gig-laptop.md || { echo "MISSING: docs"; exit 1; }
-          echo "package contents verified"
+          # And nothing the user did not ask for. v0.1.0 was missing tools;
+          # v0.1.1 had thirteen test binaries. Both directions need catching.
+          if ls stage/ | grep -qiE '^test_|^fuzz_'; then
+            echo "UNEXPECTED: test or fuzz binaries in the package"
+            ls stage/
+            exit 1
+          fi
+          echo "package contents verified:"
+          ls -la stage/
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
