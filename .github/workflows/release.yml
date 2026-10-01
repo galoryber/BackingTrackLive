@@ -42,6 +42,12 @@ jobs:
       - name: Build
         run: cmake --build build --config Release
 
+      - name: Build the stage UI (Windows only)
+        if: runner.os == 'Windows'
+        run: |
+          cmake -S . -B build-ui -DCMAKE_BUILD_TYPE=Release -DBT_BUILD_UI=ON -DBT_WITH_DEVICE=OFF -DBT_BUILD_TESTS=OFF
+          cmake --build build-ui --config Release
+
       # A binary nobody has tested is not a release.
       - name: Test
         run: ctest --test-dir build --build-config Release --output-on-failure
@@ -49,23 +55,50 @@ jobs:
       - name: Stage package (POSIX)
         if: runner.os != 'Windows'
         run: |
-          mkdir -p stage/examples
-          cp build/btrender stage/
+          mkdir -p stage/examples stage/docs
+          for t in btrender btcheck btplay; do
+            [ -f "build/$t" ] && cp "build/$t" stage/
+          done
           cp README.md LICENSE NOTICE stage/
           cp -r examples/setlist stage/examples/
-          cp docs/asio.md docs/resampling.md stage/ 2>/dev/null || true
+          cp docs/*.md stage/docs/
+          echo "staged:"; (cd stage && find . -type f | sed 's|^|  |')
           tar -czf backingtracklive-${{ matrix.name }}.tar.gz -C stage .
 
       - name: Stage package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
-          New-Item -ItemType Directory -Force -Path stage/examples | Out-Null
-          Copy-Item build/Release/btrender.exe stage/
+          New-Item -ItemType Directory -Force -Path stage/examples,stage/docs | Out-Null
+          # Every executable that was built. Copying one by name is how the
+          # v0.1.0 zip shipped with btrender alone.
+          Copy-Item build/Release/*.exe stage/
+          Copy-Item build-ui/Release/*.exe stage/ -Force -ErrorAction SilentlyContinue
           Copy-Item README.md,LICENSE,NOTICE stage/
           Copy-Item -Recurse examples/setlist stage/examples/
-          Copy-Item docs/asio.md,docs/resampling.md stage/
+          Copy-Item docs/*.md stage/docs/
+          Write-Host "staged:"
+          Get-ChildItem stage -Recurse -File | ForEach-Object { "  " + $_.FullName.Replace("$PWD\stage\","") }
           Compress-Archive -Path stage/* -DestinationPath backingtracklive-${{ matrix.name }}.zip
+
+      # A release that does not contain its own tools is worse than no
+      # release: v0.1.0 shipped with only btrender and notes describing four
+      # tools and a UI.
+      - name: Verify the package contains the tools
+        shell: bash
+        run: |
+          set -e
+          if [ "${{ runner.os }}" = "Windows" ]; then
+            for t in btrender.exe btcheck.exe btplay.exe btui.exe; do
+              test -f "stage/$t" || { echo "MISSING: $t"; exit 1; }
+            done
+          else
+            for t in btrender btcheck; do
+              test -f "stage/$t" || { echo "MISSING: $t"; exit 1; }
+            done
+          fi
+          test -f stage/docs/gig-laptop.md || { echo "MISSING: docs"; exit 1; }
+          echo "package contents verified"
 
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
