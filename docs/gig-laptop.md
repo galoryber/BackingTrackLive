@@ -48,11 +48,21 @@ Confirm it installed as ASIO rather than WDM/MME: the driver's own control
 panel should appear, and `btplay --list-devices` should show a `ASIO` entry
 once you have the binary.
 
-Why this matters more than it sounds: Windows presents the UMC404HD to WASAPI
-as **two separate stereo endpoints**, not one four-channel device. Two
-endpoints means two clocks, and two clocks means the click drifts away from
-the backing track over the length of a song. Four separate outputs — band mix
-to front of house, click to in-ears — need ASIO. There is no way around it.
+This step is **not** a prerequisite, contrary to what this document said
+first. The claim was that Windows splits the UMC404HD into two stereo
+endpoints, so four-output routing needed ASIO. Measured on the real hardware,
+the driver exposes a four-channel endpoint under every API:
+
+```
+OUT 1-2 (2- BEHRINGER UMC 404HD 192k)   Windows WASAPI   2 ch   48000   3.0ms
+OUT 3-4 (2- BEHRINGER UMC 404HD 192k)   Windows WASAPI   2 ch   48000   3.0ms
+OUT 1-4 (2- BEHRINGER UMC 404HD 192k)   Windows WASAPI   4 ch   48000   3.0ms
+```
+
+`OUT 1-4` is one device and therefore one clock, so front of house on 1/2 with
+the click on 3/4 works through WASAPI, and through WDM-KS. Install ASIO
+anyway when convenient — exclusive access and lower latency are worth having —
+but do not wait on it to start testing.
 
 ---
 
@@ -90,21 +100,30 @@ Expect the same speakers listed under MME, DirectSound, WASAPI and WDM-KS with
 very different latencies. That is normal and is exactly why `device.json` has
 an `api` field.
 
-**Play, using the stereo fallback.** WASAPI gives two channels per endpoint,
-which is enough for the configuration a lot of bar bands actually run: band
-mix on the left, click on the right, split into two mono feeds at the desk.
+**Play, with real four-channel routing.** Select the `OUT 1-4` endpoint and
+put front of house on 1/2 and the click on 3/4:
 
 ```json
 {
-  "device": "UMC404HD",
+  "device": "OUT 1-4",
   "api": "WASAPI",
   "sample_rate": 48000,
   "buffer_frames": 512,
   "buses": [
+    { "name": "foh",   "channels": [0, 1] },
+    { "name": "inear", "channels": [2, 3] }
+  ]
+}
+```
+
+The stereo fallback — band mix one side, click the other, split to two mono
+feeds at the desk — is still there for an interface that only has two outputs:
+
+```json
+  "buses": [
     { "name": "foh",   "channels": [0] },
     { "name": "inear", "channels": [1] }
   ]
-}
 ```
 
 ```

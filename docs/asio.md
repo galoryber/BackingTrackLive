@@ -49,15 +49,25 @@ This is a real tension worth stating plainly rather than discovering later.
 Public CI cannot build ASIO support, because the SDK cannot live in this
 repository. So the binaries attached to a public Release are WASAPI-only.
 
-And WASAPI is not sufficient for the interface this project is being built
-against. Windows presents the Behringer UMC404HD to WASAPI as **two separate
-stereo endpoints** (1/2 and 3/4) rather than one four-channel device. Two
-endpoints means two clocks, and two clocks means the click drifts against the
-backing track over the length of a song. The routing model deliberately assumes
-a single device, because aggregating devices is exactly where sync goes to die.
+**Corrected.** This document used to say that Windows presents the UMC404HD
+to WASAPI as two separate stereo endpoints, so four-output routing required
+ASIO. That came from forum posts rather than from measurement, and it is
+wrong for this driver. Enumerated on the band's laptop:
 
-So for a four-output interface, ASIO is not an optimisation - it is the only
-path that works.
+```
+OUT 1-2 (2- BEHRINGER UMC 404HD 192k)   Windows WASAPI   2 ch   48000   3.0ms
+OUT 3-4 (2- BEHRINGER UMC 404HD 192k)   Windows WASAPI   2 ch   48000   3.0ms
+OUT 1-4 (2- BEHRINGER UMC 404HD 192k)   Windows WASAPI   4 ch   48000   3.0ms
+```
+
+`OUT 1-4` is a single four-channel device - one device, one clock - so the
+drift concern does not arise. Front of house on 1/2 with the click on 3/4
+works through WASAPI today, and WDM-KS exposes the same four-channel endpoint.
+
+ASIO is therefore **not** on the critical path. It is still worth having: it
+is what the rest of the live-audio world uses, it takes the device
+exclusively rather than sharing it with the Windows mixer, and it generally
+reaches lower latency. But it is an improvement, not a prerequisite.
 
 The way out, once the Steinberg agreement is signed:
 

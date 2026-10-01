@@ -72,10 +72,11 @@ Visual C++ redistributable - unzip and run.
 
 One caveat worth reading before trusting a public build on stage: released
 binaries are **WASAPI-only**, because the ASIO SDK cannot be committed to this
-repository. Windows presents a four-output interface such as the UMC404HD to
-WASAPI as two separate stereo devices, which means two clocks and a click that
-drifts against the tracks. Separate click routing needs ASIO. See
-[`docs/asio.md`](docs/asio.md) for how that build gets produced.
+repository. That turns out to be a smaller limitation than expected — the
+UMC404HD's driver exposes a four-channel `OUT 1-4` endpoint under WASAPI, so
+front of house on 1/2 and the click on 3/4 works without ASIO. ASIO remains
+worth having for exclusive device access and lower latency; see
+[`docs/asio.md`](docs/asio.md).
 
 ## Build from source
 
