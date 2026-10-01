@@ -5,6 +5,10 @@
 # rendered Actions page is easy to misread, and a workflow run's own
 # conclusion is the only thing worth trusting. Takes a ref (default: the
 # current HEAD).
+#
+# Exit codes: 0 green, 1 a job failed, 2 still running. Those are distinct on
+# purpose - treating "in progress" as a failure is the same class of mistake
+# as treating a failure as success, just in the other direction.
 set -eu
 
 REPO=${REPO:-galoryber/BackingTrackLive}
@@ -38,14 +42,26 @@ for r in runs:
     latest.setdefault(r["name"], r)
 
 bad = 0
+pending = 0
 for name in sorted(latest):
     r = latest[name]
-    state = r["conclusion"] or r["status"]
-    if state not in ("success", "neutral", "skipped"):
+    done = r["status"] == "completed"
+    state = r["conclusion"] if done else r["status"]
+    if not done:
+        pending += 1
+    elif state not in ("success", "neutral", "skipped"):
         bad += 1
     print(f"  {state:<12} {name}")
 
 print()
-print("FAILING" if bad else "all green", f"({len(latest)} job(s))")
-sys.exit(1 if bad else 0)
+# "Still running" is not "failing". Conflating them is how a green run gets
+# reported as a red one, which is the same class of mistake as the reverse.
+if bad:
+    print(f"FAILING ({bad} of {len(latest)} job(s))")
+    sys.exit(1)
+if pending:
+    print(f"PENDING ({pending} of {len(latest)} job(s) still running)")
+    sys.exit(2)
+print(f"all green ({len(latest)} job(s))")
+sys.exit(0)
 PY

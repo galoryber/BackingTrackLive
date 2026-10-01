@@ -86,12 +86,21 @@ jobs:
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: dist
+      # Hand-written notes when there are any, because a list of commit
+      # subjects is not a release note. Falls back to generated ones so a tag
+      # never fails for want of a file.
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           find dist -type f \( -name '*.zip' -o -name '*.tar.gz' \) -print
+          NOTES="docs/release-notes/${GITHUB_REF_NAME}.md"
+          if [ -f "$NOTES" ]; then
+            NOTE_ARG=(--notes-file "$NOTES")
+          else
+            NOTE_ARG=(--generate-notes)
+          fi
           gh release create "${GITHUB_REF_NAME}" \
             --title "${GITHUB_REF_NAME}" \
-            --generate-notes \
+            "${NOTE_ARG[@]}" \
             $(find dist -type f \( -name '*.zip' -o -name '*.tar.gz' \))
