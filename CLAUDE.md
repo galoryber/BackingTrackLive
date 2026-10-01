@@ -146,8 +146,15 @@ examples/setlist/    a runnable example set list
       hot-unplug need the band laptop and its UMC404HD — see
       `docs/gig-laptop.md`.
 - [~] Phase 3 — stage UI. Play mode done and reviewed on a real screen. Edit
-      mode has the set list and song editors; the align view (waveform against
-      a click grid) is next, with `bt_peaks` already in place for it.
+      mode has the set list and song editors. Still to do:
+      - the align view: waveform against a click grid, drag to nudge, audition
+        a few bars to confirm by ear. `bt_peaks` is in place for it.
+      - a **routing editor**: pick the device and API from the enumerated list
+        and map buses to channels, instead of hand-writing `device.json`.
+        `bt_device_cfg_save_file` already writes the file losslessly, and
+        `bt_device_*` already enumerates — this is a screen over two things
+        that exist. Hand-editing JSON is fine for a technical user and is the
+        wrong first experience for anyone else.
 - [ ] Phase 4 — MIDI in (footswitch) / MIDI out (patch changes)
 - [ ] Phase 5 — DMX via Art-Net / sACN
 

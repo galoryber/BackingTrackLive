@@ -279,7 +279,9 @@ hardware.
 | 1.7 | Set list / device.json writing | done |
 | 1.8 | Background loader thread | done |
 | 1.9 | Set list checker (`btcheck`) | done |
-| 2 | PortAudio device layer (WASAPI, then ASIO) | builds; needs hardware |
+| 2 | PortAudio device layer (WASAPI, then ASIO) | WASAPI working on hardware |
+| 3 | Stage UI: play mode, set list and song editors | done |
+| 3.1 | Align view (waveform vs click grid) and routing editor | next |
 | 3 | Stage UI (Dear ImGui via cimgui) | |
 | 4 | MIDI in (footswitch) and out (patch changes) | |
 | 5 | DMX lighting via Art-Net / sACN | |

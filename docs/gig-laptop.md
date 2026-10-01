@@ -100,6 +100,16 @@ Expect the same speakers listed under MME, DirectSound, WASAPI and WDM-KS with
 very different latencies. That is normal and is exactly why `device.json` has
 an `api` field.
 
+**Make something to play.** The release has no audio in it, and the machine
+that plays a show should not need Python installed to try the thing:
+
+```
+btrender --make-demo demo
+```
+
+That writes stems, a `setlist.json` and a `device.json` into `demo\` — a
+complete, runnable set with nothing else to install.
+
 **Play, with real four-channel routing.** Select the `OUT 1-4` endpoint and
 put front of house on 1/2 and the click on 3/4:
 
