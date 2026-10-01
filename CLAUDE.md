@@ -141,21 +141,26 @@ examples/setlist/    a runnable example set list
 - [x] Phase 1.7 — set list / device.json writing (lossless, byte-stable)
 - [x] Phase 1.8 — background loader thread; loading never blocks the UI
 - [x] Phase 1.9 — set list checker (btcheck)
-- [~] Phase 2 — PortAudio device layer. Enumeration, open, stream and
-      btplay work on real Windows through WASAPI; ASIO and real dropout
-      behaviour need the band laptop and its UMC404HD.
-- [~] Phase 3 — stage UI. Play mode done and reviewed. Edit mode next: a
-      full in-app editor, with stem alignment done against a waveform and a
-      click grid (bt_peaks is the foundation for that).
+- [~] Phase 2 — PortAudio device layer. Enumeration, open, stream and btplay
+      work on real Windows through WASAPI. ASIO, real dropout behaviour and
+      hot-unplug need the band laptop and its UMC404HD — see
+      `docs/gig-laptop.md`.
+- [~] Phase 3 — stage UI. Play mode done and reviewed on a real screen. Edit
+      mode has the set list and song editors; the align view (waveform against
+      a click grid) is next, with `bt_peaks` already in place for it.
+- [ ] Phase 4 — MIDI in (footswitch) / MIDI out (patch changes)
+- [ ] Phase 5 — DMX via Art-Net / sACN
 
 ## Shipping
 
-Nothing but CI needs a compiler. Every green `ci` run uploads a runnable
-`btrender` per platform (30-day artifacts); a `v*` tag runs `release.yml`,
-which tests the Release build and publishes packaged binaries. MSVC links the
-CRT statically so a released .exe needs no VC++ redistributable.
+Nothing but CI needs a compiler — including the gig laptop, which should stay
+as clean as possible. Every green `ci` run uploads a runnable `btrender` per
+platform (30-day artifacts); a `v*` tag runs `release.yml`, which tests the
+Release build and publishes packaged binaries. MSVC links the CRT statically
+so a released .exe needs no VC++ redistributable.
 
 All three platforms build warning-clean with `-Werror`. Keep it that way.
-- [ ] Phase 3 — cimgui stage UI
-- [ ] Phase 4 — MIDI in (footswitch) / MIDI out (patch changes)
-- [ ] Phase 5 — DMX via Art-Net / sACN
+
+Released binaries are **WASAPI-only**: the ASIO SDK cannot live in this
+repository, so CI cannot build ASIO support. An ASIO build is produced out of
+band — see `docs/asio.md`.

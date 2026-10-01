@@ -289,7 +289,9 @@ are written and build on all three platforms, but ASIO and real dropout
 behaviour need hardware.
 
 See [`docs/asio.md`](docs/asio.md) for why the ASIO SDK is not, and will not
-be, committed to this repository.
+be, committed to this repository, and [`docs/gig-laptop.md`](docs/gig-laptop.md)
+for how the machine that actually plays the show gets set up and measured -
+which does not involve installing a compiler on it.
 
 ## License
 
