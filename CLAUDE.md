@@ -132,6 +132,13 @@ examples/setlist/    a runnable example set list
   against a Windows target.
 - Tests are deterministic. Golden renders compare against committed hashes.
 
+## Roadmap
+
+`docs/roadmap.md` tracks CLI/UI parity — every job that today needs a command
+or hand-edited JSON is a gap for anyone who is not a developer — and, just as
+importantly, what this deliberately will not do. Add to it rather than
+letting future work live only in a conversation.
+
 ## Phase status
 
 - [x] Phase 0 — repo, build, CI, test harness

@@ -270,6 +270,10 @@ hardware.
 
 ## Roadmap
 
+[`docs/roadmap.md`](docs/roadmap.md) carries the detail: what still needs a UI
+rather than a command line, and what this deliberately will not do.
+
+
 | Phase | Content | Status |
 |---|---|---|
 | 0 | Repo, build, CI, test harness | done |
