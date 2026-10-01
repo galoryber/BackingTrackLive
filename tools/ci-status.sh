@@ -36,17 +36,27 @@ if not runs:
     print("no check runs yet for this ref")
     sys.exit(3)
 
-# Newest result per job name.
+# Newest result per job name, chosen by time rather than by list order.
+#
+# The API does not promise an order, and a re-run leaves two entries with the
+# same name: taking whichever came back first reported a stale failure as the
+# current state. That is precisely the mistake this script exists to prevent,
+# so it is worth the four extra lines.
+def when(r):
+    return r.get("completed_at") or r.get("started_at") or ""
+
 latest = {}
 for r in runs:
-    latest.setdefault(r["name"], r)
+    prev = latest.get(r["name"])
+    if prev is None or when(r) >= when(prev):
+        latest[r["name"]] = r
 
 bad = 0
 pending = 0
 for name in sorted(latest):
     r = latest[name]
     done = r["status"] == "completed"
-    state = r["conclusion"] if done else r["status"]
+    state = (r["conclusion"] or "?") if done else r["status"]
     if not done:
         pending += 1
     elif state not in ("success", "neutral", "skipped"):
