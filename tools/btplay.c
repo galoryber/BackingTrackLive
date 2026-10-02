@@ -177,6 +177,7 @@ int main(int argc, char **argv) {
     int32_t got_rate = 0, got_buf = 0;
     double  got_lat  = 0.0;
     bt_device_actual(d, &got_rate, &got_buf, &got_lat);
+    if (got_buf <= 0) got_buf = dev.buffer_frames;
 
     bt_device_info di;
     if (bt_device_get(idx, &di) != BT_OK) memset(&di, 0, sizeof(di));
@@ -217,8 +218,22 @@ int main(int argc, char **argv) {
                (unsigned long long)bt_device_xruns(d));
         fflush(stdout);
 
-        if (bt_device_lost(d)) {
-            printf("\n\n  ** audio device disappeared **\n");
+        /* Three buffer periods of silence from the audio thread, floored so a
+         * large buffer does not make this sluggish and a tiny one does not
+         * make it twitchy. Pulling the USB cable produces no error from
+         * WASAPI at all - the callbacks simply stop - so this, not the
+         * backend's opinion, is what notices. */
+        int32_t quiet_ms = (got_buf > 0 && got_rate > 0)
+                         ? (int32_t)(3000.0 * got_buf / got_rate) : 250;
+        if (quiet_ms < 150) quiet_ms = 150;
+        if (quiet_ms > 2000) quiet_ms = 2000;
+
+        if (bt_device_lost(d) || bt_device_stalled(d, quiet_ms)) {
+            printf("\n\n  ** the audio device stopped responding **\n");
+            printf("     %llu callbacks delivered, then nothing for %d ms.\n",
+                   (unsigned long long)bt_device_callbacks(d), quiet_ms);
+            printf("     Usually this means the interface was unplugged.\n");
+            bt_player_stop(p);
             break;
         }
         if (t == BT_TICK_SONG_ENDED) {

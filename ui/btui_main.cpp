@@ -21,6 +21,9 @@
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
+#include "backtrack/bt_player.h"
+#include "backtrack/bt_device.h"
+
 #include "bt_ui.h"
 #include "bt_ui_edit.h"
 
@@ -74,62 +77,97 @@ bt_setlist *make_demo_setlist() {
     return sl;
 }
 
-/* ------------------------------------------------- simulated transport */
+/* --------------------------------------------------------------- app */
 
-struct Sim {
-    bt_setlist *sl = nullptr;
-    int  current = 0, selected = 0;
-    bool playing = false;
-    bool show_clock = false;
-    double song_len = 210.0;      /* stand-in; real songs come from stems */
+/* Real transport where a device can be opened, simulated where one cannot.
+ *
+ * The simulation exists for two honest reasons: --shot renders screens on
+ * machines with no audio at all, and a laptop with the interface unplugged
+ * should still let you build a set list. It is never a substitute for
+ * playback when playback is possible - taking a device.json and then not
+ * opening a device is exactly the behaviour that made this UI misleading. */
+struct App {
+    bt_setlist   *sl     = nullptr;
+    bt_device_cfg dev{};
+    bt_player    *player = nullptr;
+    bt_device    *device = nullptr;
+    bool          live   = false;      /* a real stream is open */
+    int32_t       selected = 0;
+    bool          show_clock = false;
+    char          note[200] = {0};
+
+    /* Simulated fallback, used only when live is false. */
+    bool          sim_playing = false;
     LARGE_INTEGER freq{}, t0{};
-    double start_sec = 0.0;       /* negative when starting from a count-in */
+    double        sim_start = 0.0;
 
-    void begin(bool with_count_in) {
-        QueryPerformanceCounter(&t0);
-        const bt_song &s = sl->song[current];
-        double bpm = s.tempo.seg[0].bpm;
-        int beats = s.count_in_bars * s.tempo.sig_num;
-        start_sec = with_count_in ? -(beats * 60.0 / bpm) : 0.0;
-        playing = true;
-    }
-
-    double now_sec() const {
+    double sim_now() const {
         LARGE_INTEGER n;
         QueryPerformanceCounter(&n);
-        return start_sec + (double)(n.QuadPart - t0.QuadPart) / (double)freq.QuadPart;
+        return sim_start + (double)(n.QuadPart - t0.QuadPart) / (double)freq.QuadPart;
     }
 };
 
-void fill_state(bt_ui_state &st, const Sim &sim) {
-    std::memset(&st, 0, sizeof(st));
-    st.setlist       = sim.sl;
-    st.current       = sim.current;
-    st.selected      = sim.selected;
-    st.playing       = sim.playing;
-    st.sample_rate   = 48000;
-    st.show_clock    = sim.show_clock;
-    st.total_sec     = sim.song_len;
+App g_app;
 
-    const bt_song &s = sim.sl->song[st.current];
+void audio_cb(float *const *out, int32_t nframes, void *user) {
+    bt_player_render((bt_player *)user, out, nframes);
+}
+
+void transport_start(App &a, bool count_in) {
+    if (a.live) {
+        if (bt_player_select(a.player, a.selected) != BT_OK) return;
+        if (count_in) bt_player_start(a.player);
+        else { bt_player_stop(a.player); bt_player_play(a.player); }
+        return;
+    }
+    const bt_song &s = a.sl->song[a.selected];
+    QueryPerformanceCounter(&a.t0);
+    double bpm = s.tempo.nseg ? s.tempo.seg[0].bpm : 120.0;
+    int beats = s.count_in_bars * (s.tempo.sig_num > 0 ? s.tempo.sig_num : 4);
+    a.sim_start = count_in ? -(beats * 60.0 / bpm) : 0.0;
+    a.sim_playing = true;
+}
+
+void transport_stop(App &a) {
+    if (a.live) bt_player_stop(a.player);
+    else        a.sim_playing = false;
+}
+
+bool transport_playing(const App &a) {
+    return a.live ? bt_player_playing(a.player) : a.sim_playing;
+}
+
+int32_t transport_current(const App &a) {
+    return a.live ? bt_player_current(a.player) : a.selected;
+}
+
+void fill_state(bt_ui_state &st, App &a) {
+    std::memset(&st, 0, sizeof(st));
+    st.setlist     = a.sl;
+    st.selected    = a.selected;
+    st.show_clock  = a.show_clock;
+    st.sample_rate = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
+    st.playing     = transport_playing(a);
+
+    int32_t cur = transport_current(a);
+    if (cur < 0) cur = 0;
+    if (cur >= a.sl->nsongs) cur = a.sl->nsongs - 1;
+    st.current = cur;
+    if (a.sl->nsongs == 0) return;
+
+    const bt_song &s = a.sl->song[cur];
     st.bpm           = s.tempo.nseg ? s.tempo.seg[0].bpm : 120.0;
     st.beats_per_bar = s.tempo.sig_num > 0 ? s.tempo.sig_num : 4;
 
-    /* Editing can remove songs from under us. */
-    if (st.current >= sim.sl->nsongs) st.current = sim.sl->nsongs - 1;
-    if (st.selected >= sim.sl->nsongs) st.selected = sim.sl->nsongs - 1;
-    if (st.current < 0) st.current = 0;
-    if (st.selected < 0) st.selected = 0;
+    st.playhead = a.live ? bt_player_playhead(a.player)
+                         : (bt_frame)((a.sim_playing ? a.sim_now() : 0.0) * st.sample_rate);
 
-    double el = sim.playing ? sim.now_sec() : 0.0;
-    st.elapsed_sec = el;
-    st.playhead    = (bt_frame)(el * st.sample_rate);
-
-    double beats = el * st.bpm / 60.0;
-    st.beat = (int64_t)std::floor(beats);
-
+    /* Beat position comes from the same tempo map the click is generated
+     * from, so the number on screen and the click in the ears cannot
+     * disagree. */
+    st.beat = bt_tempo_frame_beat(&s.tempo, st.playhead, st.sample_rate);
     if (st.beat < 0) {
-        /* -3 -> "3": the number is how many beats until you come in. */
         st.count_in_left = (int32_t)(-st.beat);
         int n = st.beats_per_bar;
         int m = (int)(st.beat % n);
@@ -140,6 +178,10 @@ void fill_state(bt_ui_state &st, const Sim &sim) {
         st.bar         = (int32_t)(st.beat / st.beats_per_bar) + 1;
         st.beat_in_bar = (int32_t)(st.beat % st.beats_per_bar);
     }
+
+    st.elapsed_sec = (double)st.playhead / st.sample_rate;
+    st.total_sec   = (double)bt_song_length(&s, st.sample_rate) / st.sample_rate;
+    st.xruns       = a.live ? bt_device_xruns(a.device) : 0;
 }
 
 /* ----------------------------------------------------------- d3d11 bits */
@@ -184,7 +226,6 @@ void make_rtv() {
 
 void drop_rtv() { if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; } }
 
-Sim g_sim;
 bt_ui_edit g_edit;
 bool g_editing = false;
 bool g_quit = false;
@@ -213,10 +254,9 @@ void toggle_fullscreen(HWND hwnd) {
 }
 
 void on_key(HWND hwnd, WPARAM key) {
-    Sim &s = g_sim;
+    App &a = g_app;
 
     if (g_editing) {
-        /* Edit mode gets the keyboard, except the two that must always work. */
         if (key == VK_F11) { toggle_fullscreen(hwnd); return; }
         if (key == 'E' && !ImGui::GetIO().WantTextInput) { g_editing = false; return; }
         bt_ui_edit_key(g_edit, (int)key);
@@ -228,33 +268,31 @@ void on_key(HWND hwnd, WPARAM key) {
         if (g_fullscreen) toggle_fullscreen(hwnd); else g_quit = true;
         break;
     case VK_SPACE:
-        if (s.playing) s.playing = false;
-        else { s.current = s.selected; s.begin(true); }
+        if (transport_playing(a)) transport_stop(a);
+        else                      transport_start(a, true);
         break;
     case VK_RETURN:
-        s.current = s.selected;
-        s.begin(false);           /* straight in, no count-in */
+        transport_start(a, false);          /* straight in, no count-in */
         break;
     case VK_UP:
-        if (s.selected > 0) s.selected--;
+        if (a.selected > 0) a.selected--;
         break;
     case VK_DOWN:
-        if (s.selected + 1 < s.sl->nsongs) s.selected++;
+        if (a.selected + 1 < a.sl->nsongs) a.selected++;
         break;
     case 'N':
-        if (s.current + 1 < s.sl->nsongs) {
-            s.current++;
-            s.selected = s.current;
-            if (s.playing) s.begin(false);
+        if (a.selected + 1 < a.sl->nsongs) {
+            a.selected++;
+            if (transport_playing(a)) transport_start(a, false);
         }
         break;
     case 'C':
-        s.show_clock = !s.show_clock;
+        a.show_clock = !a.show_clock;
         break;
     case 'E':
         /* Blocked while playing, deliberately: the one thing worse than a
          * fiddly editor is one that can appear over a performance. */
-        if (!s.playing) g_editing = !g_editing;
+        if (!transport_playing(a)) g_editing = !g_editing;
         break;
     case VK_F11:
         toggle_fullscreen(hwnd);
@@ -466,12 +504,11 @@ int main(int argc, char **argv) {
     /* A real set list if one was named, otherwise the demo - which is
      * editable so the screens can be exercised, but has nowhere to save to
      * and says so rather than pretending. */
-    static bt_device_cfg dev_cfg;
-    bt_device_cfg_defaults(&dev_cfg);
+    bt_device_cfg_defaults(&g_app.dev);
     bool have_dev = false;
     if (device_path) {
         int line = 0;
-        bt_err e = bt_device_cfg_load_file(device_path, &dev_cfg, &line);
+        bt_err e = bt_device_cfg_load_file(device_path, &g_app.dev, &line);
         if (e != BT_OK)
             std::fprintf(stderr, "%s: %s (line %d) - using defaults\n",
                          device_path, bt_strerror(e), line);
@@ -489,19 +526,64 @@ int main(int argc, char **argv) {
         }
     }
     if (!sl) sl = make_demo_setlist();
-
-    g_sim.sl = sl;
-    g_sim.selected = 0;
-    g_sim.current  = 0;
-    QueryPerformanceFrequency(&g_sim.freq);
+    g_app.sl = sl;
+    QueryPerformanceFrequency(&g_app.freq);
 
     g_edit.sl  = sl;
-    g_edit.dev = &dev_cfg;
+    g_edit.dev = &g_app.dev;
     g_edit.can_save = (setlist_path != nullptr);
     if (setlist_path) std::snprintf(g_edit.path, sizeof(g_edit.path), "%s", setlist_path);
-    if (!have_dev)
-        std::snprintf(g_edit.status, sizeof(g_edit.status),
-                      "no device.json given - bus names are the built-in defaults");
+
+    /* Open the device. Everything below degrades to a simulated transport if
+     * this fails, and says which it is - a UI that silently plays nothing is
+     * how this version started. */
+    int32_t nch = 0;
+    for (int32_t i = 0; i < g_app.dev.nbuses; i++)
+        for (int32_t k = 0; k < g_app.dev.bus[i].nch; k++)
+            if (g_app.dev.bus[i].ch[k] + 1 > nch) nch = g_app.dev.bus[i].ch[k] + 1;
+
+    if (setlist_path && nch > 0 && bt_device_init() == BT_OK) {
+        bt_player_cfg pc = { g_app.dev.sample_rate, nch, g_app.dev.buffer_frames, 1, 30000 };
+        if (bt_player_create(&pc, sl, &g_app.dev, &g_app.player) == BT_OK &&
+            bt_player_select(g_app.player, 0) == BT_OK) {
+
+            const char *want_name = (g_app.dev.device[0] &&
+                                     std::strcmp(g_app.dev.device, "default") != 0)
+                                  ? g_app.dev.device : nullptr;
+            int32_t idx = bt_device_best(want_name,
+                                         g_app.dev.api[0] ? g_app.dev.api : nullptr);
+
+            bt_device_open_cfg oc = { idx, nch, g_app.dev.sample_rate,
+                                      g_app.dev.buffer_frames };
+            bt_err e = bt_device_open(&oc, audio_cb, g_app.player, &g_app.device);
+            if (e == BT_OK && bt_device_start(g_app.device) == BT_OK) {
+                g_app.live = true;
+                bt_device_info di;
+                if (bt_device_get(idx, &di) != BT_OK) std::memset(&di, 0, sizeof(di));
+                std::snprintf(g_app.note, sizeof(g_app.note), "%s (%s)",
+                              di.name[0] ? di.name : "default", di.api);
+            } else {
+                std::snprintf(g_app.note, sizeof(g_app.note),
+                              "no audio: %s", bt_strerror(e));
+                bt_device_close(g_app.device);
+                g_app.device = nullptr;
+            }
+        }
+    }
+    if (!g_app.live && !g_app.note[0])
+        std::snprintf(g_app.note, sizeof(g_app.note),
+                      setlist_path ? "no audio device opened"
+                                   : "demo set, no audio - start with --setlist and --device");
+
+    {
+        char title[320];
+        std::snprintf(title, sizeof(title),
+                      g_app.live ? "BackingTrackLive - %s"
+                                 : "BackingTrackLive - %s (simulated transport)",
+                      g_app.note);
+        SetWindowTextA(hwnd, title);
+    }
+    std::fprintf(stderr, "%s\n", g_app.note);
 
     while (!g_quit) {
         MSG msg;
@@ -517,17 +599,38 @@ int main(int argc, char **argv) {
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
+        if (g_app.live) {
+            bt_tick_result t = BT_TICK_IDLE;
+            bt_player_tick(g_app.player, &t);
+            if (t == BT_TICK_ADVANCED) g_app.selected = bt_player_current(g_app.player);
+
+            /* Three buffer periods with no callback means the interface is
+             * gone. WASAPI reports no error for an unplug - the callbacks
+             * simply stop - so their absence is the only signal there is. */
+            int32_t quiet = (int32_t)(3000.0 * g_app.dev.buffer_frames /
+                                      (g_app.dev.sample_rate > 0 ? g_app.dev.sample_rate : 48000));
+            if (quiet < 150) quiet = 150;
+            if (quiet > 2000) quiet = 2000;
+            if (bt_device_lost(g_app.device) || bt_device_stalled(g_app.device, quiet)) {
+                bt_player_stop(g_app.player);
+                g_app.live = false;
+                std::snprintf(g_app.note, sizeof(g_app.note),
+                              "audio device stopped responding - was it unplugged?");
+                char title[320];
+                std::snprintf(title, sizeof(title), "BackingTrackLive - %s", g_app.note);
+                SetWindowTextA(hwnd, title);
+            }
+        }
+
         if (g_editing) {
             g_edit.song = g_edit.song < 0 ? 0 : g_edit.song;
             if (!bt_ui_edit_draw(g_edit)) g_editing = false;
-            /* Keep the play view's cursor on something that still exists. */
-            if (g_sim.selected >= g_sim.sl->nsongs)
-                g_sim.selected = g_sim.sl->nsongs - 1;
-            if (g_sim.current >= g_sim.sl->nsongs)
-                g_sim.current = g_sim.sl->nsongs - 1;
+            if (g_app.selected >= g_app.sl->nsongs)
+                g_app.selected = g_app.sl->nsongs - 1;
+            if (g_app.selected < 0) g_app.selected = 0;
         } else {
             bt_ui_state st;
-            fill_state(st, g_sim);
+            fill_state(st, g_app);
             bt_ui_draw(st);
         }
 
@@ -538,6 +641,10 @@ int main(int argc, char **argv) {
         ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
         g_swap->Present(1, 0);
     }
+
+    if (g_app.device) { bt_device_stop(g_app.device); bt_device_close(g_app.device); }
+    if (g_app.player) bt_player_destroy(g_app.player);
+    if (g_app.live || g_app.device) bt_device_term();
 
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

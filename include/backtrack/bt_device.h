@@ -98,8 +98,31 @@ void bt_device_actual(const bt_device *d, int32_t *sample_rate,
  * is the number that matters: it is the count of audible glitches. */
 uint64_t bt_device_xruns(const bt_device *d);
 
-/* True once the backend reports the stream is no longer running - which is
- * what a kicked USB cable looks like from here. */
+/* Has the device stopped delivering audio?
+ *
+ * The obvious implementation - ask the backend whether the stream errored -
+ * does not work. Pulling the USB cable on a WASAPI stream produces no error
+ * at all: the callback simply stops being called, the stream still claims to
+ * be active, and a caller waiting for an error waits forever. That was the
+ * first version of this, and on stage it meant the music stopped with a
+ * frozen screen and no explanation.
+ *
+ * So the signal is the absence of callbacks. `quiet_ms` is how long to allow
+ * with none arriving before calling it lost; two or three buffer periods is
+ * about right, and the caller knows its own buffer size. Only meaningful
+ * while the stream is started.
+ *
+ * This is the one place a wall clock is legitimate: it measures whether the
+ * audio thread is alive, which is not a musical quantity. Nothing that ends
+ * up in a sample position may use it. */
+bool bt_device_stalled(bt_device *d, int32_t quiet_ms);
+
+/* Callbacks delivered since the stream started. Monotonic; exposed so a UI
+ * can show that audio is actually flowing rather than inferring it. */
+uint64_t bt_device_callbacks(const bt_device *d);
+
+/* The backend's own opinion, which is a weaker signal than bt_device_stalled
+ * and is kept because when it does fire it fires immediately. */
 bool bt_device_lost(const bt_device *d);
 
 /* Last backend error text, or "" - static storage, never NULL. */

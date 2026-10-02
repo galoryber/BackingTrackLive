@@ -28,7 +28,7 @@ static int usage(void) {
         "usage: btrender <setlist.json> <device.json> <song-index> <out.wav>\n"
         "                [--no-count-in] [--block N]\n"
         "       btrender <setlist.json> <device.json> --set <out.wav> [--block N]\n"
-        "       btrender --make-demo <dir>\n"
+        "       btrender --make-demo <dir> [--seconds N]\n"
         "\n"
         "  --set        render the whole set list as one continuous file,\n"
         "               following each song's on_end. Songs marked \"stop\"\n"
@@ -37,7 +37,11 @@ static int usage(void) {
         "  --make-demo  write a complete, runnable demo into <dir>: stems,\n"
         "               setlist.json and device.json. Needs nothing else\n"
         "               installed - the machine that plays a show should not\n"
-        "               have to grow a toolchain to try this.\n");
+        "               have to grow a toolchain to try this.\n"
+        "  --seconds N  length of each demo stem, default 120. Short stems are\n"
+        "               useless for measuring dropouts: a machine that drops a\n"
+        "               buffer three times in ten minutes will read zero over\n"
+        "               ten seconds, whatever its real behaviour.\n");
     return 2;
 }
 
@@ -88,7 +92,7 @@ static bt_err write_text_file(const char *path, const char *text) {
     return ok ? BT_OK : BT_ERR_IO;
 }
 
-static int make_demo(const char *dir) {
+static int make_demo(const char *dir, double seconds) {
     char path[BT_MAX_PATH * 2];
 
     if (make_dir(dir) != BT_OK) {
@@ -105,9 +109,9 @@ static int make_demo(const char *dir) {
     stems[] = {
         /* The second song's pad is 44.1 kHz on purpose: a real set list mixes
          * rates, and this makes the demo exercise load-time resampling. */
-        { "tracks/synth.wav", 2, 8.0, 48000, 440.0, 0.30 },
-        { "tracks/bass.wav",  1, 8.0, 48000, 110.0, 0.40 },
-        { "tracks/pad.wav",   2, 6.0, 44100, 220.0, 0.25 },
+        { "tracks/synth.wav", 2, seconds,       48000, 440.0, 0.30 },
+        { "tracks/bass.wav",  1, seconds,       48000, 110.0, 0.40 },
+        { "tracks/pad.wav",   2, seconds * 0.75, 44100, 220.0, 0.25 },
     };
 
     for (size_t i = 0; i < sizeof(stems) / sizeof(stems[0]); i++) {
@@ -181,6 +185,11 @@ static int make_demo(const char *dir) {
 
     printf("\nwrote a runnable demo to %s\n", dir);
     printf("next:  btcheck %s/setlist.json %s/device.json\n", dir, dir);
+    if (seconds < 60.0)
+        printf("\nnote: %.0fs stems are fine for checking routing, and too\n"
+               "      short to measure dropouts - a machine that drops a buffer\n"
+               "      three times in ten minutes reads zero over %.0f seconds.\n",
+               seconds, seconds);
     return 0;
 }
 
@@ -285,7 +294,15 @@ static int32_t max_channel(const bt_device_cfg *d) {
 }
 
 int main(int argc, char **argv) {
-    if (argc == 3 && strcmp(argv[1], "--make-demo") == 0) return make_demo(argv[2]);
+    if (argc >= 3 && strcmp(argv[1], "--make-demo") == 0) {
+        double secs = 120.0;
+        for (int i = 3; i < argc; i++) {
+            if (strcmp(argv[i], "--seconds") == 0 && i + 1 < argc) secs = atof(argv[++i]);
+            else return usage();
+        }
+        if (secs < 1.0 || secs > 1800.0) { fprintf(stderr, "bad --seconds\n"); return 2; }
+        return make_demo(argv[2], secs);
+    }
     if (argc < 5) return usage();
 
     const char *setlist_path = argv[1];

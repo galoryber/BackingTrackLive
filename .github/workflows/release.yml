@@ -45,7 +45,7 @@ jobs:
       - name: Build the stage UI (Windows only)
         if: runner.os == 'Windows'
         run: |
-          cmake -S . -B build-ui -DCMAKE_BUILD_TYPE=Release -DBT_BUILD_UI=ON -DBT_WITH_DEVICE=OFF -DBT_BUILD_TESTS=OFF
+          cmake -S . -B build-ui -DCMAKE_BUILD_TYPE=Release -DBT_BUILD_UI=ON -DBT_WITH_DEVICE=ON -DBT_BUILD_TESTS=OFF
           cmake --build build-ui --config Release
 
       # A binary nobody has tested is not a release.

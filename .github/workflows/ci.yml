@@ -173,7 +173,7 @@ jobs:
       # it here is what keeps it from rotting while the engine moves.
       - name: Configure and build
         run: |
-          cmake -S . -B build-ui -DCMAKE_BUILD_TYPE=Release -DBT_BUILD_UI=ON -DBT_WITH_DEVICE=OFF -DBT_BUILD_TESTS=OFF
+          cmake -S . -B build-ui -DCMAKE_BUILD_TYPE=Release -DBT_BUILD_UI=ON -DBT_WITH_DEVICE=ON -DBT_BUILD_TESTS=OFF
           cmake --build build-ui --config Release
       # Runners have no GPU, which is the point: this renders through WARP to
       # an offscreen target, exactly as it does on the dev VM.

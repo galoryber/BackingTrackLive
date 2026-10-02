@@ -15,6 +15,12 @@
 
 #include "portaudio.h"
 
+#if defined(_WIN32)
+  #include <windows.h>
+#else
+  #include <time.h>
+#endif
+
 #if defined(__STDC_NO_ATOMICS__)
   #define _bt_atomic     volatile
   #define bt_load(p)     (*(p))
@@ -36,7 +42,26 @@ struct bt_device {
     double       latency;
     char         err[256];
     _bt_atomic unsigned long long xruns;
+
+    /* Watchdog state. cb_count is written by the audio thread; the rest is
+     * touched only by whoever polls bt_device_stalled(), which is one
+     * thread. */
+    _bt_atomic unsigned long long cb_count;
+    unsigned long long            seen_count;
+    uint64_t                      seen_ms;
 };
+
+/* Monotonic milliseconds. Diagnostics only - see the note in bt_device.h
+ * about why a wall clock is allowed here and nowhere near a sample position. */
+static uint64_t now_ms(void) {
+#if defined(_WIN32)
+    return (uint64_t)GetTickCount64();
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (uint64_t)ts.tv_sec * 1000u + (uint64_t)(ts.tv_nsec / 1000000);
+#endif
+}
 
 static int g_init_count = 0;
 
@@ -164,6 +189,10 @@ static int pa_callback(const void *in, void *out, unsigned long frames,
     if (flags & (paOutputUnderflow | paPrimingOutput))
         bt_store(&d->xruns, bt_load(&d->xruns) + 1u);
 
+    /* The watchdog's heartbeat. Its absence is how a vanished device is
+     * detected, because the backend reports nothing. */
+    bt_store(&d->cb_count, bt_load(&d->cb_count) + 1u);
+
     d->cb((float *const *)out, (int32_t)frames, d->user);
     return paContinue;
 }
@@ -201,6 +230,7 @@ bt_err bt_device_open(const bt_device_open_cfg *cfg, bt_device_cb cb,
     d->sample_rate   = cfg->sample_rate;
     d->buffer_frames = cfg->buffer_frames;
     bt_store(&d->xruns, 0u);
+    bt_store(&d->cb_count, 0u);
 
     PaStreamParameters p;
     memset(&p, 0, sizeof(p));
@@ -239,6 +269,10 @@ bt_err bt_device_start(bt_device *d) {
     if (!d || !d->stream) return BT_ERR_STATE;
     PaError e = Pa_StartStream(d->stream);
     if (e != paNoError) { set_err(d, e, "Pa_StartStream"); return BT_ERR_STATE; }
+    /* Arm the watchdog from the moment the stream starts, not from whenever
+     * it is first polled. */
+    d->seen_count = bt_load(&d->cb_count);
+    d->seen_ms    = now_ms();
     return BT_OK;
 }
 
@@ -270,10 +304,32 @@ uint64_t bt_device_xruns(const bt_device *d) {
     return d ? (uint64_t)bt_load(&d->xruns) : 0;
 }
 
+uint64_t bt_device_callbacks(const bt_device *d) {
+    return d ? (uint64_t)bt_load(&d->cb_count) : 0;
+}
+
+bool bt_device_stalled(bt_device *d, int32_t quiet_ms) {
+    if (!d || !d->stream || quiet_ms <= 0) return false;
+
+    unsigned long long now_count = bt_load(&d->cb_count);
+    uint64_t t = now_ms();
+
+    if (now_count != d->seen_count) {
+        d->seen_count = now_count;
+        d->seen_ms    = t;
+        return false;
+    }
+    /* No callback since the last look. Lost only once that has gone on long
+     * enough that it cannot be ordinary scheduling. */
+    return (t - d->seen_ms) >= (uint64_t)quiet_ms;
+}
+
 bool bt_device_lost(const bt_device *d) {
     if (!d || !d->stream) return false;
-    /* PortAudio reports a negative PaError here when the stream has gone -
-     * which is what a kicked USB cable looks like from this side. */
+    /* Weaker than the watchdog: PortAudio returns a negative PaError only for
+     * some backends and some failures. WASAPI reports nothing at all when the
+     * interface is unplugged. Kept because when it does fire, it fires at
+     * once. */
     return Pa_IsStreamActive(d->stream) < 0;
 }
 

@@ -540,12 +540,27 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     ImGui::EndChild();
 
     ImGui::Separator();
+    /* Disabled rather than failing in a status line nobody reads. A save
+     * button that looks like it worked, on a set list with nowhere to save
+     * to, is how an edit survives into the running app and then vanishes on
+     * restart. */
+    ImGui::BeginDisabled(!ed.can_save);
     if (ImGui::Button(ed.dirty ? "save *" : "save")) do_save(ed);
+    ImGui::EndDisabled();
+    if (!ed.can_save && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("This is the built-in demo set and has no file.\n"
+                          "Start with:  btui --setlist <file> --device <file>");
     ImGui::SameLine();
     if (ImGui::Button("leave edit mode")) stay = false;
     ImGui::SameLine();
 
-    if (ed.dirty) {
+    if (!ed.can_save) {
+        ImGui::TextColored(COL_WARN,
+            "demo set - edits are in memory only and will be lost on exit");
+        ImGui::SameLine();
+        ImGui::TextColored(COL_DIM,
+            "\xe2\x80\xa2 start with --setlist <file> to edit a real one");
+    } else if (ed.dirty) {
         ImGui::TextColored(COL_AMBER, "unsaved changes");
         if (ed.status[0]) {
             ImGui::SameLine();

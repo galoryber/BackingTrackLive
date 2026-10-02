@@ -108,7 +108,11 @@ btrender --make-demo demo
 ```
 
 That writes stems, a `setlist.json` and a `device.json` into `demo\` — a
-complete, runnable set with nothing else to install.
+complete, runnable set with nothing else to install. Stems default to two
+minutes each, which matters for the next step: a machine that drops a buffer
+three times in ten minutes reads **zero xruns** over a ten-second clip,
+whatever its real behaviour. `--seconds 20` is quicker if you only want to
+check routing.
 
 **Play, with real four-channel routing.** Select the `OUT 1-4` endpoint and
 put front of house on 1/2 and the click on 3/4:
@@ -153,8 +157,14 @@ audience heard a click.
 | 512 | | |
 | 1024 | | |
 
+An **xrun** is a buffer underrun: the audio callback failed to deliver samples
+before the driver needed them, so the driver played whatever was already in
+the buffer. One xrun is one audible click. `btplay` shows a running count
+while it plays and prints the total when it stops.
+
 The useful number is the smallest buffer that gives **zero** xruns across a
-full song, with a comfortable margin above it. Remember that latency does not
+full song, with a comfortable margin above it — then run one step larger than
+that. Remember that latency does not
 matter much here — you are not monitoring a live input, and the click and the
 tracks are delayed together. Resist tuning it down for its own sake.
 
