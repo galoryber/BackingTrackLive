@@ -41,6 +41,17 @@ struct bt_ui_state {
     double   elapsed_sec;
     double   total_sec;
     uint64_t xruns;
+
+    /* The audio device, on screen rather than in the window title.
+     *
+     * The title bar was where this lived, which is invisible in fullscreen
+     * and easy to miss anywhere - so a working interface looked identical to
+     * a missing one, and an interface that vanished mid-song explained itself
+     * somewhere nobody was looking. */
+    bool        device_live;
+    const char *device_name;     /* may be NULL */
+    const char *device_note;     /* why it is not live, or NULL */
+
     bool     show_clock;     /* off by default: a number that invites you to
                               * read it and then tells you nothing you need */
 };

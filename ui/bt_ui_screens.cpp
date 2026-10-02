@@ -18,6 +18,7 @@ const ImU32 COL_ACCENT_D = IM_COL32( 30,  58,  92, 255);
 const ImU32 COL_BEAT_ON  = IM_COL32(255, 214,  92, 255);
 const ImU32 COL_BEAT_OFF = IM_COL32( 62,  66,  76, 255);
 const ImU32 COL_WARN     = IM_COL32(255, 122, 106, 255);
+const ImU32 COL_GOOD     = IM_COL32(112, 206, 142, 255);
 
 void text_at(ImDrawList *dl, ImFont *font, float size, ImVec2 p, ImU32 col,
              const char *s) {
@@ -33,6 +34,32 @@ void fmt_clock(char *dst, size_t cap, double sec) {
     if (neg) sec = -sec;
     int m = (int)(sec / 60.0);
     std::snprintf(dst, cap, "%s%d:%04.1f", neg ? "-" : "", m, sec - m * 60.0);
+}
+
+/* The audio interface, as a dot and a name. Green when a stream is open, red
+ * when it is not - and when it is not, why. */
+void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
+                       float cy, bool with_name) {
+    ImFont *f = ImGui::GetFont();
+    const float pad = sz.x * 0.03f;
+    const float ts  = sz.y * 0.030f;
+    const float r   = ts * 0.42f;
+
+    const char *label = st.device_live
+                      ? (st.device_name && st.device_name[0] ? st.device_name : "audio ready")
+                      : (st.device_note && st.device_note[0] ? st.device_note : "no audio device");
+    if (!with_name && st.device_live) return;   /* silence is the good news */
+
+    float tw = text_w(f, ts, label);
+    float x  = sz.x - pad - tw;
+
+    text_at(dl, f, ts, ImVec2(x, cy - ts * 0.5f),
+            st.device_live ? COL_DIM : COL_WARN, label);
+    dl->AddCircleFilled(ImVec2(x - r * 3.0f, cy), r,
+                        st.device_live ? COL_GOOD : COL_WARN, 24);
+    if (!st.device_live)
+        dl->AddCircle(ImVec2(x - r * 3.0f, cy), r * 1.9f, COL_WARN, 24,
+                      sz.y * 0.0025f);
 }
 
 /* ------------------------------------------------------------- stopped */
@@ -109,13 +136,17 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
                 sel ? COL_TEXT : COL_DIM, bpm);
     }
 
-    /* Footer: the keys, because this is driven from the keyboard. */
+    /* Footer: the keys, because this is driven from the keyboard, and the
+     * state of the audio interface, because "am I plugged in and ready" is
+     * the question you ask before counting a song in. */
     float fy = sz.y - foot_h;
     dl->AddRectFilled(ImVec2(0, fy), ImVec2(sz.x, sz.y), COL_PANEL);
     const float key_sz = foot_h * 0.34f;
     text_at(dl, f, key_sz, ImVec2(pad, fy + foot_h * 0.32f), COL_TEXT,
             "SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose      ENTER  play from top"
             "      N  next song      E  edit");
+
+    draw_device_badge(dl, st, sz, fy + foot_h * 0.5f, true);
 }
 
 /* ------------------------------------------------------------- playing */
@@ -278,6 +309,10 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
         text_at(dl, f, small, ImVec2(sz.x - pad - text_w(f, small, x),
                                      sz.y * 0.675f), COL_WARN, x);
     }
+
+    /* While playing, working audio needs no announcement - you can hear it.
+     * Absent audio does. */
+    draw_device_badge(dl, st, sz, sz.y * 0.675f, false);
 }
 
 } /* namespace */

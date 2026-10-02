@@ -94,7 +94,9 @@ struct App {
     bool          live   = false;      /* a real stream is open */
     int32_t       selected = 0;
     bool          show_clock = false;
-    char          note[200] = {0};
+    char          note[200] = {0};      /* startup / failure message        */
+    char          dev_name[160] = {0};  /* short name for the on-screen badge */
+    char          dev_why[120]  = {0};  /* why it is not live               */
 
     /* Simulated fallback, used only when live is false. */
     bool          sim_playing = false;
@@ -182,6 +184,10 @@ void fill_state(bt_ui_state &st, App &a) {
     st.elapsed_sec = (double)st.playhead / st.sample_rate;
     st.total_sec   = (double)bt_song_length(&s, st.sample_rate) / st.sample_rate;
     st.xruns       = a.live ? bt_device_xruns(a.device) : 0;
+
+    st.device_live = a.live;
+    st.device_name = a.dev_name[0] ? a.dev_name : nullptr;
+    st.device_note = a.dev_why[0]  ? a.dev_why  : nullptr;
 }
 
 /* ----------------------------------------------------------- d3d11 bits */
@@ -381,6 +387,14 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
     st.bpm = sl->song[song].tempo.seg[0].bpm;
     st.bar = bar; st.beat_in_bar = 2;
     st.elapsed_sec = 134.0; st.total_sec = 303.0;
+    st.device_live = true;
+    st.device_name = "OUT 1-4 (BEHRINGER UMC 404HD)  \xc2\xb7  Windows WASAPI";
+    /* The state worth having a picture of: the interface has gone. */
+    if (!std::strcmp(state, "disconnected")) {
+        st.device_live = false;
+        st.device_name = nullptr;
+        st.device_note = "interface disconnected";
+    }
 
     if (!std::strcmp(state, "playing")) {
         st.playing = true;
@@ -464,7 +478,8 @@ int usage() {
         "         built-in demo set, which can be edited but not saved.\n"
         "\n"
         "       btui --shot <out.raw> [--w N] [--h N]\n"
-        "            [--state stopped|playing|countin|edit|editsong] [--song N] [--bar N]\n");
+        "            [--state stopped|playing|countin|disconnected|edit|editsong]\n"
+        "            [--song N] [--bar N]\n");
     return 2;
 }
 
@@ -574,20 +589,24 @@ int main(int argc, char **argv) {
                 g_app.live = true;
                 bt_device_info di;
                 if (bt_device_get(idx, &di) != BT_OK) std::memset(&di, 0, sizeof(di));
-                std::snprintf(g_app.note, sizeof(g_app.note), "%s (%s)",
+                std::snprintf(g_app.dev_name, sizeof(g_app.dev_name), "%s  \xc2\xb7  %s",
                               di.name[0] ? di.name : "default", di.api);
+                std::snprintf(g_app.note, sizeof(g_app.note), "%s", g_app.dev_name);
             } else {
-                std::snprintf(g_app.note, sizeof(g_app.note),
-                              "no audio: %s", bt_strerror(e));
+                std::snprintf(g_app.dev_why, sizeof(g_app.dev_why),
+                              "audio device would not open: %s", bt_strerror(e));
+                std::snprintf(g_app.note, sizeof(g_app.note), "%s", g_app.dev_why);
                 bt_device_close(g_app.device);
                 g_app.device = nullptr;
             }
         }
     }
-    if (!g_app.live && !g_app.note[0])
-        std::snprintf(g_app.note, sizeof(g_app.note),
+    if (!g_app.live && !g_app.dev_why[0])
+        std::snprintf(g_app.dev_why, sizeof(g_app.dev_why), "%s",
                       setlist_path ? "no audio device opened"
-                                   : "demo set, no audio - start with --setlist and --device");
+                                   : "demo set - no audio");
+    if (!g_app.note[0])
+        std::snprintf(g_app.note, sizeof(g_app.note), "%s", g_app.dev_why);
 
     {
         char title[320];
@@ -628,8 +647,11 @@ int main(int argc, char **argv) {
             if (bt_device_lost(g_app.device) || bt_device_stalled(g_app.device, quiet)) {
                 bt_player_stop(g_app.player);
                 g_app.live = false;
-                std::snprintf(g_app.note, sizeof(g_app.note),
-                              "audio device stopped responding - was it unplugged?");
+                /* On screen, not in the title bar. The title is invisible in
+                 * fullscreen, which is where this would actually happen. */
+                std::snprintf(g_app.dev_why, sizeof(g_app.dev_why),
+                              "interface disconnected");
+                std::snprintf(g_app.note, sizeof(g_app.note), "%s", g_app.dev_why);
                 char title[320];
                 std::snprintf(title, sizeof(title), "BackingTrackLive - %s", g_app.note);
                 SetWindowTextA(hwnd, title);
