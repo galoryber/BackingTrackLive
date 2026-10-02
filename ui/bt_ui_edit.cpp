@@ -497,8 +497,11 @@ void bt_ui_edit_key(bt_ui_edit &ed, int vk) {
 
     switch (vk) {
     case VK_ESCAPE:
-        if (ed.screen == bt_edit_screen::align)        ed.screen = bt_edit_screen::song;
-        else if (ed.screen == bt_edit_screen::song)    ed.screen = bt_edit_screen::setlist;
+        /* Backs out one level each press, and off the top it leaves edit mode
+         * entirely - so ESC always means "back", never "quit". */
+        if (ed.screen == bt_edit_screen::align)      ed.screen = bt_edit_screen::song;
+        else if (ed.screen == bt_edit_screen::song)  ed.screen = bt_edit_screen::setlist;
+        else                                         ed.leave = true;
         break;
     case 'S':
         if (GetKeyState(VK_CONTROL) & 0x8000) do_save(ed);
@@ -512,6 +515,7 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     if (!themed) { push_theme(); themed = true; }
 
     bool stay = true;
+    if (ed.leave) { ed.leave = false; stay = false; }
     ImGuiIO &io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
     ImGui::SetNextWindowSize(io.DisplaySize);

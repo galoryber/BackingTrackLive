@@ -37,6 +37,7 @@ struct bt_ui_edit {
     int32_t        audition_bar  = 1;
 
     char           status[160] = {0};      /* last save result, or an error */
+    bool           leave = false;          /* set by ESC off the top screen  */
 };
 
 /* Returns true while edit mode should stay open; false when the user leaves. */

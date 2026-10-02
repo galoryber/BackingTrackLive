@@ -114,7 +114,8 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     dl->AddRectFilled(ImVec2(0, fy), ImVec2(sz.x, sz.y), COL_PANEL);
     const float key_sz = foot_h * 0.34f;
     text_at(dl, f, key_sz, ImVec2(pad, fy + foot_h * 0.32f), COL_TEXT,
-            "SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose      ENTER  play from top      N  next");
+            "SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose      ENTER  play from top"
+            "      N  next song      E  edit");
 }
 
 /* ------------------------------------------------------------- playing */
@@ -124,79 +125,121 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     const float pad = sz.x * 0.03f;
     const bt_song *s = (st.setlist && st.current >= 0)
                      ? &st.setlist->song[st.current] : nullptr;
+    const bool counting = st.playhead < 0;
 
-    /* Small, top-left: orientation only. You know what you are playing. */
+    /* ---- header: what is playing, large ------------------------------
+     *
+     * This used to be a line of small grey text, on the reasoning that you
+     * know what you are playing. True, and it is still the thing a glance
+     * from across the stage should answer first - "where are we" is a
+     * question other people ask too. */
     char pos[32];
     std::snprintf(pos, sizeof(pos), "%d / %d", st.current + 1,
                   st.setlist ? st.setlist->nsongs : 0);
-    const float small = sz.y * 0.040f;
-    text_at(dl, f, small, ImVec2(pad, pad * 0.5f), COL_DIM, pos);
+    const float pos_sz = sz.y * 0.042f;
+    text_at(dl, f, pos_sz, ImVec2(pad, sz.y * 0.035f), COL_DIM, pos);
+
     if (s) {
-        text_at(dl, f, small, ImVec2(pad + text_w(f, small, pos) + pad * 0.8f,
-                                     pad * 0.5f), COL_TEXT, s->title);
+        const float title_sz = sz.y * 0.105f;
+        text_at(dl, f, title_sz, ImVec2(pad, sz.y * 0.075f), COL_TEXT, s->title);
+        if (s->artist[0])
+            text_at(dl, f, sz.y * 0.055f, ImVec2(pad, sz.y * 0.195f),
+                    COL_DIM, s->artist);
     }
 
-    /* The count-in reads differently from the song: negative bars would be
-     * meaningless, so it counts down in beats instead. */
-    const bool counting = st.playhead < 0;
+    /* ---- bar number: kept, demoted ------------------------------------
+     * Useful for finding your place, and not what the eye should land on. */
+    if (!counting) {
+        char bar[16];
+        std::snprintf(bar, sizeof(bar), "%d", st.bar);
+        const float bar_sz = sz.y * 0.095f;
+        float bw = text_w(f, bar_sz, bar);
+        text_at(dl, f, bar_sz, ImVec2(sz.x - pad - bw, sz.y * 0.060f),
+                COL_TEXT, bar);
+        const char *lbl = "BAR";
+        float ls = sz.y * 0.030f;
+        text_at(dl, f, ls, ImVec2(sz.x - pad - text_w(f, ls, lbl), sz.y * 0.030f),
+                COL_DIM, lbl);
+    }
 
-    /* Dominant, and the same size either way so the eye does not have to
-     * re-find it when the song starts: the count-in counts DOWN, the song
-     * counts bars UP. A count-in that does not show the number is just a
-     * label, and the number is the entire point - it is how you know when to
-     * come in. */
-    char big[24];
-    if (counting) std::snprintf(big, sizeof(big), "%d", st.count_in_left);
-    else          std::snprintf(big, sizeof(big), "%d", st.bar);
-
-    const float bar_sz = sz.y * 0.42f;
-    float bw = text_w(f, bar_sz, big);
-    float by = sz.y * 0.12f;
-    text_at(dl, f, bar_sz, ImVec2((sz.x - bw) * 0.5f, by),
-            counting ? COL_BEAT_ON : COL_TEXT, big);
-
-    const char *lbl = counting ? "COUNT IN" : "BAR";
-    float ls = sz.y * 0.05f;
-    text_at(dl, f, ls, ImVec2((sz.x - text_w(f, ls, lbl)) * 0.5f,
-                              by + bar_sz * 0.95f),
-            counting ? COL_BEAT_ON : COL_DIM, lbl);
-
-    /* Beat dots: the accent on one, so a glance tells you where in the bar
-     * you are, not merely that something is pulsing. */
+    /* ---- the metronome: centre screen, the biggest thing on it --------
+     *
+     * During the count-in it moves down and shrinks to make room for the
+     * number, which is what matters in that moment. Once the song starts it
+     * takes the middle of the screen back. */
     int n = st.beats_per_bar > 0 ? st.beats_per_bar : 4;
-    float r  = sz.y * 0.030f;
-    float gap = r * 3.0f;
+    if (n > 16) n = 16;
+    const float cy    = counting ? sz.y * 0.675f : sz.y * 0.540f;
+    const float r_max = counting ? sz.y * 0.072f : sz.y * 0.105f;
+
+    /* Size the dots to the bar rather than fixing them: 7/8 has to fit the
+     * same width 4/4 does, without either looking apologetic. */
+    float gap = (sz.x - pad * 2.0f) / (float)(n + 1);
+    float r   = gap * 0.34f;
+    if (r > r_max) r = r_max;
+    gap = r * 3.1f;
+
     float total = (n - 1) * gap;
     float cx = (sz.x - total) * 0.5f;
-    float cy = sz.y * 0.70f;
+
     for (int i = 0; i < n; i++) {
-        bool on = (i == st.beat_in_bar);
-        float rr = on ? r * 1.35f : r;
-        dl->AddCircleFilled(ImVec2(cx + i * gap, cy), rr,
-                            on ? COL_BEAT_ON : COL_BEAT_OFF, 32);
-        if (i == 0 && !on)
-            dl->AddCircle(ImVec2(cx + i * gap, cy), r * 1.3f, COL_DIM, 32, 2.0f);
+        bool on   = (i == st.beat_in_bar);
+        bool down = (i == 0);
+        float rr  = on ? r * 1.22f : r;
+        ImVec2 c(cx + i * gap, cy);
+
+        if (on) {
+            /* A soft ring around the live beat so it reads from a distance
+             * as movement, not just a colour change. Kept faint - at full
+             * strength it muddies into the dot and the edge is what the eye
+             * actually tracks. */
+            dl->AddCircleFilled(c, rr * 1.42f, IM_COL32(255, 214, 92, 26), 48);
+            dl->AddCircleFilled(c, rr, COL_BEAT_ON, 48);
+        } else {
+            dl->AddCircleFilled(c, rr, COL_BEAT_OFF, 48);
+            /* The one is outlined even when it is not lit, so you can see
+             * where the bar starts without waiting for it. */
+            if (down) dl->AddCircle(c, rr * 1.28f, COL_DIM, 48, sz.y * 0.004f);
+        }
     }
 
-    /* Tempo, quietly, beside the dots. */
+    /* ---- count-in: the number, above the dots, dominant ---------------
+     * Sized and placed to clear the metronome rather than land on top of it,
+     * which is what the first version of this did. */
+    if (counting) {
+        char big[16];
+        std::snprintf(big, sizeof(big), "%d", st.count_in_left);
+        const float big_sz = sz.y * 0.235f;
+        float bw = text_w(f, big_sz, big);
+        text_at(dl, f, big_sz, ImVec2((sz.x - bw) * 0.5f, sz.y * 0.255f),
+                COL_BEAT_ON, big);
+
+        const char *lbl = "COUNT IN";
+        float ls = sz.y * 0.038f;
+        text_at(dl, f, ls, ImVec2((sz.x - text_w(f, ls, lbl)) * 0.5f,
+                                  sz.y * 0.500f), COL_BEAT_ON, lbl);
+    }
+
+    /* ---- quiet row: tempo, clock, position ---------------------------- */
+    const float small = sz.y * 0.040f;
     char tempo[32];
     std::snprintf(tempo, sizeof(tempo), "%.1f BPM", st.bpm);
-    text_at(dl, f, sz.y * 0.042f, ImVec2(pad, cy - sz.y * 0.021f), COL_DIM, tempo);
+    text_at(dl, f, small, ImVec2(pad, sz.y * 0.735f), COL_DIM, tempo);
+    (void)0;
 
     if (st.show_clock) {
         char clock[32];
         fmt_clock(clock, sizeof(clock), st.elapsed_sec);
-        float cw = text_w(f, sz.y * 0.042f, clock);
-        text_at(dl, f, sz.y * 0.042f,
-                ImVec2(sz.x - pad - cw, cy - sz.y * 0.021f), COL_DIM, clock);
+        text_at(dl, f, small,
+                ImVec2(sz.x - pad - text_w(f, small, clock), sz.y * 0.735f),
+                COL_DIM, clock);
     }
 
-    /* Thin progress line: position in the song without occupying attention. */
     if (st.total_sec > 0.0) {
         float t = (float)(st.elapsed_sec / st.total_sec);
         if (t < 0) t = 0;
         if (t > 1) t = 1;
-        float py = sz.y * 0.785f;
+        float py = sz.y * 0.795f;
         dl->AddRectFilled(ImVec2(pad, py), ImVec2(sz.x - pad, py + sz.y * 0.006f),
                           COL_BEAT_OFF);
         dl->AddRectFilled(ImVec2(pad, py),
@@ -204,7 +247,7 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
                           COL_ACCENT);
     }
 
-    /* Footer: what is next, which is the other thing worth knowing mid-song. */
+    /* ---- what is next: unchanged, it works ---------------------------- */
     const float foot_h = sz.y * 0.155f;
     float fy = sz.y - foot_h;
     dl->AddRectFilled(ImVec2(0, fy), ImVec2(sz.x, sz.y), COL_PANEL);
@@ -229,12 +272,11 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
                 "end of set");
     }
 
-    /* Anything but zero here means the audience heard a click. */
     if (st.xruns) {
         char x[48];
         std::snprintf(x, sizeof(x), "%llu XRUN", (unsigned long long)st.xruns);
-        text_at(dl, f, small, ImVec2(sz.x - pad - text_w(f, small, x), pad * 0.5f),
-                COL_WARN, x);
+        text_at(dl, f, small, ImVec2(sz.x - pad - text_w(f, small, x),
+                                     sz.y * 0.675f), COL_WARN, x);
     }
 }
 

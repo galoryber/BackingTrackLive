@@ -265,22 +265,31 @@ void on_key(HWND hwnd, WPARAM key) {
 
     switch (key) {
     case VK_ESCAPE:
-        if (g_fullscreen) toggle_fullscreen(hwnd); else g_quit = true;
+        /* ESC never quits. It used to, and a key that close to the rest of
+         * the transport should not be able to end the show - there is no
+         * confirmation that would make that safe at 11pm. Leaving fullscreen
+         * is all it does here; the window's close button still works. */
+        if (g_fullscreen) toggle_fullscreen(hwnd);
         break;
     case VK_SPACE:
         if (transport_playing(a)) transport_stop(a);
         else                      transport_start(a, true);
         break;
     case VK_RETURN:
-        transport_start(a, false);          /* straight in, no count-in */
+        if (!transport_playing(a)) transport_start(a, false);  /* no count-in */
         break;
     case VK_UP:
-        if (a.selected > 0) a.selected--;
+        /* Browsing is a stopped-only activity. While playing, the set list is
+         * not on screen, so moving a selection you cannot see and then having
+         * space jump somewhere unexpected is the worst of both. */
+        if (!transport_playing(a) && a.selected > 0) a.selected--;
         break;
     case VK_DOWN:
-        if (a.selected + 1 < a.sl->nsongs) a.selected++;
+        if (!transport_playing(a) && a.selected + 1 < a.sl->nsongs) a.selected++;
         break;
     case 'N':
+        /* The deliberate way to move on mid-song: explicit, one key, and it
+         * does not depend on a selection you cannot see. */
         if (a.selected + 1 < a.sl->nsongs) {
             a.selected++;
             if (transport_playing(a)) transport_start(a, false);
@@ -383,6 +392,11 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         st.beat = -3;
         st.count_in_left = 3;
         st.beat_in_bar = 1;
+        /* Nothing has started, so nothing has elapsed. The fixture used to
+         * leave the playing value here and the still showed a progress bar
+         * 45% along during a count-in - a screenshot that lied about the
+         * thing it existed to show. */
+        st.elapsed_sec = 0.0;
     }
 
     bt_ui_edit ed;
