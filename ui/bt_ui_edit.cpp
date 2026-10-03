@@ -191,6 +191,8 @@ void draw_setlist_screen(bt_ui_edit &ed) {
     ImGui::EndDisabled();
     ImGui::SameLine(0, 28);
     if (ImGui::Button("audio \xe2\x80\xa6")) ed.screen = bt_edit_screen::audio;
+    ImGui::SameLine();
+    if (ImGui::Button("check \xe2\x80\xa6")) ed.screen = bt_edit_screen::check;
 
     ImGui::Spacing();
 
@@ -473,6 +475,7 @@ void draw_song_screen(bt_ui_edit &ed) {
 /* --------------------------------------------------------- align screen */
 
 void draw_audio_screen(bt_ui_edit &ed);   /* defined below, needs bt_device.h */
+void draw_check_screen(bt_ui_edit &ed);   /* defined below                    */
 
 void draw_align_screen(bt_ui_edit &ed) {
     ImGui::PushStyleColor(ImGuiCol_Text, COL_DIM);
@@ -506,6 +509,7 @@ void bt_ui_edit_key(bt_ui_edit &ed, int vk) {
         if (ed.screen == bt_edit_screen::align)      ed.screen = bt_edit_screen::song;
         else if (ed.screen == bt_edit_screen::song)  ed.screen = bt_edit_screen::setlist;
         else if (ed.screen == bt_edit_screen::audio) ed.screen = bt_edit_screen::setlist;
+        else if (ed.screen == bt_edit_screen::check) ed.screen = bt_edit_screen::setlist;
         else                                         ed.leave = true;
         break;
     case 'S':
@@ -546,6 +550,7 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     case bt_edit_screen::song:    draw_song_screen(ed);    break;
     case bt_edit_screen::align:   draw_align_screen(ed);   break;
     case bt_edit_screen::audio:   draw_audio_screen(ed);   break;
+    case bt_edit_screen::check:   draw_check_screen(ed);   break;
     }
     ImGui::EndChild();
 
@@ -829,6 +834,128 @@ void draw_audio_screen(bt_ui_edit &ed) {
                           "Start with:  btui --setlist <file> --device <file>");
     ImGui::SameLine();
     if (ed.device_dirty) ImGui::TextColored(COL_AMBER, "unsaved audio changes");
+}
+
+} /* namespace */
+
+/* ======================================================================
+ * Validation and export: what btcheck and btrender do, without a terminal.
+ * ==================================================================== */
+
+#include "bt_ui_start.h"
+
+namespace {
+
+void draw_check_screen(bt_ui_edit &ed) {
+    ImGui::PushStyleColor(ImGuiCol_Text, COL_DIM);
+    ImGui::TextUnformatted("EDIT  \xe2\x80\xa2  check");
+    ImGui::PopStyleColor();
+    if (ImGui::Button("\xe2\x86\x90 set list")) ed.screen = bt_edit_screen::setlist;
+    ImGui::SameLine(0, 24);
+
+    if (ImGui::Button("run the check")) {
+        free(ed.issues);
+        ed.issues = nullptr;
+        ed.nissues = 0;
+        bt_err e = bt_setlist_validate(ed.sl, ed.dev, ed.dev->sample_rate,
+                                       &ed.issues, &ed.nissues, &ed.stats);
+        ed.checked = (e == BT_OK);
+        if (!ed.checked) set_status(ed, "check failed: %s", bt_strerror(e));
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("decodes every stem once - a long set takes a moment");
+    ImGui::Separator();
+
+    if (!ed.checked) {
+        ImGui::Spacing();
+        ImGui::TextWrapped(
+            "Finds everything wrong with the set in one pass: missing stems, "
+            "buses this machine cannot route, stems that are silent because "
+            "the wrong file was downloaded, sample rates that will be "
+            "resampled, nudges longer than the stem they move.");
+        return;
+    }
+
+    ImGui::Text("%d song%s, %d track%s",
+                ed.stats.songs, ed.stats.songs == 1 ? "" : "s",
+                ed.stats.tracks, ed.stats.tracks == 1 ? "" : "s");
+    ImGui::SameLine(0, 24);
+    if (ed.stats.errors) ImGui::TextColored(COL_WARN, "%d error%s",
+                                            ed.stats.errors,
+                                            ed.stats.errors == 1 ? "" : "s");
+    else ImGui::TextColored(COL_OK, "no errors");
+    ImGui::SameLine(0, 16);
+    ImGui::TextDisabled("%d warning%s", ed.stats.warnings,
+                        ed.stats.warnings == 1 ? "" : "s");
+
+    ImGui::Spacing();
+    ImGui::BeginChild("issues", ImVec2(0, 330), true);
+    /* Errors first: they are what stops the show. */
+    for (int pass = 0; pass < 2; pass++) {
+        bt_issue_level want = pass == 0 ? BT_ISSUE_ERROR : BT_ISSUE_WARN;
+        for (size_t i = 0; i < ed.nissues; i++) {
+            const bt_issue &is = ed.issues[i];
+            if (is.level != want) continue;
+
+            char where[160] = "set list";
+            if (is.song >= 0 && is.song < ed.sl->nsongs) {
+                if (is.track >= 0 && is.track < ed.sl->song[is.song].ntracks)
+                    std::snprintf(where, sizeof(where), "song %d \xe2\x80\xa2 %s",
+                                  is.song + 1,
+                                  ed.sl->song[is.song].track[is.track].name);
+                else
+                    std::snprintf(where, sizeof(where), "song %d \xe2\x80\xa2 %s",
+                                  is.song + 1, ed.sl->song[is.song].title);
+            }
+            char row[420];
+            std::snprintf(row, sizeof(row), "%-34.34s  %s##i%zu", where, is.msg, i);
+
+            ImGui::PushStyleColor(ImGuiCol_Text,
+                                  want == BT_ISSUE_ERROR ? COL_WARN : COL_DIM);
+            /* Clicking goes to the song it is about - which is why
+             * bt_setlist_validate carries indices rather than prose. */
+            if (ImGui::Selectable(row) && is.song >= 0) {
+                ed.song = is.song;
+                ed.track = is.track;
+                ed.screen = bt_edit_screen::song;
+            }
+            ImGui::PopStyleColor();
+        }
+    }
+    if (ed.nissues == 0)
+        ImGui::TextColored(COL_OK, "Nothing to report.");
+    ImGui::EndChild();
+
+    ImGui::Spacing();
+    ImGui::Text("set length      %.0f min %02.0f s   (longest song %.0f:%02.0f)",
+                ed.stats.total_seconds / 60.0,
+                ed.stats.total_seconds - 60.0 * (double)(int)(ed.stats.total_seconds / 60.0),
+                ed.stats.longest_seconds / 60.0,
+                ed.stats.longest_seconds - 60.0 * (double)(int)(ed.stats.longest_seconds / 60.0));
+    ImGui::Text("preload peak    %.1f MB   (current + next song)",
+                (double)ed.stats.peak_resident_bytes / (1024.0 * 1024.0));
+    ImGui::TextDisabled("whole set       %.1f MB   if every song were held at once",
+                        (double)ed.stats.all_resident_bytes / (1024.0 * 1024.0));
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::TextUnformatted("EXPORT");
+    ImGui::SameLine();
+    ImGui::TextDisabled("render to a WAV file - for checking alignment away from "
+                        "the stage, or sending a reference mix to the band");
+    if (ImGui::Button("render this song\xe2\x80\xa6")) {
+        if (bt_ui_pick_save_wav(ed.export_path, sizeof(ed.export_path))) {
+            ed.export_whole_set = false;
+            ed.want_export = true;
+        }
+    }
+    ImGui::SameLine();
+    if (ImGui::Button("render the whole set\xe2\x80\xa6")) {
+        if (bt_ui_pick_save_wav(ed.export_path, sizeof(ed.export_path))) {
+            ed.export_whole_set = true;
+            ed.want_export = true;
+        }
+    }
 }
 
 } /* namespace */

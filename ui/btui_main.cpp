@@ -25,6 +25,7 @@
 #include "backtrack/bt_device.h"
 
 #include "backtrack/bt_demo.h"
+#include "backtrack/bt_wav.h"
 
 #include "bt_ui.h"
 #include "bt_ui_edit.h"
@@ -349,6 +350,75 @@ bool open_set(HWND hwnd, const char *setlist_path, const char *device_path) {
     bt_ui_settings_touch(g_settings, setlist_path, dpath);
     g_start.status[0] = '\0';
     return true;
+}
+
+/* Render a song, or the whole set, to a WAV file.
+ *
+ * This is btrender's job done in-process. It renders through a second,
+ * offline player rather than the live one, so exporting cannot disturb what
+ * is bound for playback - and it is only reachable while stopped anyway. */
+bool export_wav(const char *path, bool whole_set) {
+    App &a = g_app;
+    if (!a.sl || a.sl->nsongs == 0) return false;
+
+    int32_t nch = 0;
+    for (int32_t i = 0; i < a.dev.nbuses; i++)
+        for (int32_t k = 0; k < a.dev.bus[i].nch; k++)
+            if (a.dev.bus[i].ch[k] + 1 > nch) nch = a.dev.bus[i].ch[k] + 1;
+    if (nch <= 0) return false;
+
+    const int32_t block = 1024;
+    bt_player_cfg pc = { a.dev.sample_rate, nch, block, 1, 30000 };
+    bt_player *p = nullptr;
+    if (bt_player_create(&pc, a.sl, &a.dev, &p) != BT_OK) return false;
+
+    int32_t first = whole_set ? 0 : g_edit.song;
+    if (first < 0 || first >= a.sl->nsongs) first = 0;
+    if (bt_player_select(p, first) != BT_OK) { bt_player_destroy(p); return false; }
+
+    bt_frame cap = (bt_frame)a.dev.sample_rate * 60 * 30;   /* a guard, not a limit */
+    bt_frame len = 0;
+    float **buf = (float **)calloc((size_t)nch, sizeof(float *));
+    bt_frame have = 1 << 16;
+    for (int32_t c = 0; c < nch; c++) buf[c] = (float *)calloc((size_t)have, sizeof(float));
+
+    bt_player_start(p);
+    float *win[BT_MAX_OUT_CH];
+    bool done = false;
+    while (!done && len < cap) {
+        if (len + block > have) {
+            bt_frame grown = have * 2;
+            for (int32_t c = 0; c < nch; c++) {
+                float *q = (float *)realloc(buf[c], (size_t)grown * sizeof(float));
+                if (!q) { done = true; break; }
+                memset(q + have, 0, (size_t)(grown - have) * sizeof(float));
+                buf[c] = q;
+            }
+            if (done) break;
+            have = grown;
+        }
+        for (int32_t c = 0; c < nch; c++) win[c] = buf[c] + len;
+        bt_player_render(p, win, block);
+        len += block;
+
+        bt_tick_result t = BT_TICK_IDLE;
+        if (bt_player_tick(p, &t) != BT_OK) break;
+        if (t == BT_TICK_SONG_ENDED) {
+            if (whole_set && bt_player_current(p) + 1 < bt_player_count(p)) {
+                if (bt_player_next(p) != BT_OK) break;
+                bt_player_play(p);
+            } else {
+                done = true;
+            }
+        }
+    }
+
+    bt_err e = bt_wav_write_file(path, (const float *const *)buf, nch,
+                                 a.dev.sample_rate, len);
+    for (int32_t c = 0; c < nch; c++) free(buf[c]);
+    free(buf);
+    bt_player_destroy(p);
+    return e == BT_OK;
 }
 
 /* Open (or re-open) the stream from whatever g_app.dev currently says.
@@ -812,6 +882,13 @@ int main(int argc, char **argv) {
             if (g_edit.reopen_device) {
                 g_edit.reopen_device = false;
                 reopen_audio(hwnd);
+            }
+            if (g_edit.want_export) {
+                g_edit.want_export = false;
+                bool ok = export_wav(g_edit.export_path, g_edit.export_whole_set);
+                std::snprintf(g_edit.status, sizeof(g_edit.status),
+                              ok ? "rendered %s" : "could not render %s",
+                              g_edit.export_path);
             }
             if (g_app.selected >= g_app.sl->nsongs)
                 g_app.selected = g_app.sl->nsongs - 1;

@@ -18,8 +18,9 @@
 #define BT_UI_EDIT_H
 
 #include "backtrack/bt_model.h"
+#include "backtrack/bt_validate.h"
 
-enum class bt_edit_screen { setlist, song, align, audio };
+enum class bt_edit_screen { setlist, song, align, audio, check };
 
 struct bt_ui_edit {
     bt_setlist    *sl = nullptr;          /* mutable, unlike the play view */
@@ -47,6 +48,18 @@ struct bt_ui_edit {
     bool           reopen_device   = false;  /* host clears after acting    */
     bool           show_all_apis   = false;
     int32_t        picked_device   = -1;     /* backend index, -1 = none    */
+
+    /* Validation, the btcheck report in a screen. Held rather than recomputed
+     * per frame: it decodes every stem, which is seconds of work. */
+    bt_issue        *issues = nullptr;
+    size_t           nissues = 0;
+    bt_setlist_stats stats{};
+    bool             checked = false;
+
+    /* Export. The host does the rendering; this only asks. */
+    bool             want_export = false;
+    bool             export_whole_set = false;
+    char             export_path[BT_MAX_PATH] = {0};
 };
 
 /* Returns true while edit mode should stay open; false when the user leaves. */

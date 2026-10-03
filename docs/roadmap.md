@@ -16,14 +16,22 @@ refusing to become one.
 
 ## CLI / UI parity
 
-| today | UI equivalent needed | notes |
-|---|---|---|
-| `btplay --list-devices`, then hand-write `device.json` | **Routing editor**: pick device and API from the enumerated list, map buses to channels | Smaller than it looks. `bt_device_*` already enumerates with API names and channel counts; `bt_device_cfg_save_file` already writes the file losslessly. This is a screen over two things that exist. |
-| `btcheck setlist.json device.json` | **Validation panel** in edit mode: run it, list issues, click one to jump to the song or track it belongs to | `bt_setlist_validate` already returns structured issues with song and track indices, precisely so a UI can do this. The CLI is one consumer of it. |
-| `btrender out.wav`, `btrender --set out.wav` | **Export**: render this song, or the whole set, to a file | Useful for sending a reference mix to the band, or checking alignment somewhere other than the stage. |
-| `btrender --make-demo` | **First-run experience**: no set list yet, so offer to make one | Right now, launching with no `--setlist` silently opens an unsaveable demo. That is a developer's answer to an empty state. |
-| editing `setlist.json` by hand for anything the editor cannot do yet | **Tempo map editing** (songs that change tempo), **count-in per song**, **reordering tracks** | The format supports all of it; the editor does not expose all of it. |
-| reading stderr | **Surface errors in the UI**: a stem that will not decode, a bus that does not exist, a save that failed | `bt_err` is already structured and `bt_strerror` already says something useful. The UI mostly needs to show it. |
+Everything below is now reachable without a terminal. The CLI tools remain,
+because they script and they are what CI runs, but nothing requires them.
+
+| job | where it is in the UI |
+|---|---|
+| open or create a set list | start screen, with recents; remembered between runs |
+| pick a device, map buses | edit → **audio** |
+| validate the set (`btcheck`) | edit → **check**, and an issue clicks through to the song it is about |
+| render to WAV (`btrender`) | edit → **check** → export |
+| make a demo set (`--make-demo`) | start screen |
+| list devices (`--list-devices`) | edit → **audio** |
+| play (`btplay`) | the whole point of the thing |
+
+Still only in `setlist.json` by hand: tempo maps for songs that change tempo,
+and reordering tracks within a song. The format supports both; the editor does
+not expose them yet.
 
 ## Other product gaps, not CLI-shaped
 
