@@ -338,6 +338,31 @@ void draw_tracks(bt_ui_edit &ed, bt_song &s) {
     }
 }
 
+/* Copy a stem into the set list's tracks folder, creating it if needed.
+ * Refuses to clobber: a second stem with the same basename gets a suffix. */
+bool copy_into_set(const char *from, char *dest) {
+    char dir[BT_MAX_PATH];
+    std::snprintf(dir, sizeof(dir), "%s", dest);
+    char *slash = std::strrchr(dir, '/');
+    char *back  = std::strrchr(dir, '\\');
+    if (back && (!slash || back > slash)) slash = back;
+    if (slash) { *slash = '\0'; CreateDirectoryA(dir, nullptr); }
+
+    char target[BT_MAX_PATH];
+    std::snprintf(target, sizeof(target), "%s", dest);
+    for (int n = 2; n < 100; n++) {
+        if (GetFileAttributesA(target) == INVALID_FILE_ATTRIBUTES) break;
+        char stem[BT_MAX_PATH], ext[64] = "";
+        std::snprintf(stem, sizeof(stem), "%s", dest);
+        char *dot = std::strrchr(stem, '.');
+        if (dot) { std::snprintf(ext, sizeof(ext), "%s", dot); *dot = '\0'; }
+        std::snprintf(target, sizeof(target), "%s-%d%s", stem, n, ext);
+    }
+    if (!CopyFileA(from, target, TRUE)) return false;
+    std::snprintf(dest, BT_MAX_PATH, "%s", target);
+    return true;
+}
+
 void add_track(bt_ui_edit &ed, bt_song &s) {
     if (s.ntracks >= BT_MAX_TRACKS) {
         set_status(ed, "a song holds at most %d tracks", BT_MAX_TRACKS);
@@ -348,9 +373,29 @@ void add_track(bt_ui_edit &ed, bt_song &s) {
 
     char rel[BT_MAX_PATH];
     if (!relativise(ed.sl->dir, picked, rel, sizeof(rel))) {
-        set_status(ed, "that file is outside the set list folder - copy stems "
-                       "into it so the folder stays portable");
-        return;
+        /* Stems arrive in Downloads, and the folder has to stay self-contained
+         * to be copyable to the backup laptop. Refusing put that chore on the
+         * user; copying it in satisfies the rule without them having to know
+         * the rule exists. */
+        const char *base = std::strrchr(picked, '\\');
+        const char *fwd  = std::strrchr(picked, '/');
+        if (fwd && (!base || fwd > base)) base = fwd;
+        base = base ? base + 1 : picked;
+
+        char dest[BT_MAX_PATH];
+        std::snprintf(dest, sizeof(dest), "%s/tracks/%s", ed.sl->dir, base);
+        if (!copy_into_set(picked, dest)) {
+            set_status(ed, "could not copy %s into the set list folder", base);
+            return;
+        }
+        /* copy_into_set may have renamed to avoid clobbering, so the path
+         * that goes in the set list is the one it actually wrote. */
+        const char *wrote = std::strrchr(dest, '\\');
+        const char *wf    = std::strrchr(dest, '/');
+        if (wf && (!wrote || wf > wrote)) wrote = wf;
+        wrote = wrote ? wrote + 1 : dest;
+        std::snprintf(rel, sizeof(rel), "tracks/%s", wrote);
+        set_status(ed, "copied %s into the set list folder", wrote);
     }
 
     bt_track &tr = s.track[s.ntracks];
@@ -603,6 +648,7 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
  * ==================================================================== */
 
 #include "backtrack/bt_device.h"
+#include "bt_ui_start.h"
 
 namespace {
 
@@ -816,6 +862,19 @@ void draw_audio_screen(bt_ui_edit &ed) {
 
     ImGui::Spacing();
     ImGui::Separator();
+    /* Three places this file can live, so never make anyone guess which. */
+    {
+        char machine[BT_MAX_PATH] = {0};
+        bool is_machine = bt_ui_machine_device_path(machine, sizeof(machine)) &&
+                          _stricmp(machine, ed.device_path) == 0;
+        ImGui::TextColored(COL_DIM, "%s", is_machine
+            ? "This is the machine's routing: it applies to every set list you "
+              "open, and survives upgrading the program."
+            : "This routing is stored with this set list, so it travels with "
+              "the folder and overrides the machine's.");
+        ImGui::TextDisabled("%s", ed.device_path);
+    }
+
     ImGui::BeginDisabled(!ed.can_save_device);
     if (ImGui::Button("save device.json and reopen audio")) {
         bt_err e = bt_device_cfg_save_file(&cfg, ed.device_path);

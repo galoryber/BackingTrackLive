@@ -124,6 +124,11 @@ bt_ui_start    g_start;
 /* Nothing open: the start screen is showing. */
 bool nothing_open() { return g_app.sl == nullptr; }
 
+bool file_exists(const char *path) {
+    DWORD a = GetFileAttributesA(path);
+    return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
+}
+
 void audio_cb(float *const *out, int32_t nframes, void *user) {
     bt_player_render((bt_player *)user, out, nframes);
 }
@@ -299,19 +304,33 @@ bool open_set(HWND hwnd, const char *setlist_path, const char *device_path) {
     a.sl = sl;
     std::snprintf(a.setlist_path, sizeof(a.setlist_path), "%s", setlist_path);
 
-    /* device.json beside the set list unless told otherwise. */
+    /* Where routing comes from, most specific first:
+     *   1. --device, when someone asked for a particular file
+     *   2. a device.json in the set list folder, which is what every version
+     *      before this wrote, and is still how you pin one set to odd routing
+     *   3. the machine's own, in %APPDATA% - the normal case, because the
+     *      interface belongs to the laptop and not to any one set list
+     * Nothing found means the built-in defaults, which are now good ones. */
     char dpath[BT_MAX_PATH];
+    char beside[BT_MAX_PATH];
+    std::snprintf(beside, sizeof(beside), "%s", setlist_path);
+    {
+        char *slash = std::strrchr(beside, '\\');
+        char *fwd   = std::strrchr(beside, '/');
+        if (fwd && (!slash || fwd > slash)) slash = fwd;
+        if (slash) std::snprintf(slash + 1, sizeof(beside) - (size_t)(slash + 1 - beside),
+                                 "device.json");
+        else std::snprintf(beside, sizeof(beside), "device.json");
+    }
+
     if (device_path && *device_path) {
         std::snprintf(dpath, sizeof(dpath), "%s", device_path);
-    } else {
-        std::snprintf(dpath, sizeof(dpath), "%s", setlist_path);
-        char *slash = std::strrchr(dpath, '\\');
-        char *fwd   = std::strrchr(dpath, '/');
-        if (fwd && (!slash || fwd > slash)) slash = fwd;
-        if (slash) std::snprintf(slash + 1, sizeof(dpath) - (size_t)(slash + 1 - dpath),
-                                 "device.json");
-        else std::snprintf(dpath, sizeof(dpath), "device.json");
+    } else if (file_exists(beside)) {
+        std::snprintf(dpath, sizeof(dpath), "%s", beside);
+    } else if (!bt_ui_machine_device_path(dpath, sizeof(dpath))) {
+        std::snprintf(dpath, sizeof(dpath), "%s", beside);
     }
+
     std::snprintf(a.device_path, sizeof(a.device_path), "%s", dpath);
 
     bt_device_cfg_defaults(&a.dev);
@@ -638,6 +657,26 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
     bt_ui_edit ed;
     static bt_device_cfg shot_dev;
     bt_device_cfg_defaults(&shot_dev);
+    /* The empty state is a screen like any other, so it gets reviewed like
+     * one. Fixture recents, because a first run has none and the interesting
+     * layout question is what it looks like once it does. */
+    static bt_ui_settings shot_settings;
+    static bt_ui_start    shot_start;
+    const bool start_shot = !std::strcmp(state, "start") ||
+                            !std::strcmp(state, "firstrun");
+    if (start_shot) {
+        shot_start.settings = &shot_settings;
+        if (!std::strcmp(state, "start")) {
+            std::snprintf(shot_settings.recent[0], BT_MAX_PATH,
+                          "D:\\band\\covers-2026\\setlist.json");
+            std::snprintf(shot_settings.recent[1], BT_MAX_PATH,
+                          "D:\\band\\acoustic-duo\\setlist.json");
+            std::snprintf(shot_settings.recent[2], BT_MAX_PATH,
+                          "C:\\Users\\gary\\Documents\\demo\\setlist.json");
+            shot_settings.nrecent = 3;
+        }
+    }
+
     const bool edit_shot = !std::strcmp(state, "edit") ||
                            !std::strcmp(state, "editsong") ||
                            !std::strcmp(state, "editaudio");
@@ -691,8 +730,9 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
     for (int i = 0; i < 2; i++) {
         ImGui_ImplDX11_NewFrame();
         ImGui::NewFrame();
-        if (edit_shot) bt_ui_edit_draw(ed);
-        else           bt_ui_draw(st);
+        if (start_shot)     bt_ui_start_draw(shot_start);
+        else if (edit_shot) bt_ui_edit_draw(ed);
+        else                bt_ui_draw(st);
         ImGui::Render();
         const float clear[4] = { 0.06f, 0.07f, 0.08f, 1.0f };
         ctx->OMSetRenderTargets(1, &rtv, nullptr);
@@ -721,7 +761,8 @@ int usage() {
         "         built-in demo set, which can be edited but not saved.\n"
         "\n"
         "       btui --shot <out.raw> [--w N] [--h N]\n"
-        "            [--state stopped|playing|countin|disconnected|edit|editsong|editaudio]\n"
+        "            [--state start|firstrun|stopped|playing|countin|disconnected|\n"
+"                     edit|editsong|editaudio|check]\n"
         "            [--song N] [--bar N]\n");
     return 2;
 }
@@ -817,6 +858,30 @@ int main(int argc, char **argv) {
                     g_start.recent_index < g_settings.nrecent)
                     open_set(hwnd, g_settings.recent[g_start.recent_index], nullptr);
                 break;
+            case bt_start_action::create_new: {
+                char dir[BT_MAX_PATH];
+                if (bt_ui_pick_folder("Pick an empty folder for the new set list",
+                                      dir, sizeof(dir))) {
+                    const char *leaf = std::strrchr(dir, '\\');
+                    bt_err e = bt_ui_new_setlist(dir, leaf ? leaf + 1 : dir);
+                    if (e != BT_OK) {
+                        std::snprintf(g_start.status, sizeof(g_start.status),
+                                      "could not create a set list there: %s",
+                                      bt_strerror(e));
+                    } else {
+                        char sp[BT_MAX_PATH];
+                        std::snprintf(sp, sizeof(sp), "%s\\setlist.json", dir);
+                        if (open_set(hwnd, sp, nullptr)) {
+                            /* Straight into the editor: a new set list has
+                             * one empty song and nothing to listen to yet. */
+                            g_editing = true;
+                            g_edit.screen = bt_edit_screen::song;
+                            g_edit.song = 0;
+                        }
+                    }
+                }
+                break;
+            }
             case bt_start_action::create_demo: {
                 char dir[BT_MAX_PATH];
                 if (bt_ui_pick_folder("Where should the demo set go?",

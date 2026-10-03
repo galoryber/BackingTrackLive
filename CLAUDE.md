@@ -56,7 +56,7 @@ A run's conclusion from the API is the only thing worth trusting.
 
 ## Testing standards
 
-Coverage floors are enforced in CI (92% line, 70% branch over `src/`). They
+Coverage floors are enforced in CI (95% line, 72% branch over `src/`). They
 are floors, not targets: raise them when the real number moves up, never lower
 them to go green.
 

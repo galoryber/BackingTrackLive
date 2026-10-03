@@ -240,3 +240,31 @@ Set-Service -Name sshd -StartupType Manual   # not on by default
 
 That is a judgement call about a machine on a venue's network, and it is
 reasonable to decline it.
+
+
+## Where things live, and what an upgrade touches
+
+| what | where | why |
+|---|---|---|
+| the program | wherever you unzipped it | replaced wholesale by an upgrade |
+| settings and recents | `%APPDATA%\BackingTrackLive\settings.json` | small, machine-local, never edited by hand |
+| routing | `%APPDATA%\BackingTrackLive\device.json` | describes the interface, not any one set |
+| set lists and stems | `Documents\BackingTrackLive\<set>\` by default | yours, bulky, and must be findable to copy |
+
+The rule is one line: **machine config is invisible, your content is visible.**
+
+An upgrade replaces only the program. It does not touch `%APPDATA%` and it
+does not touch your set lists, so routing and sets both survive it - there is
+nothing to re-do after an upgrade, and no import step.
+
+Set lists do not have to live in Documents; it is only where the pickers
+start. A set list is a self-contained folder, so putting the band's on a USB
+stick works and means the backup laptop needs no setup beyond its own
+`device.json` - which is exactly why routing is not kept inside the set
+folder.
+
+One caveat on Windows 11: OneDrive backs up Documents by default. That is a
+genuine win if the laptop dies the night before a gig, and a nuisance if it
+decides to sync forty songs of WAV over hotel wifi. If the set is large,
+either keep it outside Documents or exclude that folder in OneDrive's
+settings.

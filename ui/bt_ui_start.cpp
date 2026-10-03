@@ -3,6 +3,7 @@
 #include "imgui.h"
 
 #include "backtrack/bt_json.h"
+#include "backtrack/bt_error.h"
 
 #include <windows.h>
 #include <commdlg.h>
@@ -115,14 +116,25 @@ void bt_ui_settings_touch(bt_ui_settings &s, const char *setlist, const char *de
 
 /* ------------------------------------------------------------- pickers */
 
+bool bt_ui_default_setlist_root(char *out, size_t cap) {
+    char docs[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(nullptr, CSIDL_PERSONAL, nullptr, 0, docs))) return false;
+    std::snprintf(out, cap, "%s\\BackingTrackLive", docs);
+    CreateDirectoryA(out, nullptr);
+    return true;
+}
+
 bool bt_ui_pick_setlist(char *out, size_t cap) {
     char buf[MAX_PATH] = {0};
+    char root[MAX_PATH] = {0};
+    const bool have_root = bt_ui_default_setlist_root(root, sizeof(root));
     OPENFILENAMEA ofn = {};
     ofn.lStructSize = sizeof(ofn);
     ofn.lpstrFilter = "Set list (setlist.json)\0*.json\0All files\0*.*\0";
     ofn.lpstrFile   = buf;
     ofn.nMaxFile    = MAX_PATH;
     ofn.lpstrTitle  = "Open a set list";
+    ofn.lpstrInitialDir = have_root ? root : nullptr;
     ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST | OFN_NOCHANGEDIR;
     if (!GetOpenFileNameA(&ofn)) return false;
     std::snprintf(out, cap, "%s", buf);
@@ -145,8 +157,20 @@ bool bt_ui_pick_save_wav(char *out, size_t cap) {
     return true;
 }
 
+static int CALLBACK browse_init(HWND hwnd, UINT msg, LPARAM, LPARAM data) {
+    if (msg == BFFM_INITIALIZED && data)
+        SendMessageA(hwnd, BFFM_SETSELECTIONA, TRUE, data);
+    return 0;
+}
+
 bool bt_ui_pick_folder(const char *title, char *out, size_t cap) {
+    static char root[MAX_PATH];
+    const bool have_root = bt_ui_default_setlist_root(root, sizeof(root));
     BROWSEINFOA bi = {};
+    if (have_root) {
+        bi.lpfn   = browse_init;
+        bi.lParam = (LPARAM)root;
+    }
     char display[MAX_PATH] = {0};
     bi.pszDisplayName = display;
     bi.lpszTitle = title;
@@ -191,6 +215,13 @@ void bt_ui_start_draw(bt_ui_start &st) {
     ImGui::SameLine();
     ImGui::TextColored(COL_DIM, "a folder containing setlist.json and its stems");
 
+    ImGui::Spacing();
+    if (ImGui::Button("New set list\xe2\x80\xa6", bsz))
+        st.action = bt_start_action::create_new;
+    ImGui::SameLine();
+    ImGui::TextColored(COL_DIM, "an empty set in a folder of its own, ready for your stems");
+
+    ImGui::Spacing();
     if (ImGui::Button("Create a demo set\xe2\x80\xa6", bsz))
         st.action = bt_start_action::create_demo;
     ImGui::SameLine();
@@ -200,6 +231,7 @@ void bt_ui_start_draw(bt_ui_start &st) {
         ImGui::Spacing();
         ImGui::Spacing();
         ImGui::TextColored(COL_DIM, "RECENT");
+        ImGui::Spacing();
         for (int32_t i = 0; i < st.settings->nrecent; i++) {
             char label[BT_MAX_PATH + 16];
             std::snprintf(label, sizeof(label), "%s##r%d", st.settings->recent[i], i);
@@ -217,11 +249,69 @@ void bt_ui_start_draw(bt_ui_start &st) {
 
     ImGui::Spacing();
     ImGui::Spacing();
-    ImGui::TextColored(COL_DIM,
-        "Set lists live in a folder with their stems, so the whole folder "
-        "copies to a backup laptop as one piece.");
+    char root[BT_MAX_PATH];
+    if (bt_ui_default_setlist_root(root, sizeof(root)))
+        ImGui::TextColored(COL_DIM,
+            "Set lists live in a folder with their stems, so the whole folder "
+            "copies to a backup laptop as one piece.\nNew ones go in %s "
+            "unless you pick somewhere else.", root);
+    else
+        ImGui::TextColored(COL_DIM,
+            "Set lists live in a folder with their stems, so the whole folder "
+            "copies to a backup laptop as one piece.");
 
     ImGui::PopFont();
     ImGui::EndGroup();
     ImGui::End();
+}
+
+bool bt_ui_machine_device_path(char *out, size_t cap) {
+    char base[MAX_PATH];
+    if (FAILED(SHGetFolderPathA(nullptr, CSIDL_APPDATA, nullptr, 0, base))) return false;
+    char dir[MAX_PATH];
+    std::snprintf(dir, sizeof(dir), "%s\\BackingTrackLive", base);
+    CreateDirectoryA(dir, nullptr);
+    std::snprintf(out, cap, "%s\\device.json", dir);
+    return true;
+}
+
+bt_err bt_ui_new_setlist(const char *dir, const char *name) {
+    if (!dir || !*dir) return BT_ERR_RANGE;
+
+    char tracks[MAX_PATH];
+    std::snprintf(tracks, sizeof(tracks), "%s\\tracks", dir);
+    CreateDirectoryA(dir, nullptr);
+    CreateDirectoryA(tracks, nullptr);
+
+    char path[MAX_PATH];
+    std::snprintf(path, sizeof(path), "%s\\setlist.json", dir);
+
+    /* One song, with a click and nothing else. An empty set list is a screen
+     * with nothing to press; one song is something you can immediately play
+     * and then hang stems on. */
+    char esc[256];
+    json_escape(name && *name ? name : "New set", esc, sizeof(esc));
+
+    FILE *f = fopen(path, "wb");
+    if (!f) return BT_ERR_IO;
+    std::fprintf(f,
+"{\n"
+"  \"version\": 1,\n"
+"  \"name\": \"%s\",\n"
+"  \"songs\": [\n"
+"    {\n"
+"      \"title\": \"New song\",\n"
+"      \"artist\": \"\",\n"
+"      \"tempo\": { \"bpm\": 120.0, \"sig\": [4, 4], \"downbeat_ms\": 0 },\n"
+"      \"count_in_bars\": 1,\n"
+"      \"on_end\": \"stop\",\n"
+"      \"tracks\": [\n"
+"        { \"name\": \"Click\", \"type\": \"click\", \"bus\": \"inear\" }\n"
+"      ]\n"
+"    }\n"
+"  ]\n"
+"}\n", esc);
+    bool ok = (std::ferror(f) == 0);
+    fclose(f);
+    return ok ? BT_OK : BT_ERR_IO;
 }
