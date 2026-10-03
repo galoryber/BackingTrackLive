@@ -875,6 +875,29 @@ void draw_audio_screen(bt_ui_edit &ed) {
         ImGui::TextDisabled("%s", ed.device_path);
     }
 
+    /* Anyone upgrading already has a device.json beside their set list, and
+     * it keeps winning - correctly, but it means the machine-wide setting
+     * would never once be reached. This promotes it in one press. */
+    {
+        char machine[BT_MAX_PATH] = {0};
+        bool have = bt_ui_machine_device_path(machine, sizeof(machine));
+        bool is_machine = have && _stricmp(machine, ed.device_path) == 0;
+        if (have && !is_machine) {
+            if (ImGui::Button("make this the machine's default")) {
+                bt_err e = bt_device_cfg_save_file(&cfg, machine);
+                if (e == BT_OK)
+                    set_status(ed, "saved as this machine's default: %s", machine);
+                else
+                    set_status(ed, "could not save: %s", bt_strerror(e));
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Every set list without routing of its own "
+                                  "will use this.\nThis set list keeps its own "
+                                  "until you delete its device.json.");
+            ImGui::SameLine(0, 24);
+        }
+    }
+
     ImGui::BeginDisabled(!ed.can_save_device);
     if (ImGui::Button("save device.json and reopen audio")) {
         bt_err e = bt_device_cfg_save_file(&cfg, ed.device_path);
