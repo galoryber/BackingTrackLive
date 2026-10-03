@@ -132,6 +132,8 @@ static bt_err bind_song(const bt_json *js, bt_song *s) {
 
     s->count_in_bars = (int32_t)bt_json_number(bt_json_get(js, "count_in_bars"), 1);
     if (s->count_in_bars < 0 || s->count_in_bars > 8) return BT_ERR_SCHEMA;
+    s->length_bars = (int32_t)bt_json_number(bt_json_get(js, "length_bars"), 0);
+    if (s->length_bars < 0 || s->length_bars > 10000) return BT_ERR_SCHEMA;
 
     const char *oe = bt_json_string(bt_json_get(js, "on_end"), "stop");
     if (strcmp(oe, "stop") == 0)      s->on_end = BT_ON_END_STOP;

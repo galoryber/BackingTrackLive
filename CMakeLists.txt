@@ -256,7 +256,15 @@ if(BT_BUILD_UI)
     target_compile_options(imgui_d3d11 PRIVATE /W0)
   endif()
 
-  add_executable(btui ui/btui_main.cpp ui/bt_ui_screens.cpp ui/bt_ui_edit.cpp ui/bt_ui_start.cpp)
+  # The thing a user double-clicks is named after the product, not after the
+  # build target: "btui.exe" in a folder of four executables tells nobody
+  # which one to run. The icon and version block ride along in the .rc.
+  add_executable(btui
+    ui/btui_main.cpp ui/bt_ui_screens.cpp ui/bt_ui_edit.cpp ui/bt_ui_start.cpp)
+  if(WIN32)
+    target_sources(btui PRIVATE ui/res/btlive.rc)
+    set_target_properties(btui PROPERTIES OUTPUT_NAME "BackingTrackLive")
+  endif()
   target_link_libraries(btui PRIVATE backtrack backtrack_device imgui_d3d11)
   target_include_directories(btui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 endif()

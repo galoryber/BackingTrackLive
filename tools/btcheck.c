@@ -84,8 +84,9 @@ int main(int argc, char **argv) {
     else      printf("no device.json given, so bus names are unchecked\n\n");
 
     /* Errors first: they are what stops the show. */
-    for (int pass = 0; pass < 2; pass++) {
-        bt_issue_level want = pass == 0 ? BT_ISSUE_ERROR : BT_ISSUE_WARN;
+    for (int pass = 0; pass < 3; pass++) {
+        bt_issue_level want = pass == 0 ? BT_ISSUE_ERROR
+                            : pass == 1 ? BT_ISSUE_WARN : BT_ISSUE_NOTE;
         for (size_t i = 0; i < n; i++) {
             if (issues[i].level != want) continue;
             /* Song titles are up to BT_MAX_NAME; two of them plus indices
@@ -116,7 +117,8 @@ int main(int argc, char **argv) {
     printf("  set length      %s of audio (longest song %s)\n", total, longest);
     printf("  preload peak    %s   (current + next song)\n", peak);
     printf("  whole set       %s   if every song were held at once\n", all);
-    printf("\n  %d error(s), %d warning(s)\n", st.errors, st.warnings);
+    printf("\n  %d error(s), %d warning(s), %d note(s)\n",
+           st.errors, st.warnings, st.notes);
 
     free(issues);
     bt_setlist_free(sl);

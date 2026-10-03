@@ -135,7 +135,27 @@ void audio_cb(float *const *out, int32_t nframes, void *user) {
 
 void transport_start(App &a, bool count_in) {
     if (a.live) {
-        if (bt_player_select(a.player, a.selected) != BT_OK) return;
+        /* This used to `return` on failure and say nothing, so a stem that
+         * would not load looked exactly like a dead keyboard: you pressed
+         * play, and the program sat there. The player knows precisely which
+         * song and why; there is no reason to keep it. */
+        bt_err e = bt_player_select(a.player, a.selected);
+        if (e != BT_OK) {
+            int32_t bad = -1;
+            bt_err le = bt_player_load_error(a.player, &bad);
+            if (le != BT_OK && bad >= 0 && bad < a.sl->nsongs)
+                std::snprintf(a.note, sizeof(a.note), "%s: %s",
+                              a.sl->song[bad].title, bt_strerror(le));
+            else if (e == BT_ERR_RANGE)
+                std::snprintf(a.note, sizeof(a.note),
+                              "a track is routed to a channel this device does "
+                              "not have - check Edit \xe2\x86\x92 audio");
+            else
+                std::snprintf(a.note, sizeof(a.note), "could not start: %s",
+                              bt_strerror(e));
+            return;
+        }
+        a.note[0] = '\0';
         if (count_in) bt_player_start(a.player);
         else { bt_player_stop(a.player); bt_player_play(a.player); }
         return;
@@ -203,7 +223,8 @@ void fill_state(bt_ui_state &st, App &a) {
     st.xruns       = a.live ? bt_device_xruns(a.device) : a.xruns_seen;
     st.device_live = a.live;
     st.device_name = a.dev_name[0] ? a.dev_name : nullptr;
-    st.device_note = a.dev_why[0]  ? a.dev_why  : nullptr;
+    st.device_note = a.dev_why[0] ? a.dev_why
+                   : (a.note[0]   ? a.note : nullptr);
 }
 
 /* ----------------------------------------------------------- d3d11 bits */
@@ -443,6 +464,20 @@ bool export_wav(const char *path, bool whole_set) {
 /* Open (or re-open) the stream from whatever g_app.dev currently says.
  * Startup and the routing editor both come through here, so there is one
  * description of what "open the audio" means. */
+/* The product name first, because that is what a taskbar button shows when
+ * there is no room for the rest of it. */
+void set_title(HWND hwnd, const char *detail) {
+    wchar_t w[320];
+    if (detail && *detail) {
+        char buf[320];
+        std::snprintf(buf, sizeof(buf), "BackingTrackLive  -  %s", detail);
+        MultiByteToWideChar(CP_UTF8, 0, buf, -1, w, 320);
+    } else {
+        wcscpy_s(w, 320, L"BackingTrackLive");
+    }
+    SetWindowTextW(hwnd, w);
+}
+
 void reopen_audio(HWND hwnd) {
     App &a = g_app;
 
@@ -487,9 +522,7 @@ void reopen_audio(HWND hwnd) {
     std::snprintf(a.dev_name, sizeof(a.dev_name), "%s  \xc2\xb7  %s",
                   di.name[0] ? di.name : "default", di.api);
 
-    char title[320];
-    std::snprintf(title, sizeof(title), "BackingTrackLive - %s", a.dev_name);
-    SetWindowTextA(hwnd, title);
+    set_title(hwnd, a.dev_name);
 }
 
 void on_key(HWND hwnd, WPARAM key) {
@@ -577,7 +610,11 @@ LRESULT WINAPI wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     default: break;
     }
-    return DefWindowProc(hwnd, msg, wp, lp);
+    /* W, not the generic macro. The class is registered with
+     * RegisterClassExW, so this window is Unicode; DefWindowProcA would read
+     * the Unicode WM_SETTEXT as ANSI and stop at the first zero byte, which
+     * is why the title bar used to read "B". */
+    return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
 void load_font() {
@@ -732,7 +769,7 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         ImGui::NewFrame();
         if (start_shot)     bt_ui_start_draw(shot_start);
         else if (edit_shot) bt_ui_edit_draw(ed);
-        else                bt_ui_draw(st);
+        else                (void)bt_ui_draw(st);
         ImGui::Render();
         const float clear[4] = { 0.06f, 0.07f, 0.08f, 1.0f };
         ctx->OMSetRenderTargets(1, &rtv, nullptr);
@@ -792,12 +829,13 @@ int main(int argc, char **argv) {
 
     /* ---------------------------------------------------------- windowed */
 
+    HICON icon = LoadIconW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(1));
     WNDCLASSEXW wc = { sizeof(wc), CS_CLASSDC, wndproc, 0, 0,
-                       GetModuleHandle(nullptr), nullptr, nullptr, nullptr,
-                       nullptr, L"BackingTrackLive", nullptr };
+                       GetModuleHandle(nullptr), icon, nullptr, nullptr,
+                       nullptr, L"BackingTrackLive", icon };
     RegisterClassExW(&wc);
     HWND hwnd = CreateWindowW(wc.lpszClassName,
-                              L"BackingTrackLive - stage UI prototype (simulated transport, no audio)",
+                              L"BackingTrackLive",
                               WS_OVERLAPPEDWINDOW, 100, 100, 1280, 760,
                               nullptr, nullptr, wc.hInstance, nullptr);
     if (!make_device(hwnd)) {
@@ -831,9 +869,9 @@ int main(int argc, char **argv) {
 
     while (!g_quit) {
         MSG msg;
-        while (PeekMessage(&msg, nullptr, 0, 0, PM_REMOVE)) {
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
             TranslateMessage(&msg);
-            DispatchMessage(&msg);
+            DispatchMessageW(&msg);
             if (msg.message == WM_QUIT) g_quit = true;
         }
         if (g_quit) break;
@@ -931,9 +969,7 @@ int main(int argc, char **argv) {
                 std::snprintf(g_app.dev_why, sizeof(g_app.dev_why),
                               "interface disconnected");
                 std::snprintf(g_app.note, sizeof(g_app.note), "%s", g_app.dev_why);
-                char title[320];
-                std::snprintf(title, sizeof(title), "BackingTrackLive - %s", g_app.note);
-                SetWindowTextA(hwnd, title);
+                set_title(hwnd, g_app.note);
             }
         }
 
@@ -961,7 +997,22 @@ int main(int argc, char **argv) {
         } else {
             bt_ui_state st;
             fill_state(st, g_app);
-            bt_ui_draw(st);
+            bt_ui_result r = bt_ui_draw(st);
+            switch (r.click) {
+            case bt_ui_click::select:
+                if (r.song >= 0 && r.song < g_app.sl->nsongs) g_app.selected = r.song;
+                break;
+            case bt_ui_click::play:
+                if (r.song >= 0 && r.song < g_app.sl->nsongs) {
+                    g_app.selected = r.song;
+                    if (!transport_playing(g_app)) transport_start(g_app, true);
+                }
+                break;
+            case bt_ui_click::open_setlist:
+                if (!transport_playing(g_app)) close_set();
+                break;
+            default: break;
+            }
         }
 
         ImGui::Render();

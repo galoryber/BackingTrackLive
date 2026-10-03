@@ -127,9 +127,15 @@ bt_err bt_setlist_validate(bt_setlist *sl, const bt_device_cfg *dev,
             double secs = (double)a.frames / (double)a.sample_rate;
             if (secs > song_seconds) song_seconds = secs;
 
+            /* Worth stating and not worth worrying about: the conversion is
+             * measured flat to 19 kHz, happens once on the loader thread, and
+             * never in the callback. It is reported because it costs load
+             * time and memory, not because it costs quality - so it is a
+             * note, not a warning, and does not count against the set. */
             if (a.sample_rate != sample_rate)
-                add(&is, BT_ISSUE_WARN, i, t,
-                    "%s is %d Hz and will be resampled to %d Hz at load",
+                add(&is, BT_ISSUE_NOTE, i, t,
+                    "%s is %d Hz, converted to %d Hz once when the song loads "
+                    "(no audible loss; costs a little load time)",
                     tr->file, a.sample_rate, sample_rate);
 
             double off_s = (double)tr->offset_ms / 1000.0;
@@ -168,7 +174,11 @@ bt_err bt_setlist_validate(bt_setlist *sl, const bt_device_cfg *dev,
     }
 
     for (size_t k = 0; k < is.n; k++)
-        if (is.v[k].level == BT_ISSUE_ERROR) st.errors++; else st.warnings++;
+        switch (is.v[k].level) {
+        case BT_ISSUE_ERROR: st.errors++;   break;
+        case BT_ISSUE_WARN:  st.warnings++; break;
+        default:             st.notes++;    break;
+        }
 
     free(song_bytes);
     *out   = is.v;

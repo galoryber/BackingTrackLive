@@ -99,6 +99,15 @@ bt_frame bt_song_length(const bt_song *song, int32_t sample_rate) {
         bt_frame e = ms_to_frames((double)t->offset_ms, sample_rate) + t->frames;
         if (e > end) end = e;
     }
+
+    /* A declared length wins when it is longer, so a click can run past the
+     * stems - an outro the backing track does not cover - and so a song with
+     * no stems at all has a length instead of ending the moment it starts. */
+    if (song->length_bars > 0) {
+        int64_t beats = (int64_t)song->length_bars * (int64_t)song->tempo.sig_num;
+        bt_frame e = bt_tempo_beat_frame(&song->tempo, beats, sample_rate);
+        if (e > end) end = e;
+    }
     return end;
 }
 

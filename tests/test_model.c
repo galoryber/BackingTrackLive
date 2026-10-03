@@ -181,7 +181,62 @@ static void test_error_strings(void) {
     BT_CHECK(strcmp(bt_strerror((bt_err)9999), "unknown error") == 0);
 }
 
+
+/* A song with no stems - a click to play along to and nothing else - used to
+ * have no length at all, so it counted in and stopped on the same frame.
+ * This is Holiday in a set where the band plays and only the drummer needs
+ * the click. */
+static void test_click_only_song_has_a_length(void) {
+    bt_song s;
+    memset(&s, 0, sizeof(s));
+    snprintf(s.title, sizeof(s.title), "Holiday");
+    s.tempo.seg[0].bpm = 148.0;
+    s.tempo.nseg    = 1;
+    s.tempo.sig_num = 4;
+    s.tempo.sig_den = 4;
+    s.track[0].type = BT_TRACK_CLICK;
+    s.ntracks = 1;
+
+    BT_CHECK_EQI(bt_song_length(&s, 48000), 0);      /* the old behaviour */
+
+    /* 64 bars of 4/4 at 148 bpm is 256 beats, a bit over 103 seconds. */
+    s.length_bars = 64;
+    bt_frame n = bt_song_length(&s, 48000);
+    BT_CHECK(n > 0);
+    BT_CHECK_NEAR((double)n / 48000.0, 256.0 * 60.0 / 148.0, 0.01);
+}
+
+/* A declared length longer than the stems extends the song: the click keeps
+ * going for an outro the backing track does not cover. Shorter than the
+ * stems, the stems win - truncating audio would be a surprise. */
+static void test_declared_length_against_stems(void) {
+    bt_song s;
+    memset(&s, 0, sizeof(s));
+    s.tempo.seg[0].bpm = 120.0;
+    s.tempo.nseg    = 1;
+    s.tempo.sig_num = 4;
+    s.tempo.sig_den = 4;
+
+    static float l[48000 * 10];
+    static float *pcm[1] = { l };
+    s.track[0].type     = BT_TRACK_AUDIO;
+    s.track[0].pcm      = pcm;
+    s.track[0].channels = 1;
+    s.track[0].frames   = 48000 * 10;          /* ten seconds of stem */
+    s.ntracks = 1;
+
+    BT_CHECK_EQI(bt_song_length(&s, 48000), 48000 * 10);
+
+    s.length_bars = 2;                          /* 4 seconds: shorter */
+    BT_CHECK_EQI(bt_song_length(&s, 48000), 48000 * 10);
+
+    s.length_bars = 10;                         /* 20 seconds: longer */
+    BT_CHECK_EQI(bt_song_length(&s, 48000), 48000 * 20);
+}
+
 int main(void) {
+    BT_RUN(test_click_only_song_has_a_length);
+    BT_RUN(test_declared_length_against_stems);
     BT_RUN(test_good);
     BT_RUN(test_defaults);
     BT_RUN(test_tempo_map_binding);

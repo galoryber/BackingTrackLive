@@ -15,6 +15,7 @@ const ImU32 COL_TEXT     = IM_COL32(232, 234, 238, 255);
 const ImU32 COL_DIM      = IM_COL32(138, 144, 156, 255);
 const ImU32 COL_ACCENT   = IM_COL32( 94, 168, 255, 255);
 const ImU32 COL_ACCENT_D = IM_COL32( 30,  58,  92, 255);
+const ImU32 COL_HOVER    = IM_COL32( 42,  52,  66, 255);
 const ImU32 COL_BEAT_ON  = IM_COL32(255, 214,  92, 255);
 const ImU32 COL_BEAT_OFF = IM_COL32( 62,  66,  76, 255);
 const ImU32 COL_WARN     = IM_COL32(255, 122, 106, 255);
@@ -80,7 +81,8 @@ void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
 
 /* ------------------------------------------------------------- stopped */
 
-void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
+void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
+                  bt_ui_result &res) {
     ImFont *f = ImGui::GetFont();
     const float pad = sz.x * 0.03f;
 
@@ -113,10 +115,33 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     if (first > st.setlist->nsongs - visible) first = st.setlist->nsongs - visible;
     if (first < 0) first = 0;
 
+    const ImVec2 mouse = ImGui::GetIO().MousePos;
+
     for (int i = first; i < st.setlist->nsongs && i < first + visible; i++) {
         const bt_song &s = st.setlist->song[i];
         float y = list_top + (i - first) * row_h;
         bool sel = (i == st.selected);
+
+        const bool hot = mouse.x >= pad * 0.5f && mouse.x <= sz.x - pad * 0.5f &&
+                         mouse.y >= y && mouse.y <= y + row_h * 0.92f;
+        if (hot) {
+            if (!sel)
+                dl->AddRectFilled(ImVec2(pad * 0.5f, y),
+                                  ImVec2(sz.x - pad * 0.5f, y + row_h * 0.92f),
+                                  COL_HOVER, row_h * 0.12f);
+            /* One click chooses, two plays. Choosing on a single click and
+             * playing on a double is what a list of songs does everywhere
+             * else, and on a stage an accidental single click is harmless
+             * while an accidental start is not. */
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
+                res.click = bt_ui_click::select;
+                res.song  = i;
+            }
+            if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                res.click = bt_ui_click::play;
+                res.song  = i;
+            }
+        }
 
         if (sel)
             dl->AddRectFilled(ImVec2(pad * 0.5f, y),
@@ -159,8 +184,25 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     dl->AddRectFilled(ImVec2(0, fy), ImVec2(sz.x, sz.y), COL_PANEL);
     const float key_sz = foot_h * 0.34f;
     text_at(dl, f, key_sz, ImVec2(pad, fy + foot_h * 0.32f), COL_TEXT,
-            "SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose      ENTER  play from top"
-            "      N  next song      E  edit");
+            "CLICK  choose      DOUBLE-CLICK or SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose"
+            "      N  next      E  edit      O  open another set list");
+
+    /* "O" is discoverable only if you read the footer, so the set list's own
+     * name is a target too - that is where you look when you want a different
+     * one. */
+    {
+        const char *nm = st.setlist ? st.setlist->name : "No set list";
+        float tw = text_w(f, title_sz, nm);
+        bool hot = mouse.x >= pad && mouse.x <= pad + tw &&
+                   mouse.y >= pad * 0.6f && mouse.y <= pad * 0.6f + title_sz;
+        if (hot) {
+            dl->AddLine(ImVec2(pad, pad * 0.6f + title_sz * 1.02f),
+                        ImVec2(pad + tw, pad * 0.6f + title_sz * 1.02f),
+                        COL_DIM, 1.5f);
+            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+                res.click = bt_ui_click::open_setlist;
+        }
+    }
 
     draw_device_badge(dl, st, sz, fy + foot_h * 0.5f, true);
 }
@@ -333,7 +375,8 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
 
 } /* namespace */
 
-void bt_ui_draw(const bt_ui_state &st) {
+bt_ui_result bt_ui_draw(const bt_ui_state &st) {
+    bt_ui_result res;
     ImGuiIO &io = ImGui::GetIO();
     ImVec2 sz = io.DisplaySize;
 
@@ -350,8 +393,9 @@ void bt_ui_draw(const bt_ui_state &st) {
     dl->AddRectFilled(ImVec2(0, 0), sz, COL_BG);
 
     if (st.playing) draw_playing(dl, st, sz);
-    else            draw_setlist(dl, st, sz);
+    else            draw_setlist(dl, st, sz, res);
 
     ImGui::End();
     ImGui::PopStyleVar(2);
+    return res;
 }

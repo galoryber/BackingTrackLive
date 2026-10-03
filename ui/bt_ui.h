@@ -56,6 +56,19 @@ struct bt_ui_state {
                               * read it and then tells you nothing you need */
 };
 
-void bt_ui_draw(const bt_ui_state &st);
+/* What the mouse asked for this frame.
+ *
+ * Play mode was built keyboard-first for the stage, which is right, and it
+ * meant a new user clicking a song got nothing at all - the set list looked
+ * like a list of buttons and behaved like a wall. Pointing at a song is the
+ * most obvious thing anyone will try. */
+enum class bt_ui_click { none, select, play, open_setlist };
+
+struct bt_ui_result {
+    bt_ui_click click = bt_ui_click::none;
+    int32_t     song  = -1;
+};
+
+bt_ui_result bt_ui_draw(const bt_ui_state &st);
 
 #endif /* BT_UI_H */

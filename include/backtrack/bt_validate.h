@@ -26,7 +26,11 @@ extern "C" {
 
 typedef enum {
     BT_ISSUE_ERROR = 0,   /* this set list will not play as written */
-    BT_ISSUE_WARN         /* it will play, but probably not as intended */
+    BT_ISSUE_WARN,        /* it will play, but probably not as intended */
+    /* True, worth saying once, and not a problem: a stem that needs
+     * converting, for instance. Reporting those as warnings taught people to
+     * ignore warnings, which is the one thing a checker must not do. */
+    BT_ISSUE_NOTE
 } bt_issue_level;
 
 typedef struct {
@@ -45,6 +49,7 @@ typedef struct {
     size_t   all_resident_bytes;    /* if every song were held at once */
     int32_t  errors;
     int32_t  warnings;
+    int32_t  notes;
 } bt_setlist_stats;
 
 /* Decodes every stem once, gathering issues and statistics, and frees as it

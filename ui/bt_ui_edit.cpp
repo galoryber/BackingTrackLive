@@ -487,6 +487,33 @@ void draw_song_screen(bt_ui_edit &ed) {
     if (ImGui::InputInt("count-in bars", &ci, 1, 1)) {
         if (ci >= 0 && ci <= 8) { s.count_in_bars = ci; ed.dirty = true; }
     }
+    /* Length matters only when the audio does not already say. A song with
+     * stems ends when they do; a click-only song has nothing to end it. */
+    bool click_only = true;
+    for (int32_t i = 0; i < s.ntracks; i++)
+        if (s.track[i].type == BT_TRACK_AUDIO) click_only = false;
+
+    ImGui::SameLine(0, 30);
+    ImGui::SetNextItemWidth(150);
+    int lb = s.length_bars;
+    if (ImGui::InputInt("length (bars)", &lb, 1, 8)) {
+        if (lb >= 0 && lb <= 10000) { s.length_bars = lb; ed.dirty = true; }
+    }
+    ImGui::SameLine();
+    {
+        double bpm = s.tempo.nseg ? s.tempo.seg[0].bpm : 120.0;
+        int    sig = s.tempo.sig_num > 0 ? s.tempo.sig_num : 4;
+        if (s.length_bars > 0 && bpm > 0.0) {
+            double sec = (double)s.length_bars * sig * 60.0 / bpm;
+            ImGui::TextDisabled("%d:%04.1f", (int)(sec / 60.0), sec - 60.0 * (int)(sec / 60.0));
+        } else if (click_only) {
+            ImGui::TextColored(COL_WARN,
+                "no stems and no length - this song will count in and stop");
+        } else {
+            ImGui::TextDisabled("0 = as long as the stems");
+        }
+    }
+
     ImGui::SameLine(0, 30);
     int oe = (s.on_end == BT_ON_END_NEXT) ? 1 : 0;
     ImGui::TextUnformatted("on end:");
@@ -967,14 +994,20 @@ void draw_check_screen(bt_ui_edit &ed) {
                                             ed.stats.errors == 1 ? "" : "s");
     else ImGui::TextColored(COL_OK, "no errors");
     ImGui::SameLine(0, 16);
-    ImGui::TextDisabled("%d warning%s", ed.stats.warnings,
-                        ed.stats.warnings == 1 ? "" : "s");
+    if (ed.stats.warnings)
+        ImGui::TextColored(COL_AMBER, "%d warning%s", ed.stats.warnings,
+                           ed.stats.warnings == 1 ? "" : "s");
+    else ImGui::TextDisabled("no warnings");
+    ImGui::SameLine(0, 16);
+    ImGui::TextDisabled("%d note%s - true, and nothing to act on",
+                        ed.stats.notes, ed.stats.notes == 1 ? "" : "s");
 
     ImGui::Spacing();
     ImGui::BeginChild("issues", ImVec2(0, 330), true);
     /* Errors first: they are what stops the show. */
-    for (int pass = 0; pass < 2; pass++) {
-        bt_issue_level want = pass == 0 ? BT_ISSUE_ERROR : BT_ISSUE_WARN;
+    for (int pass = 0; pass < 3; pass++) {
+        bt_issue_level want = pass == 0 ? BT_ISSUE_ERROR
+                            : pass == 1 ? BT_ISSUE_WARN : BT_ISSUE_NOTE;
         for (size_t i = 0; i < ed.nissues; i++) {
             const bt_issue &is = ed.issues[i];
             if (is.level != want) continue;
@@ -993,7 +1026,8 @@ void draw_check_screen(bt_ui_edit &ed) {
             std::snprintf(row, sizeof(row), "%-34.34s  %s##i%zu", where, is.msg, i);
 
             ImGui::PushStyleColor(ImGuiCol_Text,
-                                  want == BT_ISSUE_ERROR ? COL_WARN : COL_DIM);
+                                  want == BT_ISSUE_ERROR ? COL_WARN
+                                : want == BT_ISSUE_WARN  ? COL_AMBER : COL_DIM);
             /* Clicking goes to the song it is about - which is why
              * bt_setlist_validate carries indices rather than prose. */
             if (ImGui::Selectable(row) && is.song >= 0) {
@@ -1023,8 +1057,13 @@ void draw_check_screen(bt_ui_edit &ed) {
     ImGui::Separator();
     ImGui::TextUnformatted("EXPORT");
     ImGui::SameLine();
-    ImGui::TextDisabled("render to a WAV file - for checking alignment away from "
-                        "the stage, or sending a reference mix to the band");
+    ImGui::TextDisabled("optional - you do not need this to play a show");
+    ImGui::TextWrapped(
+        "Writes what you would hear to a .wav file: the stems mixed with the "
+        "click, exactly as the set list is configured. Useful for sending the "
+        "singer a rehearsal track, checking alignment in another editor, or "
+        "proving a problem is in the set list rather than in the room. It "
+        "changes nothing about the set.");
     if (ImGui::Button("render this song\xe2\x80\xa6")) {
         if (bt_ui_pick_save_wav(ed.export_path, sizeof(ed.export_path))) {
             ed.export_whole_set = false;

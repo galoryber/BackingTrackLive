@@ -77,6 +77,11 @@ typedef struct {
     char         artist[BT_MAX_NAME];
     bt_tempo_map tempo;
     int32_t      count_in_bars;
+    /* How long the song runs, in bars, when the audio does not say.
+     * A song with no stems - just a click to play along to - has no length
+     * of its own otherwise, and would count in and stop immediately. Zero
+     * means "as long as the longest stem", which is the normal case. */
+    int32_t      length_bars;
     bt_on_end    on_end;
     bt_track     track[BT_MAX_TRACKS];
     int32_t      ntracks;

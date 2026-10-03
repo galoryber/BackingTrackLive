@@ -155,7 +155,12 @@ static void write_song(sb *s, const bt_song *song) {
     sb_json_string(s, song->artist);
     sb_str(s, ",\n      ");
     write_tempo(s, &song->tempo);
-    sb_fmt(s, ",\n      \"count_in_bars\": %d, \"on_end\": ", song->count_in_bars);
+    sb_fmt(s, ",\n      \"count_in_bars\": %d", song->count_in_bars);
+    /* Omitted when zero: it is the normal case, and writing it would add a
+     * line to every song in every set list written before this existed. */
+    if (song->length_bars > 0)
+        sb_fmt(s, ", \"length_bars\": %d", song->length_bars);
+    sb_fmt(s, ", \"on_end\": ");
     sb_json_string(s, song->on_end == BT_ON_END_NEXT ? "next" : "stop");
     sb_str(s, ",\n      \"tracks\": [\n");
     for (int32_t i = 0; i < song->ntracks; i++) {

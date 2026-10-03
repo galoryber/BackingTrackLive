@@ -165,6 +165,10 @@ static void test_silent_and_clipped_stems(void) {
     free(v); bt_setlist_free(sl); cleanup();
 }
 
+/* A rate mismatch is a note, not a warning. It is true, it costs load time
+ * and memory, and it costs nothing a listener can hear - so it must not sit
+ * in the same list as "this stem is silent", which is what taught people to
+ * scroll past warnings. */
 static void test_rate_mismatch_is_announced(void) {
     write_tone("val_441.wav", 44100, 0.5f, 44100, 1);
     bt_issue *v = NULL; size_t n = 0; bt_setlist_stats st;
@@ -174,7 +178,9 @@ static void test_rate_mismatch_is_announced(void) {
       "{\"type\":\"click\",\"bus\":\"inear\"},"
       "{\"name\":\"G\",\"type\":\"audio\",\"bus\":\"foh\",\"file\":\"val_441.wav\"}]}]}",
       &v, &n, &st, true);
-    expect(v, n, BT_ISSUE_WARN, "44100 Hz and will be resampled");
+    expect(v, n, BT_ISSUE_NOTE, "44100 Hz, converted to 48000 Hz");
+    BT_CHECK_EQI(st.warnings, 0);      /* it is not something to act on */
+    BT_CHECK_EQI(st.notes, 1);
     /* Resident size is reported at the device rate, not the file's. */
     BT_CHECK_EQI(st.peak_resident_bytes, (long long)(SR * 4));
     free(v); bt_setlist_free(sl); cleanup();
