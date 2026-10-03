@@ -164,7 +164,24 @@ while it plays and prints the total when it stops.
 
 The useful number is the smallest buffer that gives **zero** xruns across a
 full song, with a comfortable margin above it — then run one step larger than
-that. Remember that latency does not
+that.
+
+**Expect the reported latency to stop falling at some point.** WASAPI in
+shared mode has its own period, and asking for a smaller buffer below that
+does not get you one: PortAudio simply calls the callback more often while the
+underlying stream period stays where it was. Measured on the band's laptop:
+
+| buffer_frames | reported latency | xruns over 3m30s, twice |
+|---|---|---|
+| 1024 | 42 ms | 0, 0 |
+| 512 | 22 ms | 0, 0 |
+| 256 | 22 ms — floor reached | 0, 0 |
+| 128 | 22 ms — floor reached | 0, 0 |
+
+Once the number stops changing you are no longer testing what you think you
+are testing. Genuinely smaller buffers need WASAPI exclusive mode, WDM-KS or
+ASIO — and for this job there is no reason to want them. **512 is the setting
+to use**: the smallest that changes anything, and clean. Remember that latency does not
 matter much here — you are not monitoring a live input, and the click and the
 tracks are delayed together. Resist tuning it down for its own sake.
 

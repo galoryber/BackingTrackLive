@@ -42,21 +42,37 @@ void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
                        float cy, bool with_name) {
     ImFont *f = ImGui::GetFont();
     const float pad = sz.x * 0.03f;
-    const float ts  = sz.y * 0.030f;
-    const float r   = ts * 0.42f;
+    /* Small on purpose. Green is good and beyond that it is not something to
+     * be looking at - it earns a corner, not attention. */
+    const float ts  = sz.y * 0.021f;
+    const float r   = ts * 0.40f;
 
-    const char *label = st.device_live
-                      ? (st.device_name && st.device_name[0] ? st.device_name : "audio ready")
-                      : (st.device_note && st.device_note[0] ? st.device_note : "no audio device");
+    char live_label[224];
+    const char *label;
+    if (st.device_live) {
+        /* The running xrun total belongs here, including when it is zero.
+         * Shown only on a problem it is correct for stage and useless for
+         * confidence: "no badge" and "never counted" look identical, and
+         * after a set you want to know which. */
+        std::snprintf(live_label, sizeof(live_label), "%s  \xc2\xb7  %llu xrun%s",
+                      (st.device_name && st.device_name[0]) ? st.device_name : "audio ready",
+                      (unsigned long long)st.xruns, st.xruns == 1 ? "" : "s");
+        label = live_label;
+    } else {
+        label = (st.device_note && st.device_note[0]) ? st.device_note
+                                                      : "no audio device";
+    }
     if (!with_name && st.device_live) return;   /* silence is the good news */
 
     float tw = text_w(f, ts, label);
     float x  = sz.x - pad - tw;
 
-    text_at(dl, f, ts, ImVec2(x, cy - ts * 0.5f),
-            st.device_live ? COL_DIM : COL_WARN, label);
-    dl->AddCircleFilled(ImVec2(x - r * 3.0f, cy), r,
-                        st.device_live ? COL_GOOD : COL_WARN, 24);
+    const ImU32 txt = !st.device_live ? COL_WARN
+                    : (st.xruns ? COL_BEAT_ON : COL_DIM);
+    const ImU32 dot = !st.device_live ? COL_WARN
+                    : (st.xruns ? COL_BEAT_ON : COL_GOOD);
+    text_at(dl, f, ts, ImVec2(x, cy - ts * 0.5f), txt, label);
+    dl->AddCircleFilled(ImVec2(x - r * 3.0f, cy), r, dot, 24);
     if (!st.device_live)
         dl->AddCircle(ImVec2(x - r * 3.0f, cy), r * 1.9f, COL_WARN, 24,
                       sz.y * 0.0025f);

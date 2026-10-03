@@ -290,10 +290,14 @@ rather than a command line, and what this deliberately will not do.
 | 4 | MIDI in (footswitch) and out (patch changes) | |
 | 5 | DMX lighting via Art-Net / sACN | |
 
-Known gap: the device layer has never met a real interface. Enumeration,
-stream open, the callback bridge, underrun counting and device-loss detection
-are written and build on all three platforms, but ASIO and real dropout
-behaviour need hardware.
+Measured on the band's laptop (i7-13620H, Behringer UMC404HD, WASAPI): four
+channels out, front of house on 1/2 and the click on 3/4, **zero xruns over
+3m30s at every buffer size tried**, with latency bottoming out at 22 ms where
+WASAPI's shared-mode period takes over. 512 frames is the setting to use.
+
+Still unproven: ASIO (not required — WASAPI exposes the four-channel
+endpoint), and anything on macOS or Linux, which build and pass their tests
+but have never been run.
 
 See [`docs/asio.md`](docs/asio.md) for why the ASIO SDK is not, and will not
 be, committed to this repository, and [`docs/gig-laptop.md`](docs/gig-laptop.md)

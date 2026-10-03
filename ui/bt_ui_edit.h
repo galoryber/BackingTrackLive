@@ -19,7 +19,7 @@
 
 #include "backtrack/bt_model.h"
 
-enum class bt_edit_screen { setlist, song, align };
+enum class bt_edit_screen { setlist, song, align, audio };
 
 struct bt_ui_edit {
     bt_setlist    *sl = nullptr;          /* mutable, unlike the play view */
@@ -38,6 +38,15 @@ struct bt_ui_edit {
 
     char           status[160] = {0};      /* last save result, or an error */
     bool           leave = false;          /* set by ESC off the top screen  */
+
+    /* Audio routing. device.json is machine-local, so the editor writes it
+     * beside the set list and the host re-opens the stream afterwards. */
+    char           device_path[BT_MAX_PATH] = {0};
+    bool           can_save_device = false;
+    bool           device_dirty    = false;
+    bool           reopen_device   = false;  /* host clears after acting    */
+    bool           show_all_apis   = false;
+    int32_t        picked_device   = -1;     /* backend index, -1 = none    */
 };
 
 /* Returns true while edit mode should stay open; false when the user leaves. */

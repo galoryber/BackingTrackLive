@@ -189,6 +189,8 @@ void draw_setlist_screen(bt_ui_edit &ed) {
     ImGui::SameLine();
     if (ImGui::Button("edit song \xe2\x86\x92")) ed.screen = bt_edit_screen::song;
     ImGui::EndDisabled();
+    ImGui::SameLine(0, 28);
+    if (ImGui::Button("audio \xe2\x80\xa6")) ed.screen = bt_edit_screen::audio;
 
     ImGui::Spacing();
 
@@ -470,6 +472,8 @@ void draw_song_screen(bt_ui_edit &ed) {
 
 /* --------------------------------------------------------- align screen */
 
+void draw_audio_screen(bt_ui_edit &ed);   /* defined below, needs bt_device.h */
+
 void draw_align_screen(bt_ui_edit &ed) {
     ImGui::PushStyleColor(ImGuiCol_Text, COL_DIM);
     ImGui::TextUnformatted("EDIT  \xe2\x80\xa2  align");
@@ -501,6 +505,7 @@ void bt_ui_edit_key(bt_ui_edit &ed, int vk) {
          * entirely - so ESC always means "back", never "quit". */
         if (ed.screen == bt_edit_screen::align)      ed.screen = bt_edit_screen::song;
         else if (ed.screen == bt_edit_screen::song)  ed.screen = bt_edit_screen::setlist;
+        else if (ed.screen == bt_edit_screen::audio) ed.screen = bt_edit_screen::setlist;
         else                                         ed.leave = true;
         break;
     case 'S':
@@ -540,6 +545,7 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     case bt_edit_screen::setlist: draw_setlist_screen(ed); break;
     case bt_edit_screen::song:    draw_song_screen(ed);    break;
     case bt_edit_screen::align:   draw_align_screen(ed);   break;
+    case bt_edit_screen::audio:   draw_audio_screen(ed);   break;
     }
     ImGui::EndChild();
 
@@ -581,3 +587,248 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     ImGui::End();
     return stay;
 }
+
+/* ======================================================================
+ * Audio routing
+ *
+ * Everything this screen needs already existed: bt_device_* enumerates with
+ * API names and channel counts, and bt_device_cfg_save_file writes the file
+ * losslessly. What was missing was somewhere to see it, so the only way to
+ * configure audio was to read a CLI listing and hand-write JSON.
+ * ==================================================================== */
+
+#include "backtrack/bt_device.h"
+
+namespace {
+
+/* MME and DirectSound are listed only on request. They work, and on Windows
+ * they are where a hundred milliseconds of latency comes from - offering them
+ * beside WASAPI with equal weight invites the wrong choice. */
+bool api_is_preferred(const char *api) {
+    if (!api) return false;
+    return strstr(api, "ASIO") || strstr(api, "WASAPI") || strstr(api, "WDM-KS")
+        || strstr(api, "Core Audio") || strstr(api, "ALSA") || strstr(api, "JACK");
+}
+
+int32_t channels_of(int32_t idx) {
+    bt_device_info di;
+    if (idx < 0 || bt_device_get(idx, &di) != BT_OK) return 0;
+    return di.max_out_channels;
+}
+
+/* A sensible starting map for a device we have just picked: front of house on
+ * the first pair, click on the second if there is one, and the stereo
+ * fallback - band one side, click the other - if there is not. */
+void default_buses(bt_device_cfg &cfg, int32_t nch) {
+    memset(cfg.bus, 0, sizeof(cfg.bus));
+    snprintf(cfg.bus[0].name, BT_MAX_NAME, "foh");
+    snprintf(cfg.bus[1].name, BT_MAX_NAME, "inear");
+    if (nch >= 4) {
+        cfg.bus[0].ch[0] = 0; cfg.bus[0].ch[1] = 1; cfg.bus[0].nch = 2;
+        cfg.bus[1].ch[0] = 2; cfg.bus[1].ch[1] = 3; cfg.bus[1].nch = 2;
+    } else {
+        cfg.bus[0].ch[0] = 0; cfg.bus[0].nch = 1;
+        cfg.bus[1].ch[0] = 1; cfg.bus[1].nch = 1;
+    }
+    cfg.nbuses = 2;
+}
+
+void draw_audio_screen(bt_ui_edit &ed) {
+    bt_device_cfg &cfg = *ed.dev;
+
+    ImGui::PushStyleColor(ImGuiCol_Text, COL_DIM);
+    ImGui::TextUnformatted("EDIT  \xe2\x80\xa2  audio");
+    ImGui::PopStyleColor();
+    if (ImGui::Button("\xe2\x86\x90 set list")) ed.screen = bt_edit_screen::setlist;
+    ImGui::Separator();
+
+    /* ---- device ---- */
+    ImGui::TextUnformatted("DEVICE");
+    /* Right-aligned, so it reads as an option on the list rather than as a
+     * property of the word next to it. */
+    {
+        const char *lbl = "show every API";
+        float w = ImGui::CalcTextSize(lbl).x + ImGui::GetFrameHeight()
+                + ImGui::GetStyle().ItemInnerSpacing.x;
+        ImGui::SameLine(ImGui::GetContentRegionAvail().x - w);
+        ImGui::Checkbox(lbl, &ed.show_all_apis);
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("MME and DirectSound work and are slow - on this\n"
+                              "hardware roughly 90-120 ms against WASAPI's 3 ms.");
+    }
+
+    const int32_t ndev = bt_device_count();
+    if (ndev == 0) {
+        ImGui::TextColored(COL_WARN, "No audio devices found.");
+        ImGui::TextDisabled("Plug the interface in; this list refreshes on its own.");
+    }
+
+    ImGui::BeginChild("devlist", ImVec2(0, 230), true);
+    for (int32_t i = 0; i < ndev; i++) {
+        bt_device_info di;
+        if (bt_device_get(i, &di) != BT_OK) continue;
+        if (di.max_out_channels <= 0) continue;                 /* inputs */
+        if (!ed.show_all_apis && !api_is_preferred(di.api)) continue;
+
+        bool sel = (ed.picked_device == i);
+        char row[320];
+        std::snprintf(row, sizeof(row), "%-44.44s  %-14.14s  %d ch  %.0f Hz  %.1f ms##d%d",
+                      di.name, di.api, di.max_out_channels,
+                      di.default_sample_rate, di.default_low_latency * 1000.0, i);
+        if (ImGui::Selectable(row, sel)) {
+            ed.picked_device = i;
+            std::snprintf(cfg.device, sizeof(cfg.device), "%s", di.name);
+            std::snprintf(cfg.api, sizeof(cfg.api), "%s", di.api);
+            if (di.default_sample_rate >= 8000.0)
+                cfg.sample_rate = (int32_t)di.default_sample_rate;
+            default_buses(cfg, di.max_out_channels);
+            ed.device_dirty = true;
+        }
+    }
+    ImGui::EndChild();
+
+    if (cfg.device[0])
+        ImGui::Text("selected:  %s   (%s)", cfg.device,
+                    cfg.api[0] ? cfg.api : "best available");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    /* ---- stream ---- */
+    ImGui::TextUnformatted("STREAM");
+    ImGui::SetNextItemWidth(170);
+    int rate = cfg.sample_rate;
+    if (ImGui::InputInt("sample rate", &rate, 0, 0)) {
+        if (rate >= 8000 && rate <= 192000) { cfg.sample_rate = rate; ed.device_dirty = true; }
+    }
+
+    ImGui::SameLine(0, 24);
+    ImGui::SetNextItemWidth(230);
+    static const int kBufs[] = { 128, 256, 512, 1024, 2048 };
+    int cur = 2;
+    for (int i = 0; i < 5; i++) if (kBufs[i] == cfg.buffer_frames) cur = i;
+    char blabel[64];
+    std::snprintf(blabel, sizeof(blabel), "%d  (%.1f ms)", cfg.buffer_frames,
+                  1000.0 * cfg.buffer_frames / (cfg.sample_rate > 0 ? cfg.sample_rate : 48000));
+    if (ImGui::BeginCombo("buffer", blabel)) {
+        for (int i = 0; i < 5; i++) {
+            char item[64];
+            std::snprintf(item, sizeof(item), "%d  (%.1f ms)%s", kBufs[i],
+                          1000.0 * kBufs[i] / (cfg.sample_rate > 0 ? cfg.sample_rate : 48000),
+                          kBufs[i] == 512 ? "   \xe2\x80\x94 recommended" : "");
+            if (ImGui::Selectable(item, i == cur)) {
+                cfg.buffer_frames = kBufs[i];
+                ed.device_dirty = true;
+            }
+        }
+        ImGui::EndCombo();
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("latency delays the click and the tracks together, so "
+                        "a bigger buffer costs nothing here");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    /* ---- buses ---- */
+    ImGui::TextUnformatted("BUSES");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(cfg.nbuses >= BT_MAX_BUSES);
+    if (ImGui::Button("+ add bus")) {
+        bt_bus &b = cfg.bus[cfg.nbuses];
+        std::memset(&b, 0, sizeof(b));
+        std::snprintf(b.name, BT_MAX_NAME, "bus%d", cfg.nbuses + 1);
+        b.nch = 1;
+        cfg.nbuses++;
+        ed.device_dirty = true;
+    }
+    ImGui::EndDisabled();
+    ImGui::SameLine();
+    ImGui::TextDisabled("setlist.json refers to these names, never to channel numbers");
+
+    const int32_t nch = ed.picked_device >= 0 ? channels_of(ed.picked_device)
+                                              : BT_MAX_BUS_CH * 2;
+    int32_t remove_bus = -1;
+
+    for (int32_t b = 0; b < cfg.nbuses; b++) {
+        ImGui::PushID(1000 + b);
+        ImGui::SetNextItemWidth(170);
+        if (ImGui::InputText("##name", cfg.bus[b].name, BT_MAX_NAME))
+            ed.device_dirty = true;
+
+        /* Channels as toggles rather than typed numbers: the question is
+         * "which outputs", and the device knows how many it has. */
+        for (int32_t c = 0; c < nch && c < 16; c++) {
+            ImGui::SameLine(0, c == 0 ? 16.0f : 4.0f);
+            bool on = false;
+            for (int32_t k = 0; k < cfg.bus[b].nch; k++)
+                if (cfg.bus[b].ch[k] == c) on = true;
+
+            char lbl[16];
+            std::snprintf(lbl, sizeof(lbl), "%d##ch%d_%d", c + 1, b, c);
+            if (on) ImGui::PushStyleColor(ImGuiCol_Button,
+                                          ImVec4(0.290f, 0.510f, 0.780f, 1.0f));
+            if (ImGui::Button(lbl, ImVec2(34, 0))) {
+                if (on) {
+                    int32_t w = 0;
+                    for (int32_t k = 0; k < cfg.bus[b].nch; k++)
+                        if (cfg.bus[b].ch[k] != c) cfg.bus[b].ch[w++] = cfg.bus[b].ch[k];
+                    cfg.bus[b].nch = w;
+                } else if (cfg.bus[b].nch < BT_MAX_BUS_CH) {
+                    cfg.bus[b].ch[cfg.bus[b].nch++] = c;
+                }
+                ed.device_dirty = true;
+            }
+            if (on) ImGui::PopStyleColor();
+        }
+
+        ImGui::SameLine(0, 18);
+        if (ImGui::SmallButton("remove")) remove_bus = b;
+        ImGui::PopID();
+    }
+
+    if (remove_bus >= 0) {
+        for (int32_t i = remove_bus; i + 1 < cfg.nbuses; i++) cfg.bus[i] = cfg.bus[i + 1];
+        cfg.nbuses--;
+        ed.device_dirty = true;
+    }
+
+    /* A bus a set list routes to but this machine does not define is the
+     * commonest way a set fails to open, so say it here rather than later. */
+    if (ed.sl) {
+        for (int32_t i = 0; i < ed.sl->nsongs; i++)
+            for (int32_t t = 0; t < ed.sl->song[i].ntracks; t++) {
+                const char *want = ed.sl->song[i].track[t].bus;
+                if (!bt_device_find_bus(&cfg, want)) {
+                    ImGui::TextColored(COL_WARN,
+                        "song %d routes to \"%s\", which is not defined above",
+                        i + 1, want);
+                    i = ed.sl->nsongs;      /* one is enough to make the point */
+                    break;
+                }
+            }
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+    ImGui::BeginDisabled(!ed.can_save_device);
+    if (ImGui::Button("save device.json and reopen audio")) {
+        bt_err e = bt_device_cfg_save_file(&cfg, ed.device_path);
+        if (e == BT_OK) {
+            ed.device_dirty  = false;
+            ed.reopen_device = true;
+            set_status(ed, "saved %s", ed.device_path);
+        } else {
+            set_status(ed, "save failed: %s", bt_strerror(e));
+        }
+    }
+    ImGui::EndDisabled();
+    if (!ed.can_save_device &&
+        ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("No device.json to write to.\n"
+                          "Start with:  btui --setlist <file> --device <file>");
+    ImGui::SameLine();
+    if (ed.device_dirty) ImGui::TextColored(COL_AMBER, "unsaved audio changes");
+}
+
+} /* namespace */

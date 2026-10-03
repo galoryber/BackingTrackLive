@@ -24,8 +24,11 @@
 #include "backtrack/bt_player.h"
 #include "backtrack/bt_device.h"
 
+#include "backtrack/bt_demo.h"
+
 #include "bt_ui.h"
 #include "bt_ui_edit.h"
+#include "bt_ui_start.h"
 
 #include <cstdio>
 #include <cstring>
@@ -97,6 +100,9 @@ struct App {
     char          note[200] = {0};      /* startup / failure message        */
     char          dev_name[160] = {0};  /* short name for the on-screen badge */
     char          dev_why[120]  = {0};  /* why it is not live               */
+    uint64_t      xruns_seen = 0;       /* kept across a device going away  */
+    char          setlist_path[BT_MAX_PATH] = {0};
+    char          device_path[BT_MAX_PATH]  = {0};
 
     /* Simulated fallback, used only when live is false. */
     bool          sim_playing = false;
@@ -111,6 +117,11 @@ struct App {
 };
 
 App g_app;
+bt_ui_settings g_settings;
+bt_ui_start    g_start;
+
+/* Nothing open: the start screen is showing. */
+bool nothing_open() { return g_app.sl == nullptr; }
 
 void audio_cb(float *const *out, int32_t nframes, void *user) {
     bt_player_render((bt_player *)user, out, nframes);
@@ -183,8 +194,7 @@ void fill_state(bt_ui_state &st, App &a) {
 
     st.elapsed_sec = (double)st.playhead / st.sample_rate;
     st.total_sec   = (double)bt_song_length(&s, st.sample_rate) / st.sample_rate;
-    st.xruns       = a.live ? bt_device_xruns(a.device) : 0;
-
+    st.xruns       = a.live ? bt_device_xruns(a.device) : a.xruns_seen;
     st.device_live = a.live;
     st.device_name = a.dev_name[0] ? a.dev_name : nullptr;
     st.device_note = a.dev_why[0]  ? a.dev_why  : nullptr;
@@ -259,8 +269,149 @@ void toggle_fullscreen(HWND hwnd) {
     }
 }
 
+void close_set() {
+    App &a = g_app;
+    if (a.device) { bt_device_stop(a.device); bt_device_close(a.device); a.device = nullptr; }
+    if (a.player) { bt_player_destroy(a.player); a.player = nullptr; }
+    if (a.sl)     { bt_setlist_free(a.sl); a.sl = nullptr; }
+    a.live = false;
+    a.selected = 0;
+    a.dev_name[0] = a.dev_why[0] = '\0';
+}
+
+void reopen_audio(HWND hwnd);
+
+/* Load a set list and bring up audio for it. device.json defaults to sitting
+ * beside the set list, which is where the folder-is-one-unit rule puts it. */
+bool open_set(HWND hwnd, const char *setlist_path, const char *device_path) {
+    App &a = g_app;
+    close_set();
+
+    int line = 0;
+    bt_setlist *sl = nullptr;
+    bt_err e = bt_setlist_load_file(setlist_path, &sl, &line);
+    if (e != BT_OK) {
+        std::snprintf(g_start.status, sizeof(g_start.status),
+                      "%s: %s (line %d)", setlist_path, bt_strerror(e), line);
+        return false;
+    }
+    a.sl = sl;
+    std::snprintf(a.setlist_path, sizeof(a.setlist_path), "%s", setlist_path);
+
+    /* device.json beside the set list unless told otherwise. */
+    char dpath[BT_MAX_PATH];
+    if (device_path && *device_path) {
+        std::snprintf(dpath, sizeof(dpath), "%s", device_path);
+    } else {
+        std::snprintf(dpath, sizeof(dpath), "%s", setlist_path);
+        char *slash = std::strrchr(dpath, '\\');
+        char *fwd   = std::strrchr(dpath, '/');
+        if (fwd && (!slash || fwd > slash)) slash = fwd;
+        if (slash) std::snprintf(slash + 1, sizeof(dpath) - (size_t)(slash + 1 - dpath),
+                                 "device.json");
+        else std::snprintf(dpath, sizeof(dpath), "device.json");
+    }
+    std::snprintf(a.device_path, sizeof(a.device_path), "%s", dpath);
+
+    bt_device_cfg_defaults(&a.dev);
+    a.dev.buffer_frames = 512;
+    a.dev.sample_rate   = 48000;
+    std::snprintf(a.dev.api, sizeof(a.dev.api), "WASAPI");
+    int dline = 0;
+    bt_device_cfg_load_file(dpath, &a.dev, &dline);   /* defaults stand if absent */
+
+    int32_t nch = 0;
+    for (int32_t i = 0; i < a.dev.nbuses; i++)
+        for (int32_t k = 0; k < a.dev.bus[i].nch; k++)
+            if (a.dev.bus[i].ch[k] + 1 > nch) nch = a.dev.bus[i].ch[k] + 1;
+    if (nch <= 0) nch = 2;
+
+    bt_player_cfg pc = { a.dev.sample_rate, nch, a.dev.buffer_frames, 1, 30000 };
+    if (bt_player_create(&pc, a.sl, &a.dev, &a.player) != BT_OK ||
+        bt_player_select(a.player, 0) != BT_OK) {
+        std::snprintf(g_start.status, sizeof(g_start.status),
+                      "could not prepare \"%s\" - check its stems with the "
+                      "validation screen", setlist_path);
+        close_set();
+        return false;
+    }
+
+    g_edit.sl  = a.sl;
+    g_edit.dev = &a.dev;
+    g_edit.can_save = true;
+    g_edit.can_save_device = true;
+    g_edit.song = 0;
+    g_edit.screen = bt_edit_screen::setlist;
+    std::snprintf(g_edit.path, sizeof(g_edit.path), "%s", setlist_path);
+    std::snprintf(g_edit.device_path, sizeof(g_edit.device_path), "%s", dpath);
+
+    reopen_audio(hwnd);
+    bt_ui_settings_touch(g_settings, setlist_path, dpath);
+    g_start.status[0] = '\0';
+    return true;
+}
+
+/* Open (or re-open) the stream from whatever g_app.dev currently says.
+ * Startup and the routing editor both come through here, so there is one
+ * description of what "open the audio" means. */
+void reopen_audio(HWND hwnd) {
+    App &a = g_app;
+
+    if (a.device) {
+        bt_device_stop(a.device);
+        bt_device_close(a.device);
+        a.device = nullptr;
+    }
+    a.live = false;
+    a.dev_why[0] = '\0';
+
+    int32_t nch = 0;
+    for (int32_t i = 0; i < a.dev.nbuses; i++)
+        for (int32_t k = 0; k < a.dev.bus[i].nch; k++)
+            if (a.dev.bus[i].ch[k] + 1 > nch) nch = a.dev.bus[i].ch[k] + 1;
+
+    if (!a.player || nch <= 0) {
+        std::snprintf(a.dev_why, sizeof(a.dev_why), "no buses defined");
+        return;
+    }
+
+    const char *want = (a.dev.device[0] && std::strcmp(a.dev.device, "default") != 0)
+                     ? a.dev.device : nullptr;
+    int32_t idx = bt_device_best(want, a.dev.api[0] ? a.dev.api : nullptr);
+    if (idx == BT_DEVICE_DEFAULT && (want || a.dev.api[0])) {
+        std::snprintf(a.dev_why, sizeof(a.dev_why), "no device matching that name and API");
+        return;
+    }
+
+    bt_device_open_cfg oc = { idx, nch, a.dev.sample_rate, a.dev.buffer_frames };
+    bt_err e = bt_device_open(&oc, audio_cb, a.player, &a.device);
+    if (e != BT_OK || bt_device_start(a.device) != BT_OK) {
+        std::snprintf(a.dev_why, sizeof(a.dev_why), "could not open: %s", bt_strerror(e));
+        bt_device_close(a.device);
+        a.device = nullptr;
+        return;
+    }
+
+    a.live = true;
+    bt_device_info di;
+    if (bt_device_get(idx, &di) != BT_OK) std::memset(&di, 0, sizeof(di));
+    std::snprintf(a.dev_name, sizeof(a.dev_name), "%s  \xc2\xb7  %s",
+                  di.name[0] ? di.name : "default", di.api);
+
+    char title[320];
+    std::snprintf(title, sizeof(title), "BackingTrackLive - %s", a.dev_name);
+    SetWindowTextA(hwnd, title);
+}
+
 void on_key(HWND hwnd, WPARAM key) {
     App &a = g_app;
+
+    /* With nothing open there is no transport to drive; the start screen is
+     * mouse-driven and the keys would act on a set list that is not there. */
+    if (nothing_open()) {
+        if (key == VK_F11) toggle_fullscreen(hwnd);
+        return;
+    }
 
     if (g_editing) {
         if (key == VK_F11) { toggle_fullscreen(hwnd); return; }
@@ -389,6 +540,7 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
     st.elapsed_sec = 134.0; st.total_sec = 303.0;
     st.device_live = true;
     st.device_name = "OUT 1-4 (BEHRINGER UMC 404HD)  \xc2\xb7  Windows WASAPI";
+    st.xruns       = 0;
     /* The state worth having a picture of: the interface has gone. */
     if (!std::strcmp(state, "disconnected")) {
         st.device_live = false;
@@ -416,14 +568,35 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
     bt_ui_edit ed;
     static bt_device_cfg shot_dev;
     bt_device_cfg_defaults(&shot_dev);
-    const bool edit_shot = !std::strcmp(state, "edit") || !std::strcmp(state, "editsong");
+    const bool edit_shot = !std::strcmp(state, "edit") ||
+                           !std::strcmp(state, "editsong") ||
+                           !std::strcmp(state, "editaudio");
     if (edit_shot) {
         ed.sl  = sl;
         ed.dev = &shot_dev;
         ed.song = song;
         ed.track = 1;
-        ed.screen = !std::strcmp(state, "editsong") ? bt_edit_screen::song
-                                                    : bt_edit_screen::setlist;
+        ed.screen = !std::strcmp(state, "editsong")  ? bt_edit_screen::song
+                  : !std::strcmp(state, "editaudio") ? bt_edit_screen::audio
+                                                     : bt_edit_screen::setlist;
+        if (ed.screen == bt_edit_screen::audio) {
+            /* The screen's job is listing real devices, so enumeration has to
+             * be running even for a screenshot. */
+            bt_device_init();
+            ed.can_save_device = true;
+            std::snprintf(ed.device_path, sizeof(ed.device_path), "demo/device.json");
+            shot_dev.buffer_frames = 512;
+            shot_dev.sample_rate   = 48000;
+            std::snprintf(shot_dev.api, sizeof(shot_dev.api), "WASAPI");
+            ed.picked_device = bt_device_best(nullptr, "WASAPI");
+            if (ed.picked_device >= 0) {
+                bt_device_info di;
+                if (bt_device_get(ed.picked_device, &di) == BT_OK) {
+                    std::snprintf(shot_dev.device, sizeof(shot_dev.device), "%s", di.name);
+                    std::snprintf(shot_dev.api, sizeof(shot_dev.api), "%s", di.api);
+                }
+            }
+        }
         /* Give the shot something to show: the demo songs carry no stems. */
         if (ed.song >= 0 && ed.song < sl->nsongs) {
             bt_song &ss = sl->song[ed.song];
@@ -478,7 +651,7 @@ int usage() {
         "         built-in demo set, which can be edited but not saved.\n"
         "\n"
         "       btui --shot <out.raw> [--w N] [--h N]\n"
-        "            [--state stopped|playing|countin|disconnected|edit|editsong]\n"
+        "            [--state stopped|playing|countin|disconnected|edit|editsong|editaudio]\n"
         "            [--song N] [--bar N]\n");
     return 2;
 }
@@ -530,93 +703,20 @@ int main(int argc, char **argv) {
     ImGui_ImplWin32_Init(hwnd);
     ImGui_ImplDX11_Init(g_dev, g_ctx);
 
-    /* A real set list if one was named, otherwise the demo - which is
-     * editable so the screens can be exercised, but has nowhere to save to
-     * and says so rather than pretending. */
-    bt_device_cfg_defaults(&g_app.dev);
-    bool have_dev = false;
-    if (device_path) {
-        int line = 0;
-        bt_err e = bt_device_cfg_load_file(device_path, &g_app.dev, &line);
-        if (e != BT_OK)
-            std::fprintf(stderr, "%s: %s (line %d) - using defaults\n",
-                         device_path, bt_strerror(e), line);
-        else have_dev = true;
-    }
+    bt_ui_settings_load(g_settings);
+    g_start.settings = &g_settings;
 
-    bt_setlist *sl = nullptr;
-    if (setlist_path) {
-        int line = 0;
-        bt_err e = bt_setlist_load_file(setlist_path, &sl, &line);
-        if (e != BT_OK) {
-            std::fprintf(stderr, "%s: %s (line %d)\n", setlist_path,
-                         bt_strerror(e), line);
-            return 1;
-        }
-    }
-    if (!sl) sl = make_demo_setlist();
-    g_app.sl = sl;
-    QueryPerformanceFrequency(&g_app.freq);
+    const bool audio_available = (bt_device_init() == BT_OK);
 
-    g_edit.sl  = sl;
-    g_edit.dev = &g_app.dev;
-    g_edit.can_save = (setlist_path != nullptr);
-    if (setlist_path) std::snprintf(g_edit.path, sizeof(g_edit.path), "%s", setlist_path);
-
-    /* Open the device. Everything below degrades to a simulated transport if
-     * this fails, and says which it is - a UI that silently plays nothing is
-     * how this version started. */
-    int32_t nch = 0;
-    for (int32_t i = 0; i < g_app.dev.nbuses; i++)
-        for (int32_t k = 0; k < g_app.dev.bus[i].nch; k++)
-            if (g_app.dev.bus[i].ch[k] + 1 > nch) nch = g_app.dev.bus[i].ch[k] + 1;
-
-    if (setlist_path && nch > 0 && bt_device_init() == BT_OK) {
-        bt_player_cfg pc = { g_app.dev.sample_rate, nch, g_app.dev.buffer_frames, 1, 30000 };
-        if (bt_player_create(&pc, sl, &g_app.dev, &g_app.player) == BT_OK &&
-            bt_player_select(g_app.player, 0) == BT_OK) {
-
-            const char *want_name = (g_app.dev.device[0] &&
-                                     std::strcmp(g_app.dev.device, "default") != 0)
-                                  ? g_app.dev.device : nullptr;
-            int32_t idx = bt_device_best(want_name,
-                                         g_app.dev.api[0] ? g_app.dev.api : nullptr);
-
-            bt_device_open_cfg oc = { idx, nch, g_app.dev.sample_rate,
-                                      g_app.dev.buffer_frames };
-            bt_err e = bt_device_open(&oc, audio_cb, g_app.player, &g_app.device);
-            if (e == BT_OK && bt_device_start(g_app.device) == BT_OK) {
-                g_app.live = true;
-                bt_device_info di;
-                if (bt_device_get(idx, &di) != BT_OK) std::memset(&di, 0, sizeof(di));
-                std::snprintf(g_app.dev_name, sizeof(g_app.dev_name), "%s  \xc2\xb7  %s",
-                              di.name[0] ? di.name : "default", di.api);
-                std::snprintf(g_app.note, sizeof(g_app.note), "%s", g_app.dev_name);
-            } else {
-                std::snprintf(g_app.dev_why, sizeof(g_app.dev_why),
-                              "audio device would not open: %s", bt_strerror(e));
-                std::snprintf(g_app.note, sizeof(g_app.note), "%s", g_app.dev_why);
-                bt_device_close(g_app.device);
-                g_app.device = nullptr;
-            }
-        }
-    }
-    if (!g_app.live && !g_app.dev_why[0])
-        std::snprintf(g_app.dev_why, sizeof(g_app.dev_why), "%s",
-                      setlist_path ? "no audio device opened"
-                                   : "demo set - no audio");
-    if (!g_app.note[0])
-        std::snprintf(g_app.note, sizeof(g_app.note), "%s", g_app.dev_why);
-
-    {
-        char title[320];
-        std::snprintf(title, sizeof(title),
-                      g_app.live ? "BackingTrackLive - %s"
-                                 : "BackingTrackLive - %s (simulated transport)",
-                      g_app.note);
-        SetWindowTextA(hwnd, title);
-    }
-    std::fprintf(stderr, "%s\n", g_app.note);
+    /* Command-line arguments still work and still win. With none, the last
+     * set list opens; with no last set list, the start screen does. Opening
+     * an unsaveable demo because nobody passed a flag was a developer's
+     * answer to an empty state. */
+    const char *want_set = setlist_path ? setlist_path
+                         : (g_settings.setlist[0] ? g_settings.setlist : nullptr);
+    const char *want_dev = device_path ? device_path
+                         : (g_settings.device[0] ? g_settings.device : nullptr);
+    if (want_set) open_set(hwnd, want_set, want_dev);
 
     while (!g_quit) {
         MSG msg;
@@ -632,6 +732,49 @@ int main(int argc, char **argv) {
         ImGui_ImplWin32_NewFrame();
         ImGui::NewFrame();
 
+        if (nothing_open()) {
+            g_start.action = bt_start_action::none;
+            bt_ui_start_draw(g_start);
+
+            char picked[BT_MAX_PATH];
+            switch (g_start.action) {
+            case bt_start_action::open:
+                if (bt_ui_pick_setlist(picked, sizeof(picked)))
+                    open_set(hwnd, picked, nullptr);
+                break;
+            case bt_start_action::open_recent:
+                if (g_start.recent_index >= 0 &&
+                    g_start.recent_index < g_settings.nrecent)
+                    open_set(hwnd, g_settings.recent[g_start.recent_index], nullptr);
+                break;
+            case bt_start_action::create_demo: {
+                char dir[BT_MAX_PATH];
+                if (bt_ui_pick_folder("Where should the demo set go?",
+                                      dir, sizeof(dir))) {
+                    bt_err e = bt_demo_write(dir, 120.0, nullptr, nullptr);
+                    if (e != BT_OK) {
+                        std::snprintf(g_start.status, sizeof(g_start.status),
+                                      "could not write the demo: %s", bt_strerror(e));
+                    } else {
+                        char sp[BT_MAX_PATH];
+                        std::snprintf(sp, sizeof(sp), "%s\\setlist.json", dir);
+                        open_set(hwnd, sp, nullptr);
+                    }
+                }
+                break;
+            }
+            default: break;
+            }
+
+            ImGui::Render();
+            const float clear[4] = { 0.06f, 0.07f, 0.08f, 1.0f };
+            g_ctx->OMSetRenderTargets(1, &g_rtv, nullptr);
+            g_ctx->ClearRenderTargetView(g_rtv, clear);
+            ImGui_ImplDX11_RenderDrawData(ImGui::GetDrawData());
+            g_swap->Present(1, 0);
+            continue;
+        }
+
         if (g_app.live) {
             bt_tick_result t = BT_TICK_IDLE;
             bt_player_tick(g_app.player, &t);
@@ -645,6 +788,7 @@ int main(int argc, char **argv) {
             if (quiet < 150) quiet = 150;
             if (quiet > 2000) quiet = 2000;
             if (bt_device_lost(g_app.device) || bt_device_stalled(g_app.device, quiet)) {
+                g_app.xruns_seen = bt_device_xruns(g_app.device);
                 bt_player_stop(g_app.player);
                 g_app.live = false;
                 /* On screen, not in the title bar. The title is invisible in
@@ -661,6 +805,14 @@ int main(int argc, char **argv) {
         if (g_editing) {
             g_edit.song = g_edit.song < 0 ? 0 : g_edit.song;
             if (!bt_ui_edit_draw(g_edit)) g_editing = false;
+
+            /* Routing changed: tear the stream down and build it again from
+             * the new config. Only reachable while stopped, so there is no
+             * audio to interrupt. */
+            if (g_edit.reopen_device) {
+                g_edit.reopen_device = false;
+                reopen_audio(hwnd);
+            }
             if (g_app.selected >= g_app.sl->nsongs)
                 g_app.selected = g_app.sl->nsongs - 1;
             if (g_app.selected < 0) g_app.selected = 0;
@@ -678,9 +830,9 @@ int main(int argc, char **argv) {
         g_swap->Present(1, 0);
     }
 
-    if (g_app.device) { bt_device_stop(g_app.device); bt_device_close(g_app.device); }
-    if (g_app.player) bt_player_destroy(g_app.player);
-    if (g_app.live || g_app.device) bt_device_term();
+    bt_ui_settings_save(g_settings);
+    close_set();
+    if (audio_available) bt_device_term();
 
     ImGui_ImplDX11_Shutdown();
     ImGui_ImplWin32_Shutdown();

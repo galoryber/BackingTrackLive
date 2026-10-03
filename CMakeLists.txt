@@ -67,6 +67,7 @@ add_library(backtrack STATIC
   src/model/bt_model_json.c
   src/model/bt_model_write.c
   src/model/bt_validate.c
+  src/model/bt_demo.c
   src/engine/bt_engine.c
   src/player/bt_player.c
   src/player/bt_loader.c
@@ -255,7 +256,7 @@ if(BT_BUILD_UI)
     target_compile_options(imgui_d3d11 PRIVATE /W0)
   endif()
 
-  add_executable(btui ui/btui_main.cpp ui/bt_ui_screens.cpp ui/bt_ui_edit.cpp)
+  add_executable(btui ui/btui_main.cpp ui/bt_ui_screens.cpp ui/bt_ui_edit.cpp ui/bt_ui_start.cpp)
   target_link_libraries(btui PRIVATE backtrack backtrack_device imgui_d3d11)
   target_include_directories(btui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 endif()
