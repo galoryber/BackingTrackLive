@@ -70,6 +70,27 @@ every push:
 Windows binaries link the C runtime statically, so the target machine needs no
 Visual C++ redistributable - unzip and run.
 
+### What to run
+
+**`BackingTrackLive.exe`.** That is the whole program: open or create a set
+list, configure the audio interface, check the set, and play the show. Nothing
+in normal use needs a command line.
+
+The other three are the same engine with a terminal in front of it, kept
+because they script and because they are what CI runs:
+
+| | |
+|---|---|
+| `btcheck` | validate a set list and report every problem at once |
+| `btrender` | render a set list to a WAV offline, deterministically |
+| `btplay` | play a set list through a device, printing latency and xruns |
+
+Set lists and stems live wherever you put them, `Documents\BackingTrackLive`
+by default. Settings and the audio routing live in
+`%APPDATA%\BackingTrackLive` - routing describes the machine, so it is
+configured once and applies to every set list. Upgrading replaces the program
+and touches neither.
+
 One caveat worth reading before trusting a public build on stage: released
 binaries are **WASAPI-only**, because the ASIO SDK cannot be committed to this
 repository. That turns out to be a smaller limitation than expected — the

@@ -181,7 +181,7 @@ jobs:
         shell: bash
         run: |
           for s in stopped playing countin; do
-            ./build-ui/Release/btui.exe --shot "shot_$s.raw" --w 1280 --h 720 --state "$s"
+            ./build-ui/Release/BackingTrackLive.exe --shot "shot_$s.raw" --w 1280 --h 720 --state "$s"
           done
           ls -l shot_*.raw
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
