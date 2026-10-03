@@ -100,6 +100,13 @@ These are enforced by tests. Do not work around a failing rtsafe test.
    folder must be copyable to the backup laptop as a self-contained unit.
 6. **Never commit `device.json`.** Bus→channel mapping is machine-local.
    `setlist.json` refers only to logical bus names (`inear`, `foh`, ...).
+   It lives in `%APPDATA%\BackingTrackLive\` with the settings, because it
+   describes the interface rather than any one set list; a `device.json`
+   inside a set list folder still overrides it. The rule for where anything
+   belongs is one line — **machine config is invisible, user content is
+   visible** — and the layout is in `docs/gig-laptop.md`. Set lists default
+   to `Documents\BackingTrackLive\`, never to `%APPDATA%`: they are the
+   user's own, they are gigabytes, and the folder exists to be copied.
 7. **Never commit the ASIO SDK.** It is not redistributable. See `docs/asio.md`.
 
 ## Layout
@@ -153,15 +160,13 @@ letting future work live only in a conversation.
       hot-unplug need the band laptop and its UMC404HD — see
       `docs/gig-laptop.md`.
 - [~] Phase 3 — stage UI. Play mode done and reviewed on a real screen. Edit
-      mode has the set list and song editors. Still to do:
+      mode has the set list, song, audio and check screens, and the start
+      screen opens or creates set lists, so nothing needs a terminal any
+      more — see the parity table in `docs/roadmap.md`. Still to do:
       - the align view: waveform against a click grid, drag to nudge, audition
         a few bars to confirm by ear. `bt_peaks` is in place for it.
-      - a **routing editor**: pick the device and API from the enumerated list
-        and map buses to channels, instead of hand-writing `device.json`.
-        `bt_device_cfg_save_file` already writes the file losslessly, and
-        `bt_device_*` already enumerates — this is a screen over two things
-        that exist. Hand-editing JSON is fine for a technical user and is the
-        wrong first experience for anyone else.
+      - tempo maps and track reordering, which the format supports and the
+        editor does not yet expose.
 - [ ] Phase 4 — MIDI in (footswitch) / MIDI out (patch changes)
 - [ ] Phase 5 — DMX via Art-Net / sACN
 
