@@ -254,9 +254,12 @@ static void test_on_end_next_advances(void) {
     BT_CHECK_EQI(t, BT_TICK_ADVANCED);
     BT_CHECK_EQI(bt_player_current(r.p), 2);
     BT_CHECK(bt_player_playing(r.p));
-    /* Started at the top with no count-in: a segue should not be counted in. */
-    BT_CHECK(bt_player_playhead(r.p) >= 0);
-    BT_CHECK(bt_player_playhead(r.p) < 2048);
+    /* The fixture's songs ask for a bar of count-in, and a segue honours what
+     * the incoming song asks for - so the playhead is in the count-in, which
+     * is negative. It used to jump to bar 1 regardless; that is right for two
+     * songs in one tempo and wrong the moment the tempo changes, and it was
+     * never this layer's call to make. */
+    BT_CHECK(bt_player_playhead(r.p) < 0);
 
     /* Song 2 is on_end: stop, so the chain ends there rather than running on. */
     t = run_until_event(&r, 200);
@@ -490,7 +493,68 @@ static void test_wait_loaded(void) {
     rig_down(&r);
 }
 
+
+/* A segue into a song with a count-in must play that count-in, at the new
+ * song's tempo. Two songs in one tempo do not need it and a tempo change very
+ * much does: those bars are what carries a band across the join. */
+static void test_segue_honours_the_count_in(void) {
+    rig r;
+    rig_up(&r, 1u, 1);                     /* song 0 segues into song 1 */
+    r.sl->song[1].count_in_bars = 2;
+    r.sl->song[1].tempo.seg[0].bpm = 147.0;
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+
+    bt_player_play(r.p);
+    bt_tick_result t = BT_TICK_IDLE;
+    for (int i = 0; i < 400 && t != BT_TICK_ADVANCED; i++) {
+        bt_player_render(r.p, r.win, 1024);
+        BT_CHECK_EQI(bt_player_tick(r.p, &t), BT_OK);
+    }
+    BT_CHECK_EQI(t, BT_TICK_ADVANCED);
+    BT_CHECK_EQI(bt_player_current(r.p), 1);
+
+    /* Negative playhead is the count-in. Straight to bar 1 would be >= 0. */
+    BT_CHECK(bt_player_playhead(r.p) < 0);
+    BT_CHECK(bt_player_playing(r.p));
+
+    /* Two bars of 4/4 at 147bpm is 8 beats, a shade over 3.2 seconds. */
+    const double lead = -(double)bt_player_playhead(r.p) / SR;
+    BT_CHECK_NEAR(lead, 8.0 * 60.0 / 147.0, 0.02);
+
+    rig_down(&r);
+}
+
+/* And a song that asks for no count-in still runs straight in, which is what
+ * two musically continuous songs want. */
+static void test_segue_without_count_in_goes_straight_in(void) {
+    rig r;
+    rig_up(&r, 1u, 1);
+    r.sl->song[1].count_in_bars = 0;
+    /* A downbeat offset is what separates "start the song" from "start at
+     * beat 1": with no count-in the song must begin at frame 0, or the audio
+     * before its first downbeat is silently skipped. */
+    r.sl->song[1].tempo.downbeat_ms = 250.0;
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+
+    bt_player_play(r.p);
+    bt_tick_result t = BT_TICK_IDLE;
+    for (int i = 0; i < 400 && t != BT_TICK_ADVANCED; i++) {
+        bt_player_render(r.p, r.win, 1024);
+        BT_CHECK_EQI(bt_player_tick(r.p, &t), BT_OK);
+    }
+    BT_CHECK_EQI(t, BT_TICK_ADVANCED);
+    BT_CHECK_EQI(bt_player_current(r.p), 1);
+    BT_CHECK(bt_player_playing(r.p));
+    /* At the top of the song, not 250 ms into it. */
+    BT_CHECK(bt_player_playhead(r.p) >= 0);
+    BT_CHECK(bt_player_playhead(r.p) < (bt_frame)(SR * 0.05));
+
+    rig_down(&r);
+}
+
 int main(void) {
+    BT_RUN(test_segue_honours_the_count_in);
+    BT_RUN(test_segue_without_count_in_goes_straight_in);
     BT_RUN(test_wait_loaded);
     BT_RUN(test_seek_moves_the_playhead);
     BT_RUN(test_song_frames_matches_the_stem);

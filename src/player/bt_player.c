@@ -181,10 +181,24 @@ bt_err bt_player_tick(bt_player *p, bt_tick_result *result) {
         if (s->on_end == BT_ON_END_NEXT && p->current + 1 < p->sl->nsongs) {
             bt_err e = bt_player_select(p, p->current + 1);
             if (e != BT_OK) return e;
-            /* No count-in on a segue: clicking a bar into the next song is
-             * not what "plays straight into the next one" means. */
-            bt_engine_seek(p->eng, 0);
-            bt_engine_play(p->eng);
+
+            /* Honour the incoming song's count-in rather than deciding for
+             * it. This used to force a segue straight to bar 1, on the
+             * reasoning that counting in is not what "plays into the next
+             * one" means - which is true of two songs in the same tempo and
+             * wrong as soon as the tempo changes. Those count-in bars, ticking
+             * at the new tempo, are what carries a band across the join;
+             * without them the click simply changes speed mid-flow.
+             *
+             * It was never this layer's decision to make. count_in_bars is
+             * already per song: zero means straight in, and anything else
+             * means give us the new tempo first. */
+            if (p->sl->song[p->current].count_in_bars > 0) {
+                bt_engine_start_with_count_in(p->eng);
+            } else {
+                bt_engine_seek(p->eng, 0);
+                bt_engine_play(p->eng);
+            }
             r = BT_TICK_ADVANCED;
         } else {
             /* Either on_end: stop, or the last song - which is the same thing.
