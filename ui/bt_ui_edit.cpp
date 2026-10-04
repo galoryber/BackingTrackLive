@@ -325,9 +325,12 @@ void draw_tracks(bt_ui_edit &ed, bt_song &s) {
          * is not itself a control selects the track. */
         ImGui::TableNextColumn();
         const bool is_sel = (ed.track == t);
+        /* Sized to the row, not to a line of text: the row is as tall as the
+         * widgets in it, and a highlight shorter than that reads as misaligned. */
         if (ImGui::Selectable("##row", is_sel,
                               ImGuiSelectableFlags_SpanAllColumns |
-                              ImGuiSelectableFlags_AllowOverlap))
+                              ImGuiSelectableFlags_AllowOverlap,
+                              ImVec2(0, ImGui::GetFrameHeight())))
             ed.track = t;
         ImGui::SameLine(0, 0);
         ImGui::TextColored(is_sel ? COL_AMBER : COL_DIM, is_sel ? "\xe2\x97\x8f" : " ");
@@ -661,10 +664,15 @@ void draw_check_screen(bt_ui_edit &ed);   /* defined below                    */
 
 /* The first sample loud enough to be the music rather than the room.
  *
- * A fortieth of the loudest sample: above the noise floor of a quiet intro,
- * below anything anyone would call the start of the song. Returns -1 for a
- * stem that is silent throughout, which is a real thing that happens when the
- * wrong file is downloaded. */
+ * Reported, never acted on. There used to be a button that nudged this onto
+ * beat 1, which assumed a stem's first sound is its downbeat - false for any
+ * stem that enters partway through a song. On a synth part that comes in
+ * after thirty seconds it moved the stem thirty seconds early, and there was
+ * no undo. Where the audio starts is worth knowing; what it means is the
+ * reader's call.
+ *
+ * Returns -1 for a stem that is silent throughout, which happens when the
+ * wrong file gets downloaded. */
 bt_frame find_first_sound(const bt_track &t) {
     if (!t.pcm || t.frames <= 0) return -1;
     float peak = 0.0f;
@@ -739,28 +747,6 @@ void draw_align_screen(bt_ui_edit &ed) {
         if (off > -600000 && off < 600000) { t.offset_ms = off; ed.dirty = true; }
     }
     ImGui::SameLine(0, 20);
-
-    /* The reason most purchased stems are late: the file starts with silence
-     * before the first downbeat, and the length of that silence is nobody's
-     * decision - it is whatever the vendor's exporter did. Finding it is
-     * arithmetic, so there is no reason to make anyone do it by hand. */
-    if (ImGui::Button("snap start to beat 1")) {
-        if (ed.first_sound < 0) {
-            set_status(ed, "%s is silent - nothing to snap to", t.name);
-        } else {
-            bt_frame beat0 = bt_tempo_beat_frame(&s.tempo, 0, sr);
-            t.offset_ms = (int32_t)llround((double)(beat0 - ed.first_sound) * 1000.0 / sr);
-            ed.dirty = true;
-            set_status(ed, "%s begins %.0f ms into the file; nudged to %+d ms",
-                       t.name, (double)ed.first_sound * 1000.0 / sr, t.offset_ms);
-        }
-    }
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Finds where the audio actually begins and puts it on\n"
-                          "the first beat. Fixes the usual case in one press;\n"
-                          "check it by ear afterwards.");
-
-    ImGui::SameLine(0, 20);
     ImGui::SetNextItemWidth(150);
     float zoom = (float)ed.view_len;
     if (ImGui::SliderFloat("seconds shown", &zoom, 0.5f, 60.0f, "%.1f s",
@@ -781,8 +767,15 @@ void draw_align_screen(bt_ui_edit &ed) {
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(p0, ImVec2(p0.x + size.x, p0.y + size.y), IM_COL32(16, 19, 24, 255));
 
-    /* Follow the playhead while it plays, so what you hear is what you see. */
-    if (ed.playing) ed.view_start = ed.play_sec - ed.view_len * 0.35;
+    /* Follow the playhead while it plays, and also when a seek has put it
+     * outside the view - dragging the scrub while stopped is how you look at
+     * the end of a song without listening to it. */
+    if (ed.playing) {
+        ed.view_start = ed.play_sec - ed.view_len * 0.35;
+    } else if (ed.play_sec < ed.view_start ||
+               ed.play_sec > ed.view_start + ed.view_len) {
+        ed.view_start = ed.play_sec - ed.view_len * 0.35;
+    }
 
     if (hovered && ImGui::GetIO().MouseWheel != 0.0f) {
         const double at = ed.view_start +
@@ -859,11 +852,14 @@ void draw_align_screen(bt_ui_edit &ed) {
                         IM_COL32(236, 196, 96, 200), 1.5f);
     }
 
-    if (ed.playing) {
+    /* Always drawn. Stopped, it is where playing would resume from, which is
+     * exactly what you want to see while scrubbing. */
+    {
         const float x = x_of(ed.play_sec);
         if (x >= p0.x && x <= p0.x + size.x)
             dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p0.y + size.y),
-                        IM_COL32(245, 245, 245, 230), 1.8f);
+                        ed.playing ? IM_COL32(245, 245, 245, 230)
+                                   : IM_COL32(245, 245, 245, 140), 1.8f);
     }
 
     /* Drag to nudge. A pixel is a known number of milliseconds, so this is
@@ -895,14 +891,8 @@ void draw_align_screen(bt_ui_edit &ed) {
      * them apart at this zoom. */
     if (ed.first_sound >= 0) {
         const double lands = off_sec + (double)ed.first_sound / sr;
-        const double beat1 = (double)bt_tempo_beat_frame(&s.tempo, 0, sr) / sr;
-        const double err   = (lands - beat1) * 1000.0;
-        if (err > 1.5 || err < -1.5)
-            ImGui::TextColored(COL_AMBER,
-                "its first sound lands %.0f ms %s beat 1",
-                err < 0 ? -err : err, err < 0 ? "before" : "after");
-        else
-            ImGui::TextColored(COL_OK, "its first sound is on beat 1");
+        ImGui::TextDisabled("its first audible sound is at %d:%05.2f",
+                            (int)(lands / 60.0), lands - 60.0 * (int)(lands / 60.0));
     }
 }
 
