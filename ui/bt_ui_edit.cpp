@@ -554,6 +554,16 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::SetNextItemWidth(300);
     if (ImGui::InputText("artist", s.artist, sizeof(s.artist))) ed.dirty = true;
 
+    /* Whatever shorthand the band uses - "E1", "D1", "capo 3". Shown on the
+     * set list, beside the artist while playing, and in the NEXT panel, which
+     * is when somebody reaches for a different guitar. */
+    ImGui::SameLine(0, 26);
+    ImGui::SetNextItemWidth(110);
+    if (ImGui::InputText("tuning", s.tuning, sizeof(s.tuning))) ed.dirty = true;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Shown on stage, exactly as typed.\n"
+                          "Blank shows nothing.");
+
     /* Tempo is metadata, not analysis: it has to match what is already in the
      * stems. Saying so here is cheaper than anyone discovering it. */
     ImGui::Spacing();

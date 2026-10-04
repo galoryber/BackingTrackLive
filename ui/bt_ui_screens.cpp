@@ -245,7 +245,7 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
 
     /* ---- bar number: kept, demoted ------------------------------------
      * Useful for finding your place, and not what the eye should land on. */
-    if (!counting) {
+    if (!counting && !st.armed) {
         char bar[16];
         std::snprintf(bar, sizeof(bar), "%d", st.bar);
         const float bar_sz = sz.y * 0.095f;
@@ -256,6 +256,47 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
         float ls = sz.y * 0.030f;
         text_at(dl, f, ls, ImVec2(sz.x - pad - text_w(f, ls, lbl), sz.y * 0.030f),
                 COL_DIM, lbl);
+    }
+
+    /* ---- stopped, holding here -----------------------------------------
+     *
+     * A still metronome says nothing, so the middle of the screen goes to
+     * the thing that matters between songs: what one key is about to start. */
+    if (st.armed) {
+        const bt_song *q = (st.setlist && st.armed_song >= 0 &&
+                            st.armed_song < st.setlist->nsongs)
+                         ? &st.setlist->song[st.armed_song] : nullptr;
+
+        text_at(dl, f, sz.y * 0.040f, ImVec2(pad, sz.y * 0.430f), COL_DIM,
+                q ? "UP NEXT" : "END OF SET");
+        if (q) {
+            text_at(dl, f, sz.y * 0.115f, ImVec2(pad, sz.y * 0.480f),
+                    COL_TEXT, q->title);
+            float ay = sz.y * 0.620f, ax = pad;
+            if (q->artist[0]) {
+                text_at(dl, f, sz.y * 0.055f, ImVec2(ax, ay), COL_DIM, q->artist);
+                ax += text_w(f, sz.y * 0.055f, q->artist) + pad * 0.8f;
+            }
+            if (q->tuning[0]) {
+                char tl[48];
+                std::snprintf(tl, sizeof(tl), "TUNING  %s", q->tuning);
+                text_at(dl, f, sz.y * 0.055f, ImVec2(ax, ay), COL_ACCENT_T, tl);
+            }
+            char bl[32];
+            std::snprintf(bl, sizeof(bl), "%.0f BPM",
+                          q->tempo.nseg ? q->tempo.seg[0].bpm : 0.0);
+            text_at(dl, f, sz.y * 0.040f,
+                    ImVec2(sz.x - pad - text_w(f, sz.y * 0.040f, bl), sz.y * 0.500f),
+                    COL_DIM, bl);
+        }
+
+        const float kl = sz.y * 0.030f;
+        text_at(dl, f, kl, ImVec2(pad, sz.y * 0.720f), COL_DIM,
+                "SPACE  start it      \xe2\x86\x91 \xe2\x86\x93  choose another"
+                "      L  the set list");
+
+        draw_device_badge(dl, st, sz, sz.y * 0.945f, true);
+        return;
     }
 
     /* ---- the metronome: centre screen, the biggest thing on it --------
@@ -410,7 +451,7 @@ bt_ui_result bt_ui_draw(const bt_ui_state &st) {
     ImDrawList *dl = ImGui::GetWindowDrawList();
     dl->AddRectFilled(ImVec2(0, 0), sz, COL_BG);
 
-    if (st.playing) draw_playing(dl, st, sz);
+    if (st.playing || st.armed) draw_playing(dl, st, sz);
     else            draw_setlist(dl, st, sz, res);
 
     ImGui::End();

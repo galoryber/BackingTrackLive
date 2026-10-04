@@ -104,6 +104,14 @@ struct App {
     char          dev_why[120]  = {0};  /* why it is not live               */
     uint64_t      xruns_seen = 0;       /* kept across a device going away  */
     char          setlist_path[BT_MAX_PATH] = {0};
+    /* Holding on the playing screen after a song ends, with the next one
+     * queued. Cleared by going to the set list, or by starting something. */
+    bool          armed = false;
+    /* A start that is waiting for the loader rather than blocking on it. */
+    bool          pending_start    = false;
+    bool          pending_count_in = false;
+    int32_t       pending_song     = -1;
+    LARGE_INTEGER pending_since    = {};
     char          device_path[BT_MAX_PATH]  = {0};
 
     /* Simulated fallback, used only when live is false. */
@@ -134,7 +142,26 @@ void audio_cb(float *const *out, int32_t nframes, void *user) {
     bt_player_render((bt_player *)user, out, nframes);
 }
 
+/* Start the selected song once it is in memory.
+ *
+ * bt_player_select waits for the loader, on this thread, for up to its
+ * timeout. That wait is a frozen window: no redraw, no response, and from the
+ * outside a key that did nothing - which is exactly what a newly added stem
+ * produces, because nothing has decoded it yet. Waiting is the right
+ * behaviour for the engine and the wrong behaviour for a UI, so the UI asks
+ * whether the song is resident first and keeps asking until it is. */
 void transport_start(App &a, bool count_in) {
+    if (a.live && a.player && !bt_player_song_resident(a.player, a.selected)) {
+        a.pending_start    = true;
+        a.pending_count_in = count_in;
+        a.pending_song     = a.selected;
+        QueryPerformanceCounter(&a.pending_since);
+        std::snprintf(a.note, sizeof(a.note), "loading %s\xe2\x80\xa6",
+                      a.sl->song[a.selected].title);
+        return;
+    }
+    a.pending_start = false;
+
     if (a.live) {
         /* This used to `return` on failure and say nothing, so a stem that
          * would not load looked exactly like a dead keyboard: you pressed
@@ -170,6 +197,8 @@ void transport_start(App &a, bool count_in) {
 }
 
 void transport_stop(App &a) {
+    a.pending_start = false;
+    a.note[0] = '\0';
     if (a.live) bt_player_stop(a.player);
     else        a.sim_playing = false;
 }
@@ -189,6 +218,8 @@ void fill_state(bt_ui_state &st, App &a) {
     st.show_clock  = a.show_clock;
     st.sample_rate = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
     st.playing     = transport_playing(a);
+    st.armed       = a.armed && !st.playing;
+    st.armed_song  = a.selected;
 
     int32_t cur = transport_current(a);
     if (cur < 0) cur = 0;
@@ -556,6 +587,32 @@ void on_key(HWND hwnd, WPARAM key) {
         return;
     }
 
+    /* Armed: stopped, holding the playing screen with the next song queued. */
+    if (a.armed) {
+        switch (key) {
+        case VK_UP:
+            if (a.selected > 0) a.selected--;
+            return;
+        case VK_DOWN:
+            if (a.selected + 1 < a.sl->nsongs) a.selected++;
+            return;
+        case 'L':
+        case VK_ESCAPE:
+            a.armed = false;              /* back to the set list */
+            return;
+        case VK_SPACE:
+        case VK_RETURN:
+            a.armed = false;
+            transport_start(a, key == VK_SPACE);
+            return;
+        case 'E':
+            a.armed = false;
+            break;                        /* fall through to the normal keys */
+        default:
+            break;
+        }
+    }
+
     switch (key) {
     case VK_ESCAPE:
         /* ESC never quits. It used to, and a key that close to the rest of
@@ -641,6 +698,7 @@ void load_font() {
 /* -------------------------------------------------------- offscreen path */
 
 int run_shot(const char *out, int w, int h, const char *state, int song, int bar) {
+    const bool armed_shot = !std::strcmp(state, "armed");
     D3D_FEATURE_LEVEL fl;
     ID3D11Device *dev = nullptr; ID3D11DeviceContext *ctx = nullptr;
     if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0,
@@ -688,7 +746,13 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         st.device_note = "interface disconnected";
     }
 
-    if (!std::strcmp(state, "playing")) {
+    if (armed_shot) {
+        /* Stopped, holding the playing screen with the next song queued. */
+        st.playing    = false;
+        st.armed      = true;
+        st.armed_song = (song + 1 < st.setlist->nsongs) ? song + 1 : song;
+        st.playhead   = 0;
+    } else if (!std::strcmp(state, "playing")) {
         st.playing = true;
         st.playhead = (bt_frame)(st.elapsed_sec * st.sample_rate);
         st.beat = (int64_t)(st.elapsed_sec * st.bpm / 60.0);
@@ -1003,10 +1067,50 @@ int main(int argc, char **argv) {
             continue;
         }
 
+        /* A start that was waiting on the loader. Checked every frame, so the
+         * window stays alive and says what it is doing. */
+        if (g_app.pending_start && g_app.player) {
+            if (g_app.pending_song != g_app.selected) {
+                g_app.pending_start = false;      /* they chose something else */
+                g_app.note[0] = '\0';
+            } else if (bt_player_song_resident(g_app.player, g_app.pending_song)) {
+                const bool ci = g_app.pending_count_in;
+                g_app.pending_start = false;
+                transport_start(g_app, ci);
+            } else {
+                int32_t bad = -1;
+                bt_err le = bt_player_load_error(g_app.player, &bad);
+                LARGE_INTEGER now, freq;
+                QueryPerformanceCounter(&now);
+                QueryPerformanceFrequency(&freq);
+                const double waited = (double)(now.QuadPart - g_app.pending_since.QuadPart)
+                                    / (double)freq.QuadPart;
+                if (le != BT_OK && bad == g_app.pending_song) {
+                    g_app.pending_start = false;
+                    std::snprintf(g_app.note, sizeof(g_app.note), "%s: %s",
+                                  g_app.sl->song[bad].title, bt_strerror(le));
+                } else if (waited > 60.0) {
+                    g_app.pending_start = false;
+                    std::snprintf(g_app.note, sizeof(g_app.note),
+                                  "%s is taking longer than a minute to load",
+                                  g_app.sl->song[g_app.pending_song].title);
+                }
+            }
+        }
+
         if (g_app.live) {
             bt_tick_result t = BT_TICK_IDLE;
             bt_player_tick(g_app.player, &t);
             if (t == BT_TICK_ADVANCED) g_app.selected = bt_player_current(g_app.player);
+
+            /* A song that stops holds the screen instead of dropping to the
+             * set list: the band has just finished, somebody is talking to
+             * the room, and what matters is that the next song is queued and
+             * one key starts it. */
+            if (t == BT_TICK_SONG_ENDED) {
+                g_app.armed = true;
+                if (g_app.selected + 1 < g_app.sl->nsongs) g_app.selected++;
+            }
 
             /* Three buffer periods with no callback means the interface is
              * gone. WASAPI reports no error for an unplug - the callbacks

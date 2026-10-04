@@ -52,6 +52,16 @@ struct bt_ui_state {
     const char *device_name;     /* may be NULL */
     const char *device_note;     /* why it is not live, or NULL */
 
+    /* The song finished and the set is waiting on a human.
+     *
+     * A song that ends used to drop straight back to the set list, which is
+     * tidy and is not what the moment is: the band has just finished, someone
+     * is talking to the room, and what matters is that the next song is ready
+     * and one key starts it. The list is still a key away for choosing
+     * something else. */
+    bool     armed;          /* stopped, holding on the playing screen */
+    int32_t  armed_song;     /* what SPACE will start                  */
+
     bool     show_clock;     /* off by default: a number that invites you to
                               * read it and then tells you nothing you need */
 };

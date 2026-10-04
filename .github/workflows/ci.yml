@@ -191,7 +191,7 @@ jobs:
       - name: Render each screen headless
         shell: pwsh
         run: |
-          foreach ($s in 'stopped','playing','countin','edit','editsong','editaudio','editalign','check','start') {
+          foreach ($s in 'stopped','playing','countin','edit','editsong','editaudio','editalign','check','start','armed') {
             $p = Start-Process -FilePath ".\build-ui\Release\BackingTrackLive.exe" `
                    -ArgumentList '--shot',"shot_$s.raw",'--w','1280','--h','720','--state',$s `
                    -Wait -PassThru -NoNewWindow
