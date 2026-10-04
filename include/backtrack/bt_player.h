@@ -70,6 +70,19 @@ bt_err  bt_player_select(bt_player *p, int32_t song_index);
  * There is a brief silence while the swap waits for in-flight renders to
  * leave the old slot. Audible as a blip when you nudge during playback; the
  * alternative is tearing, which is worse. */
+/* Ask the loader to bring a song into memory, without waiting for it.
+ *
+ * bt_player_select waits, which is correct for the engine and wrong for a
+ * window: a UI that blocks is a UI that looks broken. The pattern is to
+ * request, let the frames keep running while bt_player_song_resident() says
+ * no, and select once it says yes - by which point select returns at once.
+ *
+ * Jumping backwards through a set is the case that needs this. The preload
+ * window holds the current song and the next one, so a song played earlier
+ * has been freed by the time you return to it, and nothing will load it again
+ * until something asks. */
+bt_err  bt_player_request(bt_player *p, int32_t song_index);
+
 bt_err  bt_player_reapply(bt_player *p);
 
 bt_err  bt_player_next(bt_player *p);

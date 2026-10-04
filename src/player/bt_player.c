@@ -87,6 +87,15 @@ bt_err bt_player_select(bt_player *p, int32_t song_index) {
     return BT_OK;
 }
 
+bt_err bt_player_request(bt_player *p, int32_t song_index) {
+    if (!p) return BT_ERR_RANGE;
+    if (song_index < 0 || song_index >= p->sl->nsongs) return BT_ERR_RANGE;
+    /* Deliberately does not touch p->current: nothing has been selected yet,
+     * and the engine is still bound to whatever is playing. */
+    bt_loader_set_window(p->ld, song_index, song_index + p->cfg.preload_ahead);
+    return BT_OK;
+}
+
 bt_err bt_player_reapply(bt_player *p) {
     if (!p) return BT_ERR_RANGE;
     if (p->current < 0 || p->current >= p->sl->nsongs) return BT_ERR_STATE;

@@ -552,7 +552,56 @@ static void test_segue_without_count_in_goes_straight_in(void) {
     rig_down(&r);
 }
 
+
+/* Jumping backwards through a set: the preload window holds the current song
+ * and the next, so an earlier one has been freed by the time you come back to
+ * it. Something has to ask for it again, without blocking the caller. */
+static void test_request_loads_a_song_that_was_freed(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+    BT_CHECK(bt_player_song_resident(r.p, 0));
+
+    /* Walk far enough away that song 0 falls out of the window. */
+    BT_CHECK_EQI(bt_player_select(r.p, 4), BT_OK);
+    BT_CHECK_EQI(bt_player_wait_loaded(r.p, 4, 5000), BT_OK);
+    BT_CHECK(!bt_player_song_resident(r.p, 0));
+
+    /* Asking for it must not move the engine off the song that is bound. */
+    BT_CHECK_EQI(bt_player_request(r.p, 0), BT_OK);
+    BT_CHECK_EQI(bt_player_current(r.p), 4);
+
+    /* And it must actually arrive - polled, not waited on. bt_loader_wait
+     * widens the window itself when the song is not wanted, so waiting would
+     * request the load and pass whether or not request did anything, which is
+     * exactly the bug this exists to catch. */
+    bool arrived = false;
+    for (int i = 0; i < 250 && !arrived; i++) {
+        arrived = bt_player_song_resident(r.p, 0);
+        if (!arrived) bt_thread_sleep_ms(20);
+    }
+    BT_CHECK(arrived);
+
+    /* Selecting it afterwards is then immediate. */
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+    BT_CHECK_EQI(bt_player_current(r.p), 0);
+
+    rig_down(&r);
+}
+
+static void test_request_rejects_nonsense(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+    BT_CHECK_EQI(bt_player_request(NULL, 0), BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_player_request(r.p, -1), BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_player_request(r.p, SONGS), BT_ERR_RANGE);
+    rig_down(&r);
+}
+
 int main(void) {
+    BT_RUN(test_request_loads_a_song_that_was_freed);
+    BT_RUN(test_request_rejects_nonsense);
     BT_RUN(test_segue_honours_the_count_in);
     BT_RUN(test_segue_without_count_in_goes_straight_in);
     BT_RUN(test_wait_loaded);

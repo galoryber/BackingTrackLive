@@ -152,12 +152,16 @@ void audio_cb(float *const *out, int32_t nframes, void *user) {
  * whether the song is resident first and keeps asking until it is. */
 void transport_start(App &a, bool count_in) {
     if (a.live && a.player && !bt_player_song_resident(a.player, a.selected)) {
+        /* Ask for it. Without this the wait below never ends: the preload
+         * window holds the current song and the next, so one played earlier
+         * has been freed, and nothing loads it again until something asks.
+         * Jumping backwards through a set is the normal way to hit this. */
+        bt_player_request(a.player, a.selected);
         a.pending_start    = true;
         a.pending_count_in = count_in;
         a.pending_song     = a.selected;
         QueryPerformanceCounter(&a.pending_since);
-        std::snprintf(a.note, sizeof(a.note), "loading %s\xe2\x80\xa6",
-                      a.sl->song[a.selected].title);
+        a.note[0] = '\0';
         return;
     }
     a.pending_start = false;
@@ -196,6 +200,19 @@ void transport_start(App &a, bool count_in) {
     a.sim_playing = true;
 }
 
+bool transport_playing(const App &a);   /* defined below */
+
+/* Ask the loader for whatever is selected, so browsing the set warms it.
+ *
+ * Only while stopped. Moving the window frees songs outside it, and
+ * bt_engine_render touches no stem audio unless it is playing - which is the
+ * same assumption bt_player_select already makes when it moves the window.
+ * While playing, the window belongs to the transport. */
+void queue_selected(App &a) {
+    if (a.live && a.player && !transport_playing(a))
+        bt_player_request(a.player, a.selected);
+}
+
 void transport_stop(App &a) {
     a.pending_start = false;
     a.note[0] = '\0';
@@ -220,6 +237,8 @@ void fill_state(bt_ui_state &st, App &a) {
     st.playing     = transport_playing(a);
     st.armed       = a.armed && !st.playing;
     st.armed_song  = a.selected;
+    st.loading     = a.pending_start;
+    st.loading_song = a.pending_song;
 
     int32_t cur = transport_current(a);
     if (cur < 0) cur = 0;
@@ -591,10 +610,10 @@ void on_key(HWND hwnd, WPARAM key) {
     if (a.armed) {
         switch (key) {
         case VK_UP:
-            if (a.selected > 0) a.selected--;
+            if (a.selected > 0) { a.selected--; queue_selected(a); }
             return;
         case VK_DOWN:
-            if (a.selected + 1 < a.sl->nsongs) a.selected++;
+            if (a.selected + 1 < a.sl->nsongs) { a.selected++; queue_selected(a); }
             return;
         case 'L':
         case VK_ESCAPE:
@@ -632,10 +651,10 @@ void on_key(HWND hwnd, WPARAM key) {
         /* Browsing is a stopped-only activity. While playing, the set list is
          * not on screen, so moving a selection you cannot see and then having
          * space jump somewhere unexpected is the worst of both. */
-        if (!transport_playing(a) && a.selected > 0) a.selected--;
+        if (!transport_playing(a) && a.selected > 0) { a.selected--; queue_selected(a); }
         break;
     case VK_DOWN:
-        if (!transport_playing(a) && a.selected + 1 < a.sl->nsongs) a.selected++;
+        if (!transport_playing(a) && a.selected + 1 < a.sl->nsongs) { a.selected++; queue_selected(a); }
         break;
     case 'N':
         /* The deliberate way to move on mid-song: explicit, one key, and it
@@ -1231,7 +1250,10 @@ int main(int argc, char **argv) {
             bt_ui_result r = bt_ui_draw(st);
             switch (r.click) {
             case bt_ui_click::select:
-                if (r.song >= 0 && r.song < g_app.sl->nsongs) g_app.selected = r.song;
+                if (r.song >= 0 && r.song < g_app.sl->nsongs) {
+                    g_app.selected = r.song;
+                    queue_selected(g_app);
+                }
                 break;
             case bt_ui_click::play:
                 if (r.song >= 0 && r.song < g_app.sl->nsongs) {

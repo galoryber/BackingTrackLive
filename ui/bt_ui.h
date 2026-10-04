@@ -59,6 +59,12 @@ struct bt_ui_state {
      * is talking to the room, and what matters is that the next song is ready
      * and one key starts it. The list is still a key away for choosing
      * something else. */
+    /* A start that is waiting for the loader to bring a song into memory.
+     * Shown plainly: a key that appears to do nothing is the worst thing a
+     * stage program can do, and "it is loading" is the whole explanation. */
+    bool     loading;
+    int32_t  loading_song;
+
     bool     armed;          /* stopped, holding on the playing screen */
     int32_t  armed_song;     /* what SPACE will start                  */
 

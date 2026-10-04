@@ -191,6 +191,30 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
         }
     }
 
+    /* Loading, over the middle of the list. A song played earlier has been
+     * freed to keep memory bounded, and coming back to it costs a moment -
+     * which is fine, as long as the screen says so rather than appearing to
+     * ignore the key. */
+    if (st.loading && st.setlist &&
+        st.loading_song >= 0 && st.loading_song < st.setlist->nsongs) {
+        const float bh = sz.y * 0.16f;
+        const float by = (sz.y - foot_h) * 0.5f - bh * 0.5f;
+        dl->AddRectFilled(ImVec2(0, by), ImVec2(sz.x, by + bh),
+                          IM_COL32(18, 22, 28, 242));
+        dl->AddRectFilled(ImVec2(0, by), ImVec2(sz.x, by + sz.y * 0.004f), COL_ACCENT);
+
+        const char *t = st.setlist->song[st.loading_song].title;
+        char msg[160];
+        std::snprintf(msg, sizeof(msg), "LOADING   %s", t);
+        const float ms = bh * 0.34f;
+        text_at(dl, f, ms, ImVec2((sz.x - text_w(f, ms, msg)) * 0.5f,
+                                  by + bh * 0.24f), COL_TEXT, msg);
+        const char *sub = "it will start on its own";
+        const float ss = bh * 0.19f;
+        text_at(dl, f, ss, ImVec2((sz.x - text_w(f, ss, sub)) * 0.5f,
+                                  by + bh * 0.64f), COL_DIM, sub);
+    }
+
     /* Footer: the keys, because this is driven from the keyboard, and the
      * state of the audio interface, because "am I plugged in and ready" is
      * the question you ask before counting a song in. */
