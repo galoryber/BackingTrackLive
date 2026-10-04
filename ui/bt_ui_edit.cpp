@@ -605,6 +605,31 @@ void draw_song_screen(bt_ui_edit &ed) {
 void draw_audio_screen(bt_ui_edit &ed);   /* defined below, needs bt_device.h */
 void draw_check_screen(bt_ui_edit &ed);   /* defined below                    */
 
+
+/* The first sample loud enough to be the music rather than the room.
+ *
+ * A fortieth of the loudest sample: above the noise floor of a quiet intro,
+ * below anything anyone would call the start of the song. Returns -1 for a
+ * stem that is silent throughout, which is a real thing that happens when the
+ * wrong file is downloaded. */
+bt_frame find_first_sound(const bt_track &t) {
+    if (!t.pcm || t.frames <= 0) return -1;
+    float peak = 0.0f;
+    for (int32_t c = 0; c < t.channels; c++)
+        for (bt_frame i = 0; i < t.frames; i++) {
+            float a = t.pcm[c][i]; a = a < 0 ? -a : a;
+            if (a > peak) peak = a;
+        }
+    if (peak <= 0.0f) return -1;
+    const float thresh = peak * 0.025f;
+    for (bt_frame i = 0; i < t.frames; i++)
+        for (int32_t c = 0; c < t.channels; c++) {
+            float a = t.pcm[c][i]; a = a < 0 ? -a : a;
+            if (a > thresh) return i;
+        }
+    return -1;
+}
+
 void draw_align_screen(bt_ui_edit &ed) {
     ImGui::PushStyleColor(ImGuiCol_Text, COL_DIM);
     ImGui::TextUnformatted("EDIT  \xe2\x80\xa2  align");
@@ -649,6 +674,7 @@ void draw_align_screen(bt_ui_edit &ed) {
             ed.peaks_song  = ed.song;
             ed.peaks_track = ed.track;
             ed.peaks_src   = (const void *)t.pcm;
+            ed.first_sound = find_first_sound(t);
         }
     }
 
@@ -667,29 +693,14 @@ void draw_align_screen(bt_ui_edit &ed) {
      * decision - it is whatever the vendor's exporter did. Finding it is
      * arithmetic, so there is no reason to make anyone do it by hand. */
     if (ImGui::Button("snap start to beat 1")) {
-        float peak = 0.0f;
-        for (int32_t c = 0; c < t.channels; c++)
-            for (bt_frame i = 0; i < t.frames; i++) {
-                float a = t.pcm[c][i]; a = a < 0 ? -a : a;
-                if (a > peak) peak = a;
-            }
-        /* A fortieth of the loudest sample: above the noise floor of a quiet
-         * intro, below anything anyone would call the start of the music. */
-        const float thresh = peak * 0.025f;
-        bt_frame first = -1;
-        for (bt_frame i = 0; i < t.frames && first < 0; i++)
-            for (int32_t c = 0; c < t.channels; c++) {
-                float a = t.pcm[c][i]; a = a < 0 ? -a : a;
-                if (a > thresh) { first = i; break; }
-            }
-        if (first < 0) {
-            set_status(ed, "%s is silent - nothing to snap", t.name);
+        if (ed.first_sound < 0) {
+            set_status(ed, "%s is silent - nothing to snap to", t.name);
         } else {
             bt_frame beat0 = bt_tempo_beat_frame(&s.tempo, 0, sr);
-            t.offset_ms = (int32_t)llround((double)(beat0 - first) * 1000.0 / sr);
+            t.offset_ms = (int32_t)llround((double)(beat0 - ed.first_sound) * 1000.0 / sr);
             ed.dirty = true;
-            set_status(ed, "%s starts %.0f ms in; nudged to %+d ms",
-                       t.name, (double)first * 1000.0 / sr, t.offset_ms);
+            set_status(ed, "%s begins %.0f ms into the file; nudged to %+d ms",
+                       t.name, (double)ed.first_sound * 1000.0 / sr, t.offset_ms);
         }
     }
     if (ImGui::IsItemHovered())
@@ -707,7 +718,11 @@ void draw_align_screen(bt_ui_edit &ed) {
     ImGui::TextDisabled("drag the waveform to nudge  \xc2\xb7  scroll to zoom");
 
     /* ---- the view ---- */
-    const ImVec2 size(ImGui::GetContentRegionAvail().x, 300.0f);
+    /* Fill the window. Vertical resolution is what lets you see whether a
+     * transient sits on the line or beside it, which is the entire job. */
+    float avail_h = ImGui::GetContentRegionAvail().y - 90.0f;
+    if (avail_h < 180.0f) avail_h = 180.0f;
+    const ImVec2 size(ImGui::GetContentRegionAvail().x, avail_h);
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("wave", size);
     const bool hovered = ImGui::IsItemHovered();
@@ -820,6 +835,23 @@ void draw_align_screen(bt_ui_edit &ed) {
         ImGui::Text("%s plays %d ms %s than the file says",
                     t.name, t.offset_ms < 0 ? -t.offset_ms : t.offset_ms,
                     t.offset_ms < 0 ? "earlier" : "later");
+    else
+        ImGui::TextDisabled("%s plays exactly where the file says", t.name);
+
+    /* Where the audio lands against beat 1 as a number, because "slightly
+     * late" and "40 ms late" are different problems and the eye cannot tell
+     * them apart at this zoom. */
+    if (ed.first_sound >= 0) {
+        const double lands = off_sec + (double)ed.first_sound / sr;
+        const double beat1 = (double)bt_tempo_beat_frame(&s.tempo, 0, sr) / sr;
+        const double err   = (lands - beat1) * 1000.0;
+        if (err > 1.5 || err < -1.5)
+            ImGui::TextColored(COL_AMBER,
+                "its first sound lands %.0f ms %s beat 1",
+                err < 0 ? -err : err, err < 0 ? "before" : "after");
+        else
+            ImGui::TextColored(COL_OK, "its first sound is on beat 1");
+    }
 }
 
 } /* namespace */

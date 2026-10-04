@@ -82,6 +82,7 @@ struct bt_ui_edit {
     double           view_start  = 0.0;       /* seconds, song time        */
     double           view_len    = 8.0;
     bool             want_select = false;     /* host: make this song live */
+    bt_frame         first_sound = -1;        /* cached with the peaks     */
 
     bool             want_export = false;
     bool             export_whole_set = false;
