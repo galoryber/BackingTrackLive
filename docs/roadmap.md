@@ -46,6 +46,30 @@ editor, and the align view drawing the grid from the map rather than a single
 BPM — which it already does, since it asks `bt_tempo_beat_frame` for every
 line rather than multiplying one tempo out.
 
+## Code signing, and SmartScreen
+
+A fresh download triggers Windows SmartScreen and some antivirus heuristics,
+because the executable is unsigned and nobody has downloaded it before.
+
+**More file metadata will not help.** The version block already carries
+publisher, product and version, and SmartScreen does not read any of it: its
+reputation score comes from a code-signing certificate and from how many
+people have run that exact binary without incident. An unsigned file starts at
+zero every release, because changing a byte changes the file.
+
+The options, honestly:
+
+- **An EV certificate** buys reputation immediately, costs a few hundred a
+  year, and needs a hardware token or an attested cloud key.
+- **A standard OV certificate** is cheaper and starts at zero reputation,
+  which accrues over downloads - slowly, for a program a handful of people
+  run.
+- **Nothing**, and tell the band to click through once per release.
+
+Not worth the money while the audience is one band. Worth revisiting if this
+is ever handed to people who did not build it, because "click past the warning"
+is not something to ask a stranger to do.
+
 ## Spoken count-in cues
 
 A band records a short spoken lead-in and plays it to the in-ears over the

@@ -588,6 +588,12 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::SameLine(0, 26);
     ImGui::SetNextItemWidth(110);
     if (ImGui::InputText("tuning", s.tuning, sizeof(s.tuning))) ed.dirty = true;
+
+    ImGui::SetNextItemWidth(620);
+    if (ImGui::InputText("cue", s.cue, sizeof(s.cue))) ed.dirty = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("shown while the song plays - \"drums in at 24\", "
+                        "\"vocals B34\"");
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Shown on stage, exactly as typed.\n"
                           "Blank shows nothing.");
@@ -641,7 +647,7 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::SameLine(0, 30);
     ImGui::SetNextItemWidth(150);
     int lb = s.length_bars;
-    if (ImGui::InputInt("length (bars)", &lb, 1, 8)) {
+    if (ImGui::InputInt("ends at bar", &lb, 1, 8)) {
         if (lb >= 0 && lb <= 10000) { s.length_bars = lb; ed.dirty = true; }
     }
     ImGui::SameLine();
@@ -650,12 +656,22 @@ void draw_song_screen(bt_ui_edit &ed) {
         int    sig = s.tempo.sig_num > 0 ? s.tempo.sig_num : 4;
         if (s.length_bars > 0 && bpm > 0.0) {
             double sec = (double)s.length_bars * sig * 60.0 / bpm;
-            ImGui::TextDisabled("%d:%04.1f", (int)(sec / 60.0), sec - 60.0 * (int)(sec / 60.0));
+            ImGui::TextDisabled("%d:%04.1f", (int)(sec / 60.0),
+                                sec - 60.0 * (int)(sec / 60.0));
+            /* Say so when this is cutting audio off, and that it will not be
+             * an abrupt one. */
+            const int32_t sr = ed.dev && ed.dev->sample_rate > 0
+                             ? ed.dev->sample_rate : 48000;
+            if (bt_song_fade_frames(&s, sr) > 0) {
+                ImGui::SameLine();
+                ImGui::TextColored(COL_AMBER,
+                                   "ends before the stems do - it fades out");
+            }
         } else if (click_only) {
             ImGui::TextColored(COL_WARN,
                 "no stems and no length - this song will count in and stop");
         } else {
-            ImGui::TextDisabled("0 = as long as the stems");
+            ImGui::TextDisabled("0 = play the stems out");
         }
     }
 
@@ -814,6 +830,28 @@ void draw_align_screen(bt_ui_edit &ed) {
     ImGui::Separator();
 
     /* ---- controls ---- */
+    /* Tempo, here as well as in the song editor. A guessed BPM is something
+     * you fix by looking at the grid against the waveform, which is this
+     * screen - and it takes effect while the song plays, so you can hear the
+     * click move onto the beat. */
+    ImGui::SetNextItemWidth(150);
+    double bpm = s.tempo.nseg ? s.tempo.seg[0].bpm : 120.0;
+    if (ImGui::InputDouble("BPM", &bpm, 0.1, 1.0, "%.2f")) {
+        if (bpm >= 20.0 && bpm <= 400.0) {
+            if (s.tempo.nseg < 1) s.tempo.nseg = 1;
+            s.tempo.seg[0].bpm = bpm;
+            s.tempo.seg[0].start_beat = 0;
+            ed.dirty = true;
+        }
+    }
+    if (s.tempo.nseg > 1) {
+        ImGui::SameLine();
+        ImGui::TextColored(COL_AMBER,
+                           "this song has a tempo map - editing the first "
+                           "segment only");
+    }
+
+    ImGui::SameLine(0, 24);
     ImGui::SetNextItemWidth(130);
     int off = t.offset_ms;
     if (ImGui::InputInt("nudge (ms)", &off, 1, 10)) {
@@ -1055,6 +1093,10 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     ImGui::BeginDisabled(!ed.can_save);
     if (ImGui::Button(ed.dirty ? "save *" : "save")) {
         do_save(ed);
+        /* Stop the audition too. Leaving a song playing while the screen goes
+         * back to the set list leaves you hunting for where the sound is
+         * coming from. */
+        if (ed.playing) ed.want_stop = true;
         /* Saving a song means you are done with it, so go back to the list
          * rather than making that a second press - and a second press that
          * sits next to "leave edit mode", which is not what anyone meant. */

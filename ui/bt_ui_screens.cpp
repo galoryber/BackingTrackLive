@@ -267,6 +267,11 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
             std::snprintf(lbl, sizeof(lbl), "TUNING  %s", s->tuning);
             text_at(dl, f, sz.y * 0.055f, ImVec2(ax, ay), COL_ACCENT_T, lbl);
         }
+        /* Whatever you wrote to read mid-song. Under the title line, in plain
+         * white - it is a note to yourself, not a status. */
+        if (s->cue[0])
+            text_at(dl, f, sz.y * 0.042f, ImVec2(pad, sz.y * 0.265f),
+                    COL_TEXT, s->cue);
     }
 
     /* ---- bar number: kept, demoted ------------------------------------

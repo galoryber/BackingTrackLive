@@ -228,11 +228,49 @@ static void test_declared_length_against_stems(void) {
 
     BT_CHECK_EQI(bt_song_length(&s, 48000), 48000 * 10);
 
+    /* Shorter than the stems now ends the song there: "we play it to bar 114
+     * and segue" is an arrangement, not a mistake. This used to let the stems
+     * win, which meant the only way to shorten a song was to edit its audio. */
     s.length_bars = 2;                          /* 4 seconds: shorter */
-    BT_CHECK_EQI(bt_song_length(&s, 48000), 48000 * 10);
+    BT_CHECK_EQI(bt_song_length(&s, 48000), 48000 * 4);
 
     s.length_bars = 10;                         /* 20 seconds: longer */
     BT_CHECK_EQI(bt_song_length(&s, 48000), 48000 * 20);
+}
+
+/* Cutting a stem off mid-note is a click, so a song that ends early fades.
+ * One that ends where its stems end does not - there is nothing to fade, and
+ * adding one would quietly alter audio that had already finished. */
+static void test_fade_only_when_the_song_is_cut_short(void) {
+    bt_song s;
+    memset(&s, 0, sizeof(s));
+    s.tempo.seg[0].bpm = 120.0;
+    s.tempo.nseg    = 1;
+    s.tempo.sig_num = 4;
+    s.tempo.sig_den = 4;
+
+    static float l[48000 * 10];
+    static float *pcm[1] = { l };
+    s.track[0].type     = BT_TRACK_AUDIO;
+    s.track[0].pcm      = pcm;
+    s.track[0].channels = 1;
+    s.track[0].frames   = 48000 * 10;           /* ten seconds of stem */
+    s.ntracks = 1;
+
+    /* No declared length: nothing is cut, so nothing fades. */
+    BT_CHECK_EQI(bt_song_fade_frames(&s, 48000), 0);
+
+    /* Declared longer than the stems: still nothing cut. */
+    s.length_bars = 10;                          /* 20 seconds */
+    BT_CHECK_EQI(bt_song_fade_frames(&s, 48000), 0);
+
+    /* Declared shorter: the stem is still sounding there, so it fades. */
+    s.length_bars = 2;                           /* 4 seconds */
+    BT_CHECK_EQI(bt_song_fade_frames(&s, 48000), 48000);
+
+    /* And the fade never swallows the bar you chose to end on. */
+    s.length_bars = 1;                           /* 2 seconds */
+    BT_CHECK_EQI(bt_song_fade_frames(&s, 48000), 48000 * 2 / 4);
 }
 
 
@@ -288,6 +326,7 @@ static void test_move_track_rejects_nonsense(void) {
 }
 
 int main(void) {
+    BT_RUN(test_fade_only_when_the_song_is_cut_short);
     BT_RUN(test_move_track_carries_everything);
     BT_RUN(test_move_track_rejects_nonsense);
     BT_RUN(test_click_only_song_has_a_length);

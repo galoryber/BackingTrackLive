@@ -86,6 +86,7 @@ typedef struct {
     bt_tempo_map tempo;
     bt_frame     end_frame;
     bt_frame     count_in_frame;
+    bt_frame     fade_frames;      /* 0 = none; ramp ends at end_frame */
 } bt_slot;
 
 struct bt_engine {
@@ -271,7 +272,8 @@ bt_err bt_engine_set_song(bt_engine *e, const bt_song *song, const bt_device_cfg
         sl->ntrk++;
     }
 
-    sl->end_frame = bt_song_length(song, e->cfg.sample_rate);
+    sl->end_frame   = bt_song_length(song, e->cfg.sample_rate);
+    sl->fade_frames = bt_song_fade_frames(song, e->cfg.sample_rate);
 
     int64_t beats_in = (int64_t)song->count_in_bars * (int64_t)song->tempo.sig_num;
     sl->count_in_frame = bt_tempo_beat_frame(&sl->tempo, -beats_in, e->cfg.sample_rate);
@@ -326,8 +328,30 @@ static void mix_into(float *dst, const float *src, int32_t n, float g) {
     for (int32_t i = 0; i < n; i++) dst[i] += src[i] * g;
 }
 
+/* The same, with a linear ramp from g0 to g1 across the block.
+ *
+ * Per sample rather than per block: a block-sized step in gain is a click of
+ * its own, which is the thing the fade exists to avoid. */
+static void mix_into_ramp(float *dst, const float *src, int32_t n,
+                          float g0, float g1) {
+    if (n <= 0) return;
+    const float step = (g1 - g0) / (float)n;
+    float g = g0;
+    for (int32_t i = 0; i < n; i++) { dst[i] += src[i] * g; g += step; }
+}
+
+/* Gain of the end-of-song fade at a given playhead position. 1.0 everywhere
+ * except the last `fade` frames before `end`, where it ramps to silence. */
+static float fade_gain(bt_frame ph, bt_frame end, bt_frame fade) {
+    if (fade <= 0) return 1.0f;
+    const bt_frame from = end - fade;
+    if (ph <= from) return 1.0f;
+    if (ph >= end)  return 0.0f;
+    return 1.0f - (float)(ph - from) / (float)fade;
+}
+
 static void render_audio(const bt_rtrack *r, float *const *out,
-                         bt_frame ph, int32_t n) {
+                         bt_frame ph, int32_t n, bt_frame end, bt_frame fade) {
     /* Source index that lines up with out[0]. A positive track offset delays
      * the stem, so it subtracts here. */
     bt_frame s0 = ph - r->offset;
@@ -343,18 +367,34 @@ static void render_audio(const bt_rtrack *r, float *const *out,
     int32_t len = hi - lo;
     if (len <= 0) return;
 
+    /* The fade, if the song is being cut short. Computed once per block at
+     * each end and interpolated between - the ramp is linear over a second,
+     * so a block's worth of it is a straight line too. */
+    const float f0 = fade_gain(ph + lo, end, fade);
+    const float f1 = fade_gain(ph + lo + len, end, fade);
+    const bool  ramping = (f0 != 1.0f || f1 != 1.0f);
+
     if (r->nch >= r->channels) {
         /* Mono stem into a stereo bus feeds both sides. */
         for (int32_t bc = 0; bc < r->nch; bc++) {
             int32_t sc = (r->channels == 1) ? 0 : bc;
             if (sc >= r->channels) sc = r->channels - 1;
-            mix_into(out[r->ch[bc]] + lo, r->pcm[sc] + (s0 + lo), len, r->gain);
+            if (ramping)
+                mix_into_ramp(out[r->ch[bc]] + lo, r->pcm[sc] + (s0 + lo), len,
+                              r->gain * f0, r->gain * f1);
+            else
+                mix_into(out[r->ch[bc]] + lo, r->pcm[sc] + (s0 + lo), len, r->gain);
         }
     } else {
         /* Stereo stem into a mono bus sums, halved to keep headroom. */
         float g = r->gain / (float)r->channels;
-        for (int32_t sc = 0; sc < r->channels; sc++)
-            mix_into(out[r->ch[0]] + lo, r->pcm[sc] + (s0 + lo), len, g);
+        for (int32_t sc = 0; sc < r->channels; sc++) {
+            if (ramping)
+                mix_into_ramp(out[r->ch[0]] + lo, r->pcm[sc] + (s0 + lo), len,
+                              g * f0, g * f1);
+            else
+                mix_into(out[r->ch[0]] + lo, r->pcm[sc] + (s0 + lo), len, g);
+        }
     }
 }
 
@@ -414,7 +454,8 @@ void bt_engine_render(bt_engine *e, float *const *out, int32_t nframes) {
             const bt_rtrack *r = &sl->trk[i];
             if (!r->active || r->gain == 0.0f) continue;
             if (r->is_click) render_click(e, sl, r, out, ph, nframes);
-            else             render_audio(r, out, ph, nframes);
+            else             render_audio(r, out, ph, nframes,
+                                          sl->end_frame, sl->fade_frames);
         }
 
         const bt_frame next = ph + nframes;

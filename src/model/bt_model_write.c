@@ -161,6 +161,10 @@ static void write_song(sb *s, const bt_song *song) {
         sb_fmt(s, ",\n      \"tuning\": ");
         sb_json_string(s, song->tuning);
     }
+    if (song->cue[0]) {
+        sb_fmt(s, ",\n      \"cue\": ");
+        sb_json_string(s, song->cue);
+    }
     sb_fmt(s, ",\n      \"count_in_bars\": %d", song->count_in_bars);
     /* Omitted when zero: it is the normal case, and writing it would add a
      * line to every song in every set list written before this existed. */

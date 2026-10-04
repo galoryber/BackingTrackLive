@@ -72,6 +72,10 @@ bt_setlist *make_demo_setlist() {
         std::snprintf(s.title,  sizeof(s.title),  "%s", kDemo[i].title);
         std::snprintf(s.artist, sizeof(s.artist), "%s", kDemo[i].artist);
         std::snprintf(s.tuning, sizeof(s.tuning), "%s", kDemo[i].tuning);
+        /* One song carries a cue, so the screen gets reviewed with one on it. */
+        if (i == 2)
+            std::snprintf(s.cue, sizeof(s.cue), "%s",
+                          "drums in at 24  \xc2\xb7  stop on 114, segue");
         s.tempo.seg[0].bpm = kDemo[i].bpm;
         s.tempo.nseg = 1;
         s.tempo.sig_num = 4;

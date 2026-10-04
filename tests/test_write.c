@@ -34,6 +34,7 @@ static bool song_eq(const bt_song *a, const bt_song *b) {
     if (strcmp(a->title, b->title) != 0)   return false;
     if (strcmp(a->artist, b->artist) != 0) return false;
     if (strcmp(a->tuning, b->tuning) != 0) return false;
+    if (strcmp(a->cue, b->cue) != 0)       return false;
     if (a->count_in_bars != b->count_in_bars) return false;
     if (a->length_bars != b->length_bars)     return false;
     if (a->on_end != b->on_end)   return false;
@@ -343,7 +344,34 @@ static void test_absent_tuning_stays_absent(void) {
     bt_setlist_free(sl);
 }
 
+
+/* The cue line is read on stage mid-song; losing it on save would be found
+ * out at the worst possible moment. */
+static void test_cue_survives(void) {
+    round_trip(
+      "{\"version\":1,\"name\":\"n\",\"songs\":[{"
+      "\"title\":\"Baba O'Riley\",\"cue\":\"drums in at 24, stop on 114\","
+      "\"tempo\":{\"bpm\":120},\"count_in_bars\":2,\"on_end\":\"next\","
+      "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}]}]}", "cue");
+}
+
+static void test_absent_cue_stays_absent(void) {
+    static const char *src =
+      "{\"version\":1,\"name\":\"n\",\"songs\":[{"
+      "\"tempo\":{\"bpm\":120},\"count_in_bars\":1,\"on_end\":\"stop\","
+      "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}]}]}";
+    bt_setlist *sl = load_mem(src);
+    BT_CHECK(sl != NULL);
+    if (!sl) return;
+    char *out = NULL; size_t n = 0;
+    BT_CHECK_EQI(bt_setlist_to_json(sl, &out, &n), BT_OK);
+    if (out) { BT_CHECK(strstr(out, "cue") == NULL); free(out); }
+    bt_setlist_free(sl);
+}
+
 int main(void) {
+    BT_RUN(test_cue_survives);
+    BT_RUN(test_absent_cue_stays_absent);
     BT_RUN(test_tuning_survives);
     BT_RUN(test_absent_tuning_stays_absent);
     BT_RUN(test_length_bars_survives);

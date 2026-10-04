@@ -100,15 +100,43 @@ bt_frame bt_song_length(const bt_song *song, int32_t sample_rate) {
         if (e > end) end = e;
     }
 
-    /* A declared length wins when it is longer, so a click can run past the
-     * stems - an outro the backing track does not cover - and so a song with
-     * no stems at all has a length instead of ending the moment it starts. */
+    /* A declared length decides the song, in both directions. Longer than the
+     * stems, the click runs past them - an outro the backing track does not
+     * cover, or a song with no stems at all. Shorter, the song stops there:
+     * "we play Baba O'Riley to bar 114 and segue" is a real arrangement, and
+     * the alternative is editing the audio file.
+     *
+     * Cutting a stem off mid-note is what bt_song_fade_frames exists for. */
     if (song->length_bars > 0) {
         int64_t beats = (int64_t)song->length_bars * (int64_t)song->tempo.sig_num;
-        bt_frame e = bt_tempo_beat_frame(&song->tempo, beats, sample_rate);
-        if (e > end) end = e;
+        return bt_tempo_beat_frame(&song->tempo, beats, sample_rate);
     }
     return end;
+}
+
+bt_frame bt_song_fade_frames(const bt_song *song, int32_t sample_rate) {
+    if (!song || song->length_bars <= 0 || sample_rate <= 0) return 0;
+
+    /* Only when the declared length actually cuts something off. A song that
+     * ends where its stems end needs no fade, and adding one would quietly
+     * alter audio that was already finished. */
+    bt_frame natural = 0;
+    for (int32_t i = 0; i < song->ntracks; i++) {
+        const bt_track *t = &song->track[i];
+        if (t->type != BT_TRACK_AUDIO || !t->pcm) continue;
+        bt_frame e = ms_to_frames((double)t->offset_ms, sample_rate) + t->frames;
+        if (e > natural) natural = e;
+    }
+
+    const bt_frame end = bt_song_length(song, sample_rate);
+    if (natural <= end) return 0;
+
+    /* A second, or a quarter of the song if it is shorter than four seconds -
+     * long enough not to sound like a cut, short enough not to swallow the
+     * bar you chose to end on. */
+    bt_frame fade = (bt_frame)sample_rate;
+    if (fade > end / 4) fade = end / 4;
+    return fade > 0 ? fade : 0;
 }
 
 bt_err bt_song_move_track(bt_song *song, int32_t from, int32_t to) {

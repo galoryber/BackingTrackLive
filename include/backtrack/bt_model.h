@@ -83,6 +83,10 @@ typedef struct {
      * be wrong for the next one and for this one when the shorthand changes.
      * Empty means nothing is shown. */
     char         tuning[BT_MAX_TUNING];
+    /* Anything worth seeing while the song plays, in your own words. Shown
+     * under the title on the playing screen and nowhere else. Empty shows
+     * nothing. */
+    char         cue[BT_MAX_CUE];
 
     int32_t      count_in_bars;
     /* How long the song runs, in bars, when the audio does not say.
@@ -181,6 +185,13 @@ bt_frame bt_song_length(const bt_song *song, int32_t sample_rate);
  *
  * Moves the loader's pcm pointers with their tracks, which is the part worth
  * getting right. */
+/* How long the song should fade for at its end, in frames, or 0 for no fade.
+ *
+ * Non-zero only when a declared length cuts the stems short: ending a song at
+ * bar 114 means the audio is still playing there, and stopping a stem
+ * mid-note is a click. A song that ends where its stems end needs nothing. */
+bt_frame bt_song_fade_frames(const bt_song *song, int32_t sample_rate);
+
 bt_err bt_song_move_track(bt_song *song, int32_t from, int32_t to);
 
 /* Bytes of PCM currently resident for this song. Surfaced in the UI so nobody

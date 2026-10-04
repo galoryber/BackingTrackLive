@@ -502,7 +502,82 @@ static void test_a_stem_can_sound_during_the_count_in(void) {
     bt_song_free_audio(&s);
 }
 
+
+/* A song cut short by a declared length fades rather than stopping mid-note.
+ * A hard cut on a sustaining stem is a click, which on a segue lands in the
+ * gap between two songs where everyone can hear it. */
+static void test_a_truncated_song_fades(void) {
+    /* 120 BPM, 4/4: a bar is 2 seconds. Four bars of a ten second stem. */
+    bt_song s = mk_song(120.0, 4, 0);
+    s.track[0] = mk_impulse("foh", 1, SR * 10, -1, 0);   /* no impulse */
+    s.ntracks = 1;
+    /* A constant stem, so any shaping is the engine's and nothing else's. */
+    for (bt_frame i = 0; i < s.track[0].frames; i++) s.track[0].pcm[0][i] = 1.0f;
+    s.length_bars = 4;                                   /* 8 seconds */
+
+    bt_device_cfg d = mk_dev();
+    bt_engine *e = mk_engine(6, 512);
+    BT_CHECK_EQI(bt_engine_set_song(e, &s, &d), BT_OK);
+    bt_engine_play(e);
+
+    outbuf o;
+    out_alloc(&o, 6, SR * 9);
+    render_all(e, &o, 512);
+
+    const bt_frame end = (bt_frame)SR * 8;
+    /* Full level well before the fade starts... */
+    BT_CHECK_NEAR(o.buf[0][SR * 5], 1.0f, 0.01);
+    /* ...half way through the one second fade... */
+    BT_CHECK_NEAR(o.buf[0][end - SR / 2], 0.5f, 0.02);
+    /* ...and silent at the end. */
+    BT_CHECK_NEAR(o.buf[0][end - 1], 0.0f, 0.02);
+
+    /* Smooth, not merely decreasing. A gain stepped once per block is also
+     * monotonic, and is a click every 512 samples - which is the thing the
+     * ramp exists to avoid. Over a one second fade each sample should fall by
+     * about 1/48000; a per-block step would fall by 512 times that at each
+     * boundary and not at all between. */
+    float worst = 0.0f;
+    for (bt_frame i = end - SR + 1; i < end; i++) {
+        BT_CHECK(o.buf[0][i] <= o.buf[0][i - 1] + 1e-4f);
+        const float drop = o.buf[0][i - 1] - o.buf[0][i];
+        if (drop > worst) worst = drop;
+    }
+    BT_CHECK(worst < 1e-4f);
+
+    out_free(&o);
+    bt_engine_destroy(e);
+    bt_song_free_audio(&s);
+}
+
+/* A song that ends where its stems end is not faded: there is nothing to cut,
+ * and fading it would alter audio that had already finished. */
+static void test_an_untruncated_song_is_not_faded(void) {
+    bt_song s = mk_song(120.0, 4, 0);
+    s.track[0] = mk_impulse("foh", 1, SR * 4, -1, 0);
+    s.ntracks = 1;
+    for (bt_frame i = 0; i < s.track[0].frames; i++) s.track[0].pcm[0][i] = 1.0f;
+
+    bt_device_cfg d = mk_dev();
+    bt_engine *e = mk_engine(6, 512);
+    BT_CHECK_EQI(bt_engine_set_song(e, &s, &d), BT_OK);
+    bt_engine_play(e);
+
+    outbuf o;
+    out_alloc(&o, 6, SR * 5);
+    render_all(e, &o, 512);
+
+    /* Full level right up to the last sample of the stem. */
+    BT_CHECK_NEAR(o.buf[0][SR * 4 - 2], 1.0f, 0.01);
+
+    out_free(&o);
+    bt_engine_destroy(e);
+    bt_song_free_audio(&s);
+}
+
 int main(void) {
+    BT_RUN(test_a_truncated_song_fades);
+    BT_RUN(test_an_untruncated_song_is_not_faded);
     BT_RUN(test_a_stem_can_sound_during_the_count_in);
     BT_RUN(test_click_lands_on_the_beat);
     BT_RUN(test_downbeat_is_accented);

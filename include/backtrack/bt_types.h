@@ -21,6 +21,10 @@ typedef int64_t bt_frame;
  * Short on purpose - anything long enough to be a sentence belongs
  * somewhere other than the middle of a performance. */
 #define BT_MAX_TUNING     16
+/* A cue line, read on stage mid-song: "drums in at 24", "vocals B34".
+ * Room for a sentence, not for a paragraph - anything longer is not something
+ * anyone reads while playing. */
+#define BT_MAX_CUE       120
 #define BT_MAX_PATH      512
 #define BT_MAX_BUS_CH      2     /* a bus is mono or stereo                */
 #define BT_MAX_BUSES      16
