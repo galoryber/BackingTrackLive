@@ -575,7 +575,7 @@ void draw_song_screen(bt_ui_edit &ed) {
     /* Audition. Blocked on nothing: this is the point of the screen. */
     ImGui::Separator();
     if (ed.playing) {
-        if (ImGui::Button("stop", ImVec2(110, 0))) ed.want_stop = true;
+        if (ImGui::Button("stop##transport", ImVec2(110, 0))) ed.want_stop = true;
     } else {
         if (ImGui::Button("play##transport", ImVec2(110, 0))) ed.want_play = true;
     }

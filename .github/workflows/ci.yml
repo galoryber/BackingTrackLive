@@ -180,10 +180,18 @@ jobs:
       # Start-Process -Wait, not a bare invocation: the UI is a windowed
       # subsystem app now, and a shell that does not wait would check for
       # frames the program has not finished writing.
+      # Two visible widgets with the same label are ambiguous to click, and
+      # ImGui only notices at runtime while one is hovered - so neither a
+      # headless render nor a screenshot catches it. v0.1.8 shipped a stop
+      # button that did nothing for exactly this reason.
+      - name: Check for conflicting ImGui IDs
+        shell: bash
+        run: python3 tools/lint-imgui-ids.py ui/*.cpp
+
       - name: Render each screen headless
         shell: pwsh
         run: |
-          foreach ($s in 'stopped','playing','countin','edit','editsong','editaudio','start') {
+          foreach ($s in 'stopped','playing','countin','edit','editsong','editaudio','editalign','check','start') {
             $p = Start-Process -FilePath ".\build-ui\Release\BackingTrackLive.exe" `
                    -ArgumentList '--shot',"shot_$s.raw",'--w','1280','--h','720','--state',$s `
                    -Wait -PassThru -NoNewWindow

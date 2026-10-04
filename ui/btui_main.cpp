@@ -18,7 +18,6 @@
 #include <d3d11.h>
 
 #include "imgui.h"
-#include "imgui_internal.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
@@ -641,7 +640,6 @@ void load_font() {
 /* -------------------------------------------------------- offscreen path */
 
 int run_shot(const char *out, int w, int h, const char *state, int song, int bar) {
-    bool id_conflict = false;
     D3D_FEATURE_LEVEL fl;
     ID3D11Device *dev = nullptr; ID3D11DeviceContext *ctx = nullptr;
     if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0,
@@ -814,18 +812,6 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         if (start_shot)     bt_ui_start_draw(shot_start);
         else if (edit_shot) bt_ui_edit_draw(ed);
         else                (void)bt_ui_draw(st);
-        /* Two widgets sharing an ID is a real bug - clicks go to whichever
-         * ImGui guessed - and it is invisible in a screenshot, which is how
-         * one reached a release. ImGui detects it; the headless render is
-         * where that detection is worth acting on. */
-        if (ImGui::GetCurrentContext()->DebugDrawIdConflictsId != 0) {
-            std::fprintf(stderr,
-                "ID CONFLICT on screen \"%s\": two visible widgets share an "
-                "identifier, so clicks on them are ambiguous. Give one an "
-                "explicit id, e.g. \"stop##transport\".\n", state);
-            id_conflict = true;
-        }
-
         ImGui::Render();
         const float clear[4] = { 0.06f, 0.07f, 0.08f, 1.0f };
         ctx->OMSetRenderTargets(1, &rtv, nullptr);
@@ -844,9 +830,7 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
     fclose(f);
     ctx->Unmap(stg, 0);
     std::printf("wrote %s (%dx%d RGBA, state=%s)\n", out, w, h, state);
-    /* The frame is written either way - it is useful for seeing what went
-     * wrong - but the exit code fails the build. */
-    return id_conflict ? 3 : 0;
+    return 0;
 }
 
 int usage() {
