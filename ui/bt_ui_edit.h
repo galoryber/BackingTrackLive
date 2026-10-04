@@ -19,6 +19,7 @@
 
 #include "backtrack/bt_model.h"
 #include "backtrack/bt_validate.h"
+#include "backtrack/bt_peaks.h"
 
 enum class bt_edit_screen { setlist, song, align, audio, check };
 
@@ -69,6 +70,18 @@ struct bt_ui_edit {
     double           play_sec    = 0.0;
     bool             want_open_setlist = false;
     uint64_t         last_sig = 0;          /* see render_signature */
+
+    /* Align view. The envelope is cached per track and rebuilt when the
+     * track or its PCM changes; building it scans the whole stem, which is
+     * not something to do at sixty frames a second. */
+    bt_peaks         peaks{};
+    int32_t          peaks_song  = -1;
+    int32_t          peaks_track = -1;
+    const void      *peaks_src   = nullptr;   /* the pcm it was built from */
+
+    double           view_start  = 0.0;       /* seconds, song time        */
+    double           view_len    = 8.0;
+    bool             want_select = false;     /* host: make this song live */
 
     bool             want_export = false;
     bool             export_whole_set = false;

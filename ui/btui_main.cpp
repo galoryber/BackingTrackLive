@@ -1005,7 +1005,21 @@ int main(int argc, char **argv) {
                 g_edit.reopen_device = false;
                 reopen_audio(hwnd);
             }
-            if (g_edit.want_open_setlist) {
+            if (g_edit.want_select) {
+                g_edit.want_select = false;
+                /* The align view needs the stem in memory, and only the
+                 * loader puts it there. */
+                if (g_app.live && g_app.player) {
+                    g_app.selected = g_edit.song;
+                    if (bt_player_select(g_app.player, g_edit.song) != BT_OK) {
+                        int32_t bad = -1;
+                        bt_err le = bt_player_load_error(g_app.player, &bad);
+                        std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                      "could not load: %s", bt_strerror(le));
+                    }
+                }
+            }
+            else if (g_edit.want_open_setlist) {
                 g_edit.want_open_setlist = false;
                 g_editing = false;
                 close_set();

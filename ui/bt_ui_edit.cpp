@@ -605,16 +605,213 @@ void draw_align_screen(bt_ui_edit &ed) {
     ImGui::TextUnformatted("EDIT  \xe2\x80\xa2  align");
     ImGui::PopStyleColor();
     if (ImGui::Button("\xe2\x86\x90 song")) ed.screen = bt_edit_screen::song;
+
+    if (!ed.sl || ed.song < 0 || ed.song >= ed.sl->nsongs) return;
+    bt_song &s = ed.sl->song[ed.song];
+    if (ed.track < 0 || ed.track >= s.ntracks) { ImGui::TextUnformatted("No track."); return; }
+    bt_track &t = s.track[ed.track];
+    if (t.type == BT_TRACK_CLICK) {
+        ImGui::TextColored(COL_DIM, "The click is generated, so there is nothing to align - "
+                                    "it is the thing everything else aligns to.");
+        return;
+    }
+
+    const int32_t sr = ed.dev && ed.dev->sample_rate > 0 ? ed.dev->sample_rate : 48000;
+
+    ImGui::SameLine(0, 24);
+    ImGui::Text("%s", t.name);
+    ImGui::SameLine(0, 24);
+    if (ed.playing) { if (ImGui::Button("stop")) ed.want_stop = true; }
+    else            { if (ImGui::Button("play")) ed.want_play = true; }
+
+    /* The stem has to be in memory to be drawn, and only the loader puts it
+     * there - so ask the host to make this song the live one. */
+    if (!t.pcm || t.frames <= 0) {
+        ImGui::Spacing();
+        ImGui::TextColored(COL_AMBER, "This song is not loaded.");
+        if (ImGui::Button("load it")) ed.want_select = true;
+        ImGui::SameLine();
+        ImGui::TextDisabled("stems are held for the current song and the next one");
+        return;
+    }
+
+    /* Rebuild the envelope when the source changes, and not otherwise. */
+    if (ed.peaks_song != ed.song || ed.peaks_track != ed.track ||
+        ed.peaks_src != (const void *)t.pcm) {
+        bt_peaks_free(&ed.peaks);
+        if (bt_peaks_build((const float *const *)t.pcm, t.channels, t.frames,
+                           512, &ed.peaks) == BT_OK) {
+            ed.peaks_song  = ed.song;
+            ed.peaks_track = ed.track;
+            ed.peaks_src   = (const void *)t.pcm;
+        }
+    }
+
     ImGui::Separator();
+
+    /* ---- controls ---- */
+    ImGui::SetNextItemWidth(130);
+    int off = t.offset_ms;
+    if (ImGui::InputInt("nudge (ms)", &off, 1, 10)) {
+        if (off > -600000 && off < 600000) { t.offset_ms = off; ed.dirty = true; }
+    }
+    ImGui::SameLine(0, 20);
+
+    /* The reason most purchased stems are late: the file starts with silence
+     * before the first downbeat, and the length of that silence is nobody's
+     * decision - it is whatever the vendor's exporter did. Finding it is
+     * arithmetic, so there is no reason to make anyone do it by hand. */
+    if (ImGui::Button("snap start to beat 1")) {
+        float peak = 0.0f;
+        for (int32_t c = 0; c < t.channels; c++)
+            for (bt_frame i = 0; i < t.frames; i++) {
+                float a = t.pcm[c][i]; a = a < 0 ? -a : a;
+                if (a > peak) peak = a;
+            }
+        /* A fortieth of the loudest sample: above the noise floor of a quiet
+         * intro, below anything anyone would call the start of the music. */
+        const float thresh = peak * 0.025f;
+        bt_frame first = -1;
+        for (bt_frame i = 0; i < t.frames && first < 0; i++)
+            for (int32_t c = 0; c < t.channels; c++) {
+                float a = t.pcm[c][i]; a = a < 0 ? -a : a;
+                if (a > thresh) { first = i; break; }
+            }
+        if (first < 0) {
+            set_status(ed, "%s is silent - nothing to snap", t.name);
+        } else {
+            bt_frame beat0 = bt_tempo_beat_frame(&s.tempo, 0, sr);
+            t.offset_ms = (int32_t)llround((double)(beat0 - first) * 1000.0 / sr);
+            ed.dirty = true;
+            set_status(ed, "%s starts %.0f ms in; nudged to %+d ms",
+                       t.name, (double)first * 1000.0 / sr, t.offset_ms);
+        }
+    }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Finds where the audio actually begins and puts it on\n"
+                          "the first beat. Fixes the usual case in one press;\n"
+                          "check it by ear afterwards.");
+
+    ImGui::SameLine(0, 20);
+    ImGui::SetNextItemWidth(150);
+    float zoom = (float)ed.view_len;
+    if (ImGui::SliderFloat("seconds shown", &zoom, 0.5f, 60.0f, "%.1f s",
+                           ImGuiSliderFlags_Logarithmic))
+        ed.view_len = zoom;
+    ImGui::SameLine();
+    ImGui::TextDisabled("drag the waveform to nudge  \xc2\xb7  scroll to zoom");
+
+    /* ---- the view ---- */
+    const ImVec2 size(ImGui::GetContentRegionAvail().x, 300.0f);
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    ImGui::InvisibleButton("wave", size);
+    const bool hovered = ImGui::IsItemHovered();
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, ImVec2(p0.x + size.x, p0.y + size.y), IM_COL32(16, 19, 24, 255));
+
+    /* Follow the playhead while it plays, so what you hear is what you see. */
+    if (ed.playing) ed.view_start = ed.play_sec - ed.view_len * 0.35;
+
+    if (hovered && ImGui::GetIO().MouseWheel != 0.0f) {
+        const double at = ed.view_start +
+                          ed.view_len * (double)((ImGui::GetIO().MousePos.x - p0.x) / size.x);
+        ed.view_len *= (ImGui::GetIO().MouseWheel > 0 ? 0.85 : 1.0 / 0.85);
+        if (ed.view_len < 0.2)  ed.view_len = 0.2;
+        if (ed.view_len > 120.0) ed.view_len = 120.0;
+        /* Keep the point under the cursor where it is: zooming somewhere
+         * other than where you are looking is disorienting. */
+        ed.view_start = at - ed.view_len * (double)((ImGui::GetIO().MousePos.x - p0.x) / size.x);
+    }
+
+    const double t0 = ed.view_start, t1 = ed.view_start + ed.view_len;
+    auto x_of = [&](double sec) { return p0.x + (float)((sec - t0) / (t1 - t0)) * size.x; };
+
+    /* Beat grid, from the beat index rather than accumulated - the same rule
+     * the click obeys, so what is drawn is where the click actually lands. */
+    const int64_t b_from = bt_tempo_frame_beat(&s.tempo, (bt_frame)(t0 * sr), sr) - 1;
+    const int64_t b_to   = bt_tempo_frame_beat(&s.tempo, (bt_frame)(t1 * sr), sr) + 1;
+    const int32_t sig    = s.tempo.sig_num > 0 ? s.tempo.sig_num : 4;
+    if (b_to - b_from < 4000) {
+        for (int64_t b = b_from; b <= b_to; b++) {
+            const double sec = (double)bt_tempo_beat_frame(&s.tempo, b, sr) / sr;
+            const float x = x_of(sec);
+            if (x < p0.x - 2 || x > p0.x + size.x + 2) continue;
+            const bool bar = (b % sig) == 0;
+            dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p0.y + size.y),
+                        bar ? IM_COL32(86, 112, 150, 255) : IM_COL32(44, 52, 66, 255),
+                        bar ? 1.6f : 1.0f);
+            if (bar && ed.view_len < 30.0) {
+                char lbl[16];
+                std::snprintf(lbl, sizeof(lbl), "%lld", (long long)(b / sig) + 1);
+                dl->AddText(ImVec2(x + 3, p0.y + 3), IM_COL32(120, 140, 170, 255), lbl);
+            }
+        }
+    }
+
+    /* Waveform, drawn where it will actually sound: the stem's own time plus
+     * its nudge. */
+    const double off_sec = t.offset_ms / 1000.0;
+    const int cols = (int)size.x;
+    std::vector<float> mn((size_t)cols), mx((size_t)cols);
+    const bt_frame from = (bt_frame)llround((t0 - off_sec) * sr);
+    const bt_frame to   = (bt_frame)llround((t1 - off_sec) * sr);
+    const bt_frame per  = (to - from) / (cols > 0 ? cols : 1);
+
+    bool ok;
+    if (per < ed.peaks.frames_per_bucket)
+        ok = bt_peaks_range((const float *const *)t.pcm, t.channels, t.frames,
+                            from, to, mn.data(), mx.data(), cols) == BT_OK;
+    else
+        ok = bt_peaks_read(&ed.peaks, from, to, mn.data(), mx.data(), cols) == BT_OK;
+
+    if (ok) {
+        const float mid = p0.y + size.y * 0.5f;
+        const float amp = size.y * 0.45f;
+        for (int i = 0; i < cols; i++) {
+            const float x = p0.x + (float)i;
+            float a = mid - mx[(size_t)i] * amp, b = mid - mn[(size_t)i] * amp;
+            if (b - a < 1.0f) { a -= 0.5f; b += 0.5f; }
+            dl->AddLine(ImVec2(x, a), ImVec2(x, b), IM_COL32(118, 176, 228, 235));
+        }
+    }
+
+    /* Where the stem begins and ends, so "it starts here" is visible even
+     * when the audio there is quiet. */
+    for (int e = 0; e < 2; e++) {
+        const float x = x_of(off_sec + (e ? (double)t.frames / sr : 0.0));
+        if (x > p0.x && x < p0.x + size.x)
+            dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p0.y + size.y),
+                        IM_COL32(236, 196, 96, 200), 1.5f);
+    }
+
+    if (ed.playing) {
+        const float x = x_of(ed.play_sec);
+        if (x >= p0.x && x <= p0.x + size.x)
+            dl->AddLine(ImVec2(x, p0.y), ImVec2(x, p0.y + size.y),
+                        IM_COL32(245, 245, 245, 230), 1.8f);
+    }
+
+    /* Drag to nudge. A pixel is a known number of milliseconds, so this is
+     * the same edit as the number field, done with the hand instead. */
+    if (ImGui::IsItemActive() && ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
+        const double ms_per_px = (ed.view_len * 1000.0) / size.x;
+        const double d = ImGui::GetIO().MouseDelta.x * ms_per_px;
+        if (d != 0.0) {
+            t.offset_ms = (int32_t)llround(t.offset_ms + d);
+            ed.dirty = true;
+        }
+    }
+
+    dl->AddRect(p0, ImVec2(p0.x + size.x, p0.y + size.y), IM_COL32(60, 70, 86, 255));
+
     ImGui::Spacing();
-    ImGui::TextColored(COL_AMBER, "Not built yet.");
-    ImGui::TextWrapped(
-        "This is where the stem's waveform is drawn against the click grid so "
-        "it can be dragged into time, with a few bars auditioned against the "
-        "click to confirm by ear what was done by eye. bt_peaks - the envelope "
-        "this needs - is in place and tested; the view itself is the next "
-        "piece of work.");
-}
+    ImGui::TextDisabled(
+        "blue = the stem where it will sound   \xc2\xb7   amber = its first and last "
+        "sample   \xc2\xb7   bright lines = bar starts");
+    if (t.offset_ms)
+        ImGui::Text("%s plays %d ms %s than the file says",
+                    t.name, t.offset_ms < 0 ? -t.offset_ms : t.offset_ms,
+                    t.offset_ms < 0 ? "earlier" : "later");
 
 } /* namespace */
 
@@ -735,7 +932,10 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
  * ==================================================================== */
 
 #include "backtrack/bt_device.h"
+#include "backtrack/bt_peaks.h"
 #include "bt_ui_start.h"
+#include <vector>
+#include <cmath>
 
 namespace {
 
