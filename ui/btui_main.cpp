@@ -720,15 +720,43 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
 
     const bool edit_shot = !std::strcmp(state, "edit") ||
                            !std::strcmp(state, "editsong") ||
-                           !std::strcmp(state, "editaudio");
+                           !std::strcmp(state, "editaudio") ||
+                           !std::strcmp(state, "editalign") ||
+                           !std::strcmp(state, "check");
     if (edit_shot) {
         ed.sl  = sl;
         ed.dev = &shot_dev;
         ed.song = song;
         ed.track = 1;
-        ed.screen = !std::strcmp(state, "editsong")  ? bt_edit_screen::song
+        ed.screen = !std::strcmp(state, "editalign") ? bt_edit_screen::align
+                  : !std::strcmp(state, "editsong")  ? bt_edit_screen::song
                   : !std::strcmp(state, "editaudio") ? bt_edit_screen::audio
                                                      : bt_edit_screen::setlist;
+        if (ed.screen == bt_edit_screen::align) {
+            /* A stem that begins 380 ms after the downbeat: what a purchased
+             * backing track with a lead-in actually looks like. */
+            bt_song &sg = sl->song[0];
+            ed.track = 1;
+            for (int32_t i = 0; i < sg.ntracks; i++)
+                if (sg.track[i].type == BT_TRACK_AUDIO) { ed.track = i; break; }
+            bt_track &tr = sg.track[ed.track];
+            const int32_t sr = 48000;
+            tr.channels = 1;
+            tr.frames   = sr * 6;
+            tr.pcm = (float **)calloc(1, sizeof(float *));
+            tr.pcm[0] = (float *)calloc((size_t)tr.frames, sizeof(float));
+            const bt_frame lead = (bt_frame)(sr * 0.38);
+            for (bt_frame i = lead; i < tr.frames; i++) {
+                /* A note every half second, so the grid relationship is
+                 * visible rather than a wall of noise. */
+                bt_frame k = (i - lead) % (sr / 2);
+                float env = k < sr / 8 ? 1.0f - (float)k / (float)(sr / 8) : 0.0f;
+                float ph  = (float)((i * 220) % sr) / (float)sr;
+                tr.pcm[0][i] = env * 0.7f * (ph < 0.5f ? 4.0f * ph - 1.0f : 3.0f - 4.0f * ph);
+            }
+            ed.view_start = -0.2;
+            ed.view_len   = 4.0;
+        }
         if (ed.screen == bt_edit_screen::audio) {
             /* The screen's job is listing real devices, so enumeration has to
              * be running even for a screenshot. */
