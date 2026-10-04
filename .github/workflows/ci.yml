@@ -184,7 +184,7 @@ jobs:
       # ImGui only notices at runtime while one is hovered - so neither a
       # headless render nor a screenshot catches it. v0.1.8 shipped a stop
       # button that did nothing for exactly this reason.
-      - name: Check for conflicting ImGui IDs
+      - name: Check for ImGui ID conflicts and unguarded focus calls
         shell: bash
         run: python3 tools/lint-imgui-ids.py ui/*.cpp
 
