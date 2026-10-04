@@ -499,6 +499,7 @@ static void test_a_stem_can_sound_during_the_count_in(void) {
 
     out_free(&o);
     bt_engine_destroy(e);
+    bt_song_free_audio(&s);
 }
 
 int main(void) {
