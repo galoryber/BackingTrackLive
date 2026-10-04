@@ -820,6 +820,7 @@ void draw_align_screen(bt_ui_edit &ed) {
         ImGui::Text("%s plays %d ms %s than the file says",
                     t.name, t.offset_ms < 0 ? -t.offset_ms : t.offset_ms,
                     t.offset_ms < 0 ? "earlier" : "later");
+}
 
 } /* namespace */
 
