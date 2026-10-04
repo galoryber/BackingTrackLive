@@ -14,15 +14,35 @@ set -eu
 REPO=${REPO:-galoryber/BackingTrackLive}
 REF=${1:-$(git rev-parse HEAD)}
 
+# Authenticate if a token is available. Unauthenticated, the API allows sixty
+# requests an hour, which a couple of CI runs' worth of polling exhausts; with
+# a token it is five thousand. Entirely optional - everything here works
+# without one, just less often.
+#
+# Only a path is ever recorded here. The token itself lives outside the
+# repository and must stay there.
+if [ -z "${GH_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ]; then
+  for f in "$HOME/.config/backtracklive/gh-token" "$HOME/githubPAT.txt"; do
+    if [ -r "$f" ]; then
+      GH_TOKEN=$(tr -d ' \t\r\n' < "$f")
+      export GH_TOKEN
+      break
+    fi
+  done
+fi
+
 printf 'repo %s\nref  %s\n\n' "$REPO" "$REF"
 
 python3 - "$REPO" "$REF" <<'PY'
-import json, sys, urllib.request
+import json, os, sys, urllib.request
 repo, ref = sys.argv[1], sys.argv[2]
 
 def api(url):
-    req = urllib.request.Request(url, headers={
-        "Accept": "application/vnd.github+json", "User-Agent": "ci-status"})
+    h = {"Accept": "application/vnd.github+json", "User-Agent": "ci-status"}
+    tok = os.environ.get("GH_TOKEN") or os.environ.get("GITHUB_TOKEN")
+    if tok:
+        h["Authorization"] = "Bearer " + tok
+    req = urllib.request.Request(url, headers=h)
     return json.load(urllib.request.urlopen(req, timeout=30))
 
 try:
