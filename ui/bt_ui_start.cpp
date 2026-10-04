@@ -262,7 +262,15 @@ void bt_ui_start_draw(bt_ui_start &st) {
     if (st.naming) {
         ImGui::TextColored(COL_DIM, "NAME THE NEW SET LIST");
         ImGui::SetNextItemWidth(io.DisplaySize.x * 0.32f);
-        ImGui::SetKeyboardFocusHere();
+        /* Once, on the frame the prompt appears. Calling this every frame
+         * forces ImGui's active item back to this box on every frame, and a
+         * button needs to hold the active item from press to release - so
+         * every button on the screen stopped working while the prompt was up,
+         * including Cancel. */
+        if (st.focus_name) {
+            ImGui::SetKeyboardFocusHere();
+            st.focus_name = false;
+        }
         const bool entered = ImGui::InputText("##newname", st.new_name,
                                               sizeof(st.new_name),
                                               ImGuiInputTextFlags_EnterReturnsTrue);
@@ -285,6 +293,7 @@ void bt_ui_start_draw(bt_ui_start &st) {
     } else {
         if (ImGui::Button("New set list\xe2\x80\xa6", bsz)) {
             st.naming = true;
+            st.focus_name = true;
             st.new_name[0] = '\0';
         }
         ImGui::SameLine();

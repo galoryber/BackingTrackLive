@@ -54,10 +54,12 @@ struct bt_ui_start {
 
     /* Naming a new set list, before anything is written. */
     bool            naming = false;
+    bool            focus_name = false;   /* take focus once, not every frame */
     char            new_name[BT_MAX_NAME] = {0};
 
     bt_ui_found     found[BT_FOUND_MAX];
     int32_t         nfound = 0;
+    bool            rescan = true;        /* set when the folder may have changed */
     int32_t         found_index = -1;
 };
 

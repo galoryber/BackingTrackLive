@@ -349,6 +349,7 @@ void toggle_fullscreen(HWND hwnd) {
 
 void close_set() {
     App &a = g_app;
+    g_start.rescan = true;      /* the folder may have changed since last time */
     if (a.device) { bt_device_stop(a.device); bt_device_close(a.device); a.device = nullptr; }
     if (a.player) { bt_player_destroy(a.player); a.player = nullptr; }
     if (a.sl)     { bt_setlist_free(a.sl); a.sl = nullptr; }
@@ -1024,7 +1025,14 @@ int main(int argc, char **argv) {
 
         if (nothing_open()) {
             g_start.action = bt_start_action::none;
-            g_start.nfound = bt_ui_scan_setlists(g_start.found, BT_FOUND_MAX);
+            /* Not every frame. This enumerates a directory, and on a
+             * OneDrive-backed Documents folder those entries can be cloud
+             * placeholders whose enumeration goes to the network - sixty
+             * times a second is a way to make a window stop responding. */
+            if (g_start.rescan) {
+                g_start.nfound = bt_ui_scan_setlists(g_start.found, BT_FOUND_MAX);
+                g_start.rescan = false;
+            }
             bt_ui_start_draw(g_start);
 
             char picked[BT_MAX_PATH];

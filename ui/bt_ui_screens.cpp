@@ -182,11 +182,13 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
          * pick up a different guitar, so it wants reading before the song
          * starts rather than during it. */
         if (s.tuning[0]) {
-            const float bw = text_w(f, row_sz, bpm);
-            const float tw2 = text_w(f, row_sz, s.tuning);
+            /* Right-aligned in a column of its own. Positioning it relative
+             * to the tempo's width made the column ragged, because "93" and
+             * "156" are not the same size. */
+            const float bpm_col = text_w(f, row_sz, "888");
+            const float right   = sz.x - pad * 1.2f - bpm_col - pad * 0.9f;
             text_at(dl, f, row_sz,
-                    ImVec2(sz.x - pad * 1.2f - bw - pad * 0.9f - tw2,
-                           y + row_h * 0.22f),
+                    ImVec2(right - text_w(f, row_sz, s.tuning), y + row_h * 0.22f),
                     COL_ACCENT_T, s.tuning);
         }
     }
@@ -433,11 +435,15 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
          * different guitar - so it belongs here rather than only once the
          * song has started. */
         if (nx.tuning[0]) {
+            /* Beside the song it belongs to, and smaller. In the opposite
+             * corner it read as the tuning of what is playing now, which is
+             * the one thing it must never be mistaken for. */
+            float tx = pad + text_w(f, ns, nx.title) + pad * 0.6f;
+            if (nx.artist[0]) tx += text_w(f, ns * 0.72f, nx.artist) + pad * 0.6f;
             char lbl[48];
-            std::snprintf(lbl, sizeof(lbl), "TUNING  %s", nx.tuning);
-            text_at(dl, f, ns * 0.8f,
-                    ImVec2(sz.x - pad - text_w(f, ns * 0.8f, lbl),
-                           fy + foot_h * 0.46f), COL_ACCENT_T, lbl);
+            std::snprintf(lbl, sizeof(lbl), "TUNING %s", nx.tuning);
+            text_at(dl, f, ns * 0.60f, ImVec2(tx, fy + foot_h * 0.54f),
+                    COL_ACCENT_T, lbl);
         }
     } else {
         text_at(dl, f, foot_h * 0.42f, ImVec2(pad, fy + foot_h * 0.42f), COL_DIM,
