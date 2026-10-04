@@ -41,7 +41,7 @@ cov:
 		-DCMAKE_C_FLAGS="--coverage -O0" -DCMAKE_EXE_LINKER_FLAGS="--coverage"
 	cmake --build $(BUILD)-cov
 	ctest --test-dir $(BUILD)-cov --output-on-failure
-	gcovr --root . --filter 'src/' --exclude 'third_party/' --print-summary --txt
+	gcovr --gcov-ignore-parse-errors=negative_hits.warn --root . --filter 'src/' --exclude 'third_party/' --print-summary --txt
 
 fuzz:
 	cmake -S . -B $(BUILD)-fuzz -G $(GEN) -DCMAKE_BUILD_TYPE=Debug \

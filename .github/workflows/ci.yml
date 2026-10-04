@@ -129,10 +129,15 @@ jobs:
       # them when the real number moves up, never lower them to go green.
       - name: Report and enforce floors
         run: |
-          gcovr --root . --filter 'src/' --exclude 'third_party/' \
-                --print-summary --txt | tee cov.txt
-          gcovr --root . --filter 'src/' --exclude 'third_party/' \
-                --fail-under-line 95 --fail-under-branch 72 >/dev/null
+          # gcov's counters are not atomic, so code the audio thread and the
+          # UI thread both touch - bt_engine_sync's drain loop, mainly - can
+          # race and report a negative hit count. That is an artefact of
+          # measuring a threaded program, not a defect in it, and gcovr fails
+          # the whole report over it unless told otherwise.
+          GCOVR="gcovr --root . --filter src/ --exclude third_party/ \
+                 --gcov-ignore-parse-errors=negative_hits.warn"
+          $GCOVR --print-summary --txt | tee cov.txt
+          $GCOVR --fail-under-line 95 --fail-under-branch 72 >/dev/null
           {
             echo '### Coverage'
             echo '```'
