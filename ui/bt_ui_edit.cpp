@@ -575,9 +575,9 @@ void draw_song_screen(bt_ui_edit &ed) {
     /* Audition. Blocked on nothing: this is the point of the screen. */
     ImGui::Separator();
     if (ed.playing) {
-        if (ImGui::Button("stop", ImVec2(110, 0))) ed.want_stop = true;
+        if (ImGui::Button("stop##transport", ImVec2(110, 0))) ed.want_stop = true;
     } else {
-        if (ImGui::Button("play", ImVec2(110, 0))) ed.want_play = true;
+        if (ImGui::Button("play##transport", ImVec2(110, 0))) ed.want_play = true;
     }
     ImGui::SameLine();
     ImGui::TextDisabled("%d:%05.2f", (int)(ed.play_sec / 60.0),
@@ -651,8 +651,8 @@ void draw_align_screen(bt_ui_edit &ed) {
     ImGui::SameLine(0, 24);
     ImGui::Text("%s", t.name);
     ImGui::SameLine(0, 24);
-    if (ed.playing) { if (ImGui::Button("stop")) ed.want_stop = true; }
-    else            { if (ImGui::Button("play")) ed.want_play = true; }
+    if (ed.playing) { if (ImGui::Button("stop##align")) ed.want_stop = true; }
+    else            { if (ImGui::Button("play##align")) ed.want_play = true; }
 
     /* The stem has to be in memory to be drawn, and only the loader puts it
      * there - so ask the host to make this song the live one. */

@@ -18,6 +18,7 @@
 #include <d3d11.h>
 
 #include "imgui.h"
+#include "imgui_internal.h"
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
@@ -301,6 +302,15 @@ void close_set() {
     if (a.device) { bt_device_stop(a.device); bt_device_close(a.device); a.device = nullptr; }
     if (a.player) { bt_player_destroy(a.player); a.player = nullptr; }
     if (a.sl)     { bt_setlist_free(a.sl); a.sl = nullptr; }
+    /* The editor borrows the set list; it must not outlive it. */
+    g_edit.sl = nullptr;
+    g_edit.dev = nullptr;
+    g_edit.song = 0;
+    g_edit.track = -1;
+    g_edit.peaks_song = g_edit.peaks_track = -1;
+    g_edit.peaks_src = nullptr;
+    g_edit.last_sig = 0;
+    g_editing = false;
     a.live = false;
     a.selected = 0;
     a.dev_name[0] = a.dev_why[0] = '\0';
@@ -631,6 +641,7 @@ void load_font() {
 /* -------------------------------------------------------- offscreen path */
 
 int run_shot(const char *out, int w, int h, const char *state, int song, int bar) {
+    bool id_conflict = false;
     D3D_FEATURE_LEVEL fl;
     ID3D11Device *dev = nullptr; ID3D11DeviceContext *ctx = nullptr;
     if (FAILED(D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, 0,
@@ -803,6 +814,18 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         if (start_shot)     bt_ui_start_draw(shot_start);
         else if (edit_shot) bt_ui_edit_draw(ed);
         else                (void)bt_ui_draw(st);
+        /* Two widgets sharing an ID is a real bug - clicks go to whichever
+         * ImGui guessed - and it is invisible in a screenshot, which is how
+         * one reached a release. ImGui detects it; the headless render is
+         * where that detection is worth acting on. */
+        if (ImGui::GetCurrentContext()->DebugDrawIdConflictsId != 0) {
+            std::fprintf(stderr,
+                "ID CONFLICT on screen \"%s\": two visible widgets share an "
+                "identifier, so clicks on them are ambiguous. Give one an "
+                "explicit id, e.g. \"stop##transport\".\n", state);
+            id_conflict = true;
+        }
+
         ImGui::Render();
         const float clear[4] = { 0.06f, 0.07f, 0.08f, 1.0f };
         ctx->OMSetRenderTargets(1, &rtv, nullptr);
@@ -821,7 +844,9 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
     fclose(f);
     ctx->Unmap(stg, 0);
     std::printf("wrote %s (%dx%d RGBA, state=%s)\n", out, w, h, state);
-    return 0;
+    /* The frame is written either way - it is useful for seeing what went
+     * wrong - but the exit code fails the build. */
+    return id_conflict ? 3 : 0;
 }
 
 int usage() {
@@ -1078,9 +1103,14 @@ int main(int argc, char **argv) {
                               ok ? "rendered %s" : "could not render %s",
                               g_edit.export_path);
             }
-            if (g_app.selected >= g_app.sl->nsongs)
-                g_app.selected = g_app.sl->nsongs - 1;
-            if (g_app.selected < 0) g_app.selected = 0;
+            /* close_set() may have just run, so there may be no set list any
+             * more. The frame still has to finish - ImGui has an open frame
+             * that must be rendered - so this guards rather than bailing. */
+            if (g_app.sl) {
+                if (g_app.selected >= g_app.sl->nsongs)
+                    g_app.selected = g_app.sl->nsongs - 1;
+                if (g_app.selected < 0) g_app.selected = 0;
+            }
         } else {
             bt_ui_state st;
             fill_state(st, g_app);
