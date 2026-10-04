@@ -73,6 +73,8 @@ struct bt_ui_edit {
     double           seek_sec    = 0.0;
     bool             want_open_setlist = false;
     uint64_t         last_sig = 0;          /* see render_signature */
+    uint64_t         last_load_sig = 0;     /* see load_signature   */
+    bool             want_reload = false;   /* a stem changed       */
     /* Set when an edit changed the song but not what it sounds like, so the
      * signature moves on without asking the engine to republish. */
     bool             sig_only = false;

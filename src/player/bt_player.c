@@ -96,6 +96,15 @@ bt_err bt_player_request(bt_player *p, int32_t song_index) {
     return BT_OK;
 }
 
+bt_err bt_player_reload(bt_player *p, int32_t song_index) {
+    if (!p) return BT_ERR_RANGE;
+    if (song_index < 0 || song_index >= p->sl->nsongs) return BT_ERR_RANGE;
+    bt_loader_invalidate(p->ld, song_index);
+    /* Make sure it is wanted, or nothing will load it back. */
+    bt_loader_set_window(p->ld, song_index, song_index + p->cfg.preload_ahead);
+    return BT_OK;
+}
+
 bt_err bt_player_reapply(bt_player *p) {
     if (!p) return BT_ERR_RANGE;
     if (p->current < 0 || p->current >= p->sl->nsongs) return BT_ERR_STATE;

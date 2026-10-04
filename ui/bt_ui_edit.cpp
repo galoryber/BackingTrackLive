@@ -508,6 +508,26 @@ void add_track(bt_ui_edit &ed, bt_song &s) {
  *
  * Deliberately excludes the file path: changing which file a track points at
  * has to go through the loader, not a republish. */
+/* What only the loader can change: which files a song's tracks point at.
+ *
+ * render_signature deliberately ignores these, because the engine can be
+ * re-pointed at audio it already has. Adding a stem is different - the audio
+ * does not exist yet, and a song with nothing to load counts as resident, so
+ * nothing would ever fetch it. */
+uint64_t load_signature(const bt_song &s) {
+    uint64_t h = 1469598103934665603ull;
+    const unsigned char *b = (const unsigned char *)&s.ntracks;
+    for (size_t i = 0; i < sizeof(s.ntracks); i++) { h ^= b[i]; h *= 1099511628211ull; }
+    for (int32_t i = 0; i < s.ntracks; i++) {
+        const char *f = s.track[i].file;
+        for (size_t k = 0; k < strnlen(f, BT_MAX_PATH); k++) {
+            h ^= (unsigned char)f[k]; h *= 1099511628211ull;
+        }
+        h ^= (uint64_t)s.track[i].type + 1u; h *= 1099511628211ull;
+    }
+    return h;
+}
+
 uint64_t render_signature(const bt_song &s) {
     uint64_t h = 1469598103934665603ull;
     auto mix = [&h](const void *p, size_t n) {
@@ -766,8 +786,13 @@ void draw_align_screen(bt_ui_edit &ed) {
      * there - so ask the host to make this song the live one. */
     if (!t.pcm || t.frames <= 0) {
         ImGui::Spacing();
-        ImGui::TextColored(COL_AMBER, "This song is not loaded.");
-        if (ImGui::Button("load it")) ed.want_select = true;
+        ImGui::TextColored(COL_AMBER, "This song's stems are not in memory yet.");
+        if (ImGui::Button("load it")) {
+            /* Ask for the audio first. Selecting a song whose stems have not
+             * been fetched fails, which is what used to happen here. */
+            ed.want_reload = true;
+            ed.want_select = true;
+        }
         ImGui::SameLine();
         ImGui::TextDisabled("stems are held for the current song and the next one");
         return;
@@ -1011,6 +1036,12 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
             ed.want_reapply = true;
         ed.last_sig = sig;
         ed.sig_only = false;
+
+        /* A changed stem has to go back through the loader, not the engine. */
+        uint64_t lsig = load_signature(ed.sl->song[ed.song]);
+        if (ed.last_load_sig != 0 && lsig != ed.last_load_sig)
+            ed.want_reload = true;
+        ed.last_load_sig = lsig;
     } else {
         ed.last_sig = 0;
     }

@@ -1212,17 +1212,37 @@ int main(int argc, char **argv) {
                 g_edit.reopen_device = false;
                 reopen_audio(hwnd);
             }
+            if (g_edit.want_reload) {
+                g_edit.want_reload = false;
+                /* A stem was added, removed or re-pointed: the loader holds
+                 * something that is no longer what the set list says. */
+                if (g_app.player) bt_player_reload(g_app.player, g_edit.song);
+            }
             if (g_edit.want_select) {
                 g_edit.want_select = false;
                 /* The align view needs the stem in memory, and only the
                  * loader puts it there. */
                 if (g_app.live && g_app.player) {
                     g_app.selected = g_edit.song;
-                    if (bt_player_select(g_app.player, g_edit.song) != BT_OK) {
+                    bt_err se = bt_player_select(g_app.player, g_edit.song);
+                    if (se != BT_OK) {
+                        /* Report what actually failed. This used to print the
+                         * loader's last error, which is BT_OK when the loader
+                         * never had a problem - so a song whose stems had not
+                         * been fetched failed with "could not load: ok". */
                         int32_t bad = -1;
                         bt_err le = bt_player_load_error(g_app.player, &bad);
-                        std::snprintf(g_edit.status, sizeof(g_edit.status),
-                                      "could not load: %s", bt_strerror(le));
+                        if (le != BT_OK && bad == g_edit.song)
+                            std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                          "could not load: %s", bt_strerror(le));
+                        else if (se == BT_ERR_STATE)
+                            std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                          "its stems are still loading - try again "
+                                          "in a moment");
+                        else
+                            std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                          "could not open the song: %s",
+                                          bt_strerror(se));
                     }
                 }
             }

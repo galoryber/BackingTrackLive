@@ -599,7 +599,70 @@ static void test_request_rejects_nonsense(void) {
     rig_down(&r);
 }
 
+
+/* Adding a stem to a song that had none. A song with nothing to load counts
+ * as resident from the moment the loader starts - which a brand new song,
+ * holding only a click, is - so without being told that its tracks changed
+ * the loader has no reason to load anything, the stem's audio never arrives,
+ * and selecting the song fails because a track has no PCM.
+ *
+ * That shipped: the align view reported the song was not loaded, and loading
+ * it failed with an error that said "ok".
+ */
+static void test_reload_picks_up_a_newly_added_stem(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+
+    /* Strip song 0 back to a click, as a new song is. */
+    r.sl->song[0].ntracks = 1;
+    r.sl->song[0].track[0].type = BT_TRACK_CLICK;
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+    BT_CHECK(bt_player_song_resident(r.p, 0));
+
+    /* Now add a stem, the way the editor does. */
+    bt_track *t = &r.sl->song[0].track[1];
+    memset(t, 0, sizeof(*t));
+    t->type = BT_TRACK_AUDIO;
+    snprintf(t->name, BT_MAX_NAME, "Synth");
+    snprintf(t->bus, BT_MAX_NAME, "foh");
+    stem_name(t->file, sizeof(t->file), 0);
+    r.sl->song[0].ntracks = 2;
+
+    /* Without being told, the loader still believes it is done - so the song
+     * cannot be selected, because a track has no audio. Asserted through
+     * select rather than by reading track.pcm: only the loader thread may
+     * touch that, and reading it from here is the race ThreadSanitizer
+     * correctly complains about. */
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_ERR_STATE);
+
+    BT_CHECK_EQI(bt_player_reload(r.p, 0), BT_OK);
+
+    bool ready = false;
+    for (int i = 0; i < 250 && !ready; i++) {
+        ready = bt_player_song_resident(r.p, 0);
+        if (!ready) bt_thread_sleep_ms(20);
+    }
+    BT_CHECK(ready);
+
+    /* And now it selects, which is only possible once every audio track has
+     * its PCM - which is the thing this test is really about. */
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+
+    rig_down(&r);
+}
+
+static void test_reload_rejects_nonsense(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+    BT_CHECK_EQI(bt_player_reload(NULL, 0), BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_player_reload(r.p, -1), BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_player_reload(r.p, SONGS), BT_ERR_RANGE);
+    rig_down(&r);
+}
+
 int main(void) {
+    BT_RUN(test_reload_picks_up_a_newly_added_stem);
+    BT_RUN(test_reload_rejects_nonsense);
     BT_RUN(test_request_loads_a_song_that_was_freed);
     BT_RUN(test_request_rejects_nonsense);
     BT_RUN(test_segue_honours_the_count_in);

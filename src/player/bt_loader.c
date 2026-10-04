@@ -18,6 +18,7 @@ struct bt_loader {
     /* All of the following are guarded by `mu`. */
     bool       *resident;
     int32_t     lo, hi;      /* desired window; lo > hi means "nothing"     */
+    bool       *dirty;       /* edited since loading; free and load again   */
     bool        quit;
     uint64_t    generation;
     bt_err      last_err;
@@ -34,6 +35,10 @@ static int32_t pick_load(const bt_loader *l) {
 }
 
 static int32_t pick_free(const bt_loader *l) {
+    /* Edited songs first, in or out of the window: what is in memory for them
+     * is no longer what the set list says. */
+    for (int32_t i = 0; i < l->sl->nsongs; i++)
+        if (l->dirty[i]) return i;
     for (int32_t i = 0; i < l->sl->nsongs; i++)
         if (l->resident[i] && (i < l->lo || i > l->hi)) return i;
     return -1;
@@ -50,6 +55,13 @@ static void loader_main(void *user) {
         if (to_free >= 0) {
             bt_song *s = &l->sl->song[to_free];
             l->resident[to_free] = false;
+            l->dirty[to_free]    = false;
+            /* An edited song may also have had its error cleared by the edit;
+             * do not keep reporting a stem that is no longer referenced. */
+            if (l->last_err_song == to_free) {
+                l->last_err = BT_OK;
+                l->last_err_song = -1;
+            }
             bt_mutex_unlock(l->mu);
 
             /* Never free PCM a render could still be walking. */
@@ -110,6 +122,8 @@ bt_err bt_loader_start(bt_setlist *sl, int32_t sample_rate, bt_engine *eng,
     if (sl->nsongs > 0) {
         l->resident = (bool *)calloc((size_t)sl->nsongs, sizeof(bool));
         if (!l->resident) { free(l); return BT_ERR_ALLOC; }
+        l->dirty = (bool *)calloc((size_t)sl->nsongs, sizeof(bool));
+        if (!l->dirty) { free(l->resident); free(l); return BT_ERR_ALLOC; }
         /* A click-only song has nothing to load and is resident already. */
         for (int32_t i = 0; i < sl->nsongs; i++) {
             bool needs = false;
@@ -133,6 +147,7 @@ fail:
     bt_cond_destroy(l->work);
     bt_mutex_destroy(l->mu);
     free(l->resident);
+    free(l->dirty);
     free(l);
     return e;
 }
@@ -155,6 +170,7 @@ void bt_loader_stop(bt_loader *l) {
     bt_cond_destroy(l->work);
     bt_mutex_destroy(l->mu);
     free(l->resident);
+    free(l->dirty);
     free(l);
 }
 
@@ -166,6 +182,19 @@ void bt_loader_set_window(bt_loader *l, int32_t lo, int32_t hi) {
         l->hi = hi;
         bt_cond_broadcast(l->work);
     }
+    bt_mutex_unlock(l->mu);
+}
+
+void bt_loader_invalidate(bt_loader *l, int32_t song) {
+    if (!l || song < 0 || song >= l->sl->nsongs) return;
+    bt_mutex_lock(l->mu);
+    /* Not resident from this moment, so anyone asking gets the truth straight
+     * away rather than a stale yes until the loader gets round to it. The
+     * freeing and the loading still happen on the loader thread: nobody else
+     * may touch bt_track::pcm. */
+    l->resident[song] = false;
+    l->dirty[song]    = true;
+    bt_cond_broadcast(l->work);
     bt_mutex_unlock(l->mu);
 }
 

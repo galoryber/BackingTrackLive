@@ -83,6 +83,11 @@ bt_err  bt_player_select(bt_player *p, int32_t song_index);
  * until something asks. */
 bt_err  bt_player_request(bt_player *p, int32_t song_index);
 
+/* Reload a song whose tracks were edited - a stem added, removed or pointed
+ * at a different file. bt_player_reapply covers changes the engine can simply
+ * re-read; this is for the ones that have to go back through the loader. */
+bt_err  bt_player_reload(bt_player *p, int32_t song_index);
+
 bt_err  bt_player_reapply(bt_player *p);
 
 bt_err  bt_player_next(bt_player *p);

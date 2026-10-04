@@ -50,6 +50,17 @@ bool   bt_loader_resident(bt_loader *l, int32_t song);
  * user has explicitly chosen a song that is not in the window yet - jumping
  * across the set - which is the one case worth waiting for. Returns
  * BT_ERR_STATE on timeout. */
+/* Tell the loader a song's tracks changed, so what it holds for that song is
+ * no longer what the set list says.
+ *
+ * Adding a stem to a song is the case that needs this: a song with nothing to
+ * load counts as resident from the start, so without being told, the loader
+ * has no reason to believe anything changed and the new stem never arrives.
+ *
+ * Only sets a flag. The loader thread does the freeing and the loading, as it
+ * does for everything else - nobody else may touch bt_track::pcm. */
+void bt_loader_invalidate(bt_loader *l, int32_t song);
+
 bt_err bt_loader_wait(bt_loader *l, int32_t song, int32_t timeout_ms);
 
 /* Bytes of PCM currently resident, for the UI to show. */
