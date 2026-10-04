@@ -16,7 +16,8 @@ typedef enum {
     BT_ERR_RATE,         /* sample-rate mismatch (see docs: Phase 2)       */
     BT_ERR_RANGE,        /* value out of accepted range                    */
     BT_ERR_NOT_FOUND,    /* named bus/song/track does not exist            */
-    BT_ERR_STATE         /* call made in an invalid state                  */
+    BT_ERR_STATE,        /* call made in an invalid state                  */
+    BT_ERR_EXISTS        /* refusing to overwrite something already there  */
 } bt_err;
 
 /* Human-readable, static storage, never NULL. */

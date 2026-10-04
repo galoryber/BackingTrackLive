@@ -30,7 +30,19 @@ void bt_ui_settings_save(const bt_ui_settings &s);
 void bt_ui_settings_touch(bt_ui_settings &s, const char *setlist, const char *device);
 
 /* What the start screen is asking the host to do. */
-enum class bt_start_action { none, open, create_new, create_demo, open_recent, quit };
+enum class bt_start_action { none, open, create_new, create_demo, open_recent,
+                            open_found, quit };
+
+/* A set list found in the set lists folder: its name and where it lives. */
+struct bt_ui_found {
+    char name[BT_MAX_NAME];
+    char path[BT_MAX_PATH];     /* ...the setlist.json inside it */
+};
+#define BT_FOUND_MAX 64
+
+/* Scans the default set lists folder for subfolders holding a setlist.json.
+ * Returns how many were written. */
+int32_t bt_ui_scan_setlists(bt_ui_found *out, int32_t cap);
 
 struct bt_ui_start {
     bt_ui_settings *settings = nullptr;
@@ -39,6 +51,14 @@ struct bt_ui_start {
     char            device[BT_MAX_PATH] = {0}; /* chosen device.json     */
     char            status[200] = {0};
     int32_t         recent_index = -1;
+
+    /* Naming a new set list, before anything is written. */
+    bool            naming = false;
+    char            new_name[BT_MAX_NAME] = {0};
+
+    bt_ui_found     found[BT_FOUND_MAX];
+    int32_t         nfound = 0;
+    int32_t         found_index = -1;
 };
 
 void bt_ui_start_draw(bt_ui_start &st);

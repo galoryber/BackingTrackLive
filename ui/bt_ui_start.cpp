@@ -187,6 +187,35 @@ bool bt_ui_pick_folder(const char *title, char *out, size_t cap) {
 
 /* -------------------------------------------------------- start screen */
 
+int32_t bt_ui_scan_setlists(bt_ui_found *out, int32_t cap) {
+    if (!out || cap <= 0) return 0;
+    char root[MAX_PATH];
+    if (!bt_ui_default_setlist_root(root, sizeof(root))) return 0;
+
+    char glob[MAX_PATH];
+    std::snprintf(glob, sizeof(glob), "%s\\*", root);
+
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(glob, &fd);
+    if (h == INVALID_HANDLE_VALUE) return 0;
+
+    int32_t n = 0;
+    do {
+        if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) continue;
+        if (fd.cFileName[0] == '.') continue;
+
+        char sl[MAX_PATH];
+        std::snprintf(sl, sizeof(sl), "%s\\%s\\setlist.json", root, fd.cFileName);
+        if (GetFileAttributesA(sl) == INVALID_FILE_ATTRIBUTES) continue;
+
+        std::snprintf(out[n].name, BT_MAX_NAME, "%s", fd.cFileName);
+        std::snprintf(out[n].path, BT_MAX_PATH, "%s", sl);
+        if (++n >= cap) break;
+    } while (FindNextFileA(h, &fd));
+    FindClose(h);
+    return n;
+}
+
 void bt_ui_start_draw(bt_ui_start &st) {
     ImGuiIO &io = ImGui::GetIO();
     ImGui::SetNextWindowPos(ImVec2(0, 0));
@@ -210,16 +239,63 @@ void bt_ui_start_draw(bt_ui_start &st) {
 
     const ImVec2 bsz(io.DisplaySize.x * 0.30f, io.DisplaySize.y * 0.062f);
 
+    /* The set lists you already have, first - this is the common case and it
+     * used to be the one thing the screen did not offer. */
+    if (st.nfound > 0) {
+        ImGui::TextColored(COL_DIM, "YOUR SET LISTS");
+        ImGui::Spacing();
+        for (int32_t i = 0; i < st.nfound; i++) {
+            char label[BT_MAX_NAME + 16];
+            std::snprintf(label, sizeof(label), "%s##f%d", st.found[i].name, i);
+            if (ImGui::Selectable(label, false, 0,
+                                  ImVec2(io.DisplaySize.x * 0.42f, 0))) {
+                st.found_index = i;
+                st.action = bt_start_action::open_found;
+            }
+        }
+        ImGui::Spacing();
+        ImGui::Spacing();
+    }
+
+    /* Naming happens before anything is written, so a name you change your
+     * mind about costs nothing. */
+    if (st.naming) {
+        ImGui::TextColored(COL_DIM, "NAME THE NEW SET LIST");
+        ImGui::SetNextItemWidth(io.DisplaySize.x * 0.32f);
+        ImGui::SetKeyboardFocusHere();
+        const bool entered = ImGui::InputText("##newname", st.new_name,
+                                              sizeof(st.new_name),
+                                              ImGuiInputTextFlags_EnterReturnsTrue);
+        ImGui::SameLine();
+        const bool named = st.new_name[0] != '\0';
+        ImGui::BeginDisabled(!named);
+        const bool pressed = ImGui::Button("Create");
+        ImGui::EndDisabled();
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) { st.naming = false; st.new_name[0] = '\0'; }
+        if (named && (entered || pressed)) {
+            st.naming = false;
+            st.action = bt_start_action::create_new;
+        }
+        ImGui::TextColored(COL_DIM,
+            "It gets a folder of its own, so set lists cannot overwrite "
+            "each other.");
+        ImGui::Spacing();
+        ImGui::Spacing();
+    } else {
+        if (ImGui::Button("New set list\xe2\x80\xa6", bsz)) {
+            st.naming = true;
+            st.new_name[0] = '\0';
+        }
+        ImGui::SameLine();
+        ImGui::TextColored(COL_DIM, "a new set in a folder of its own");
+    }
+
+    ImGui::Spacing();
     if (ImGui::Button("Open a set list\xe2\x80\xa6", bsz))
         st.action = bt_start_action::open;
     ImGui::SameLine();
-    ImGui::TextColored(COL_DIM, "a folder containing setlist.json and its stems");
-
-    ImGui::Spacing();
-    if (ImGui::Button("New set list\xe2\x80\xa6", bsz))
-        st.action = bt_start_action::create_new;
-    ImGui::SameLine();
-    ImGui::TextColored(COL_DIM, "an empty set in a folder of its own, ready for your stems");
+    ImGui::TextColored(COL_DIM, "one kept somewhere else - a USB stick, say");
 
     ImGui::Spacing();
     if (ImGui::Button("Create a demo set\xe2\x80\xa6", bsz))
@@ -253,8 +329,7 @@ void bt_ui_start_draw(bt_ui_start &st) {
     if (bt_ui_default_setlist_root(root, sizeof(root)))
         ImGui::TextColored(COL_DIM,
             "Set lists live in a folder with their stems, so the whole folder "
-            "copies to a backup laptop as one piece.\nNew ones go in %s "
-            "unless you pick somewhere else.", root);
+            "copies to a backup laptop as one piece.\nThey are kept in %s.", root);
     else
         ImGui::TextColored(COL_DIM,
             "Set lists live in a folder with their stems, so the whole folder "
@@ -278,13 +353,21 @@ bool bt_ui_machine_device_path(char *out, size_t cap) {
 bt_err bt_ui_new_setlist(const char *dir, const char *name) {
     if (!dir || !*dir) return BT_ERR_RANGE;
 
+    char path[MAX_PATH];
+    std::snprintf(path, sizeof(path), "%s\\setlist.json", dir);
+
+    /* Never over an existing set list. This used to open the file for writing
+     * and truncate whatever was there, and the folder picker opened on the
+     * set lists folder itself - so making a second set list without first
+     * navigating somewhere destroyed the first one, silently and with no way
+     * back. Set lists now get a folder of their own, and this refuses
+     * regardless. */
+    if (GetFileAttributesA(path) != INVALID_FILE_ATTRIBUTES) return BT_ERR_EXISTS;
+
     char tracks[MAX_PATH];
     std::snprintf(tracks, sizeof(tracks), "%s\\tracks", dir);
     CreateDirectoryA(dir, nullptr);
     CreateDirectoryA(tracks, nullptr);
-
-    char path[MAX_PATH];
-    std::snprintf(path, sizeof(path), "%s\\setlist.json", dir);
 
     /* One song, with a click and nothing else. An empty set list is a screen
      * with nothing to press; one song is something you can immediately play
@@ -303,7 +386,7 @@ bt_err bt_ui_new_setlist(const char *dir, const char *name) {
 "      \"title\": \"New song\",\n"
 "      \"artist\": \"\",\n"
 "      \"tempo\": { \"bpm\": 120.0, \"sig\": [4, 4], \"downbeat_ms\": 0 },\n"
-"      \"count_in_bars\": 1,\n"
+"      \"count_in_bars\": 2,\n"
 "      \"on_end\": \"stop\",\n"
 "      \"tracks\": [\n"
 "        { \"name\": \"Click\", \"type\": \"click\", \"bus\": \"inear\" }\n"

@@ -800,6 +800,9 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                             !std::strcmp(state, "firstrun");
     if (start_shot) {
         shot_start.settings = &shot_settings;
+        /* The real scan, so a screenshot shows what a screen with set lists
+         * on it actually looks like rather than what I assume it does. */
+        shot_start.nfound = bt_ui_scan_setlists(shot_start.found, BT_FOUND_MAX);
         if (!std::strcmp(state, "start")) {
             std::snprintf(shot_settings.recent[0], BT_MAX_PATH,
                           "D:\\band\\covers-2026\\setlist.json");
@@ -1021,6 +1024,7 @@ int main(int argc, char **argv) {
 
         if (nothing_open()) {
             g_start.action = bt_start_action::none;
+            g_start.nfound = bt_ui_scan_setlists(g_start.found, BT_FOUND_MAX);
             bt_ui_start_draw(g_start);
 
             char picked[BT_MAX_PATH];
@@ -1034,27 +1038,49 @@ int main(int argc, char **argv) {
                     g_start.recent_index < g_settings.nrecent)
                     open_set(hwnd, g_settings.recent[g_start.recent_index], nullptr);
                 break;
+            case bt_start_action::open_found:
+                if (g_start.found_index >= 0 && g_start.found_index < g_start.nfound)
+                    open_set(hwnd, g_start.found[g_start.found_index].path, nullptr);
+                break;
             case bt_start_action::create_new: {
-                char dir[BT_MAX_PATH];
-                if (bt_ui_pick_folder("Pick an empty folder for the new set list",
-                                      dir, sizeof(dir))) {
-                    const char *leaf = std::strrchr(dir, '\\');
-                    bt_err e = bt_ui_new_setlist(dir, leaf ? leaf + 1 : dir);
-                    if (e != BT_OK) {
-                        std::snprintf(g_start.status, sizeof(g_start.status),
-                                      "could not create a set list there: %s",
-                                      bt_strerror(e));
-                    } else {
-                        char sp[BT_MAX_PATH];
-                        std::snprintf(sp, sizeof(sp), "%s\\setlist.json", dir);
-                        if (open_set(hwnd, sp, nullptr)) {
-                            /* Straight into the editor: a new set list has
-                             * one empty song and nothing to listen to yet. */
-                            g_editing = true;
-                            g_edit.screen = bt_edit_screen::song;
-                            g_edit.song = 0;
-                        }
-                    }
+                /* A folder named after the set list, inside the set lists
+                 * folder. No directory picker: offering one is how the
+                 * previous version let someone land on the folder that
+                 * already held a set list and truncate it. */
+                char root[BT_MAX_PATH], dir[BT_MAX_PATH], safe[BT_MAX_NAME];
+                if (!bt_ui_default_setlist_root(root, sizeof(root))) {
+                    std::snprintf(g_start.status, sizeof(g_start.status),
+                                  "could not find your Documents folder");
+                    break;
+                }
+
+                std::snprintf(safe, sizeof(safe), "%s", g_start.new_name);
+                for (char *c = safe; *c; c++)
+                    if (std::strchr("\\/:*?\"<>|", *c)) *c = '-';
+                std::snprintf(dir, sizeof(dir), "%s\\%s", root, safe);
+
+                bt_err e = bt_ui_new_setlist(dir, safe);
+                if (e == BT_ERR_EXISTS) {
+                    std::snprintf(g_start.status, sizeof(g_start.status),
+                                  "\"%s\" already exists - open it above, or "
+                                  "choose another name", safe);
+                    break;
+                }
+                if (e != BT_OK) {
+                    std::snprintf(g_start.status, sizeof(g_start.status),
+                                  "could not create \"%s\": %s", safe,
+                                  bt_strerror(e));
+                    break;
+                }
+
+                char sp[BT_MAX_PATH];
+                std::snprintf(sp, sizeof(sp), "%s\\setlist.json", dir);
+                if (open_set(hwnd, sp, nullptr)) {
+                    /* Straight into the editor: a new set list has one empty
+                     * song and nothing to listen to yet. */
+                    g_editing = true;
+                    g_edit.screen = bt_edit_screen::song;
+                    g_edit.song = 0;
                 }
                 break;
             }

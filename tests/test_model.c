@@ -169,7 +169,8 @@ static void test_error_strings(void) {
      * error the UI renders as "unknown error" is one nobody can act on. */
     const bt_err all[] = {
         BT_OK, BT_ERR_ALLOC, BT_ERR_IO, BT_ERR_PARSE, BT_ERR_SCHEMA,
-        BT_ERR_FORMAT, BT_ERR_RATE, BT_ERR_RANGE, BT_ERR_NOT_FOUND, BT_ERR_STATE
+        BT_ERR_FORMAT, BT_ERR_RATE, BT_ERR_RANGE, BT_ERR_NOT_FOUND, BT_ERR_STATE,
+        BT_ERR_EXISTS
     };
     const size_t n = sizeof(all) / sizeof(all[0]);
     for (size_t i = 0; i < n; i++) {

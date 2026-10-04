@@ -13,6 +13,7 @@ const char *bt_strerror(bt_err e) {
     case BT_ERR_RANGE:     return "value out of range";
     case BT_ERR_NOT_FOUND: return "not found";
     case BT_ERR_STATE:     return "invalid state";
+    case BT_ERR_EXISTS:    return "already exists";
     }
     return "unknown error";
 }

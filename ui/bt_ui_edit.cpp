@@ -144,7 +144,9 @@ void add_song(bt_ui_edit &ed) {
     s.tempo.nseg    = 1;
     s.tempo.sig_num = 4;
     s.tempo.sig_den = 4;
-    s.count_in_bars = 1;
+    /* Two bars, not one: one is barely enough to find the tempo, and a
+     * spoken cue over the count-in will want at least this much room. */
+    s.count_in_bars = 2;
     s.on_end        = BT_ON_END_STOP;
     /* Every song wants a click; making it the default saves a step and
      * removes the commonest omission btcheck warns about. */
@@ -183,7 +185,13 @@ void draw_setlist_screen(bt_ui_edit &ed) {
 
     ImGui::Separator();
 
-    if (ImGui::Button("+ add song")) add_song(ed);
+    if (ImGui::Button("+ add song")) {
+        add_song(ed);
+        /* Straight into it. Adding a song and then having to find and press
+         * "edit song" is two actions for one intention. */
+        ed.screen = bt_edit_screen::song;
+        ed.track  = -1;
+    }
     ImGui::SameLine();
     ImGui::BeginDisabled(ed.sl->nsongs == 0);
     if (ImGui::Button("remove")) remove_song(ed, ed.song);
@@ -1014,7 +1022,14 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
      * to, is how an edit survives into the running app and then vanishes on
      * restart. */
     ImGui::BeginDisabled(!ed.can_save);
-    if (ImGui::Button(ed.dirty ? "save *" : "save")) do_save(ed);
+    if (ImGui::Button(ed.dirty ? "save *" : "save")) {
+        do_save(ed);
+        /* Saving a song means you are done with it, so go back to the list
+         * rather than making that a second press - and a second press that
+         * sits next to "leave edit mode", which is not what anyone meant. */
+        if (ed.screen == bt_edit_screen::song || ed.screen == bt_edit_screen::align)
+            ed.screen = bt_edit_screen::setlist;
+    }
     ImGui::EndDisabled();
     if (!ed.can_save && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
         ImGui::SetTooltip("This is the built-in demo set and has no file.\n"
