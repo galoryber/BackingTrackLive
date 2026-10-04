@@ -461,7 +461,48 @@ static void test_panic_silences(void) {
     bt_song_free_audio(&s);
 }
 
+
+/* A stem nudged back far enough sounds during the count-in.
+ *
+ * This is how a spoken cue would work - "starts on beat three, here we go" -
+ * played into the in-ears over the click while the audience hears nothing.
+ * The engine needs no new feature for it: the playhead is negative during a
+ * count-in, and a track's offset is simply subtracted from it. The test exists
+ * so that stays true, because nothing else in the suite renders a stem before
+ * song frame zero.
+ */
+static void test_a_stem_can_sound_during_the_count_in(void) {
+    /* Two bars of 4 at 120 BPM: the count-in starts at frame -192000. */
+    bt_song s = mk_song(120.0, 4, 2);
+    s.track[0] = mk_click("inear");
+    /* An impulse at the stem's own frame 0, nudged back onto the first
+     * count-in beat. -192000 frames at 48k is -4000 ms. */
+    s.track[1] = mk_impulse("inear", 1, SR, 0, 0);
+    s.track[1].offset_ms = -4000;
+    s.ntracks = 2;
+
+    bt_device_cfg d = mk_dev();
+    bt_engine *e = mk_engine(6, 512);
+    BT_CHECK_EQI(bt_engine_set_song(e, &s, &d), BT_OK);
+    bt_engine_start_with_count_in(e);
+    BT_CHECK_EQI(bt_engine_playhead(e), -192000);
+
+    outbuf o;
+    out_alloc(&o, 6, 192000 + SR);
+    render_all(e, &o, 512);
+
+    /* The cue lands on the first count-in beat, not at the top of the song. */
+    BT_CHECK_EQI(peak_at(o.buf[2], o.frames), 0);
+
+    /* And front of house hears nothing at all: the cue went to the in-ears. */
+    for (bt_frame i = 0; i < o.frames; i++) BT_CHECK(o.buf[0][i] == 0.0f);
+
+    out_free(&o);
+    bt_engine_destroy(e);
+}
+
 int main(void) {
+    BT_RUN(test_a_stem_can_sound_during_the_count_in);
     BT_RUN(test_click_lands_on_the_beat);
     BT_RUN(test_downbeat_is_accented);
     BT_RUN(test_track_offset_shifts_exactly);
