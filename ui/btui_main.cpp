@@ -537,7 +537,11 @@ void on_key(HWND hwnd, WPARAM key) {
 
     if (g_editing) {
         if (key == VK_F11) { toggle_fullscreen(hwnd); return; }
-        if (key == 'E' && !ImGui::GetIO().WantTextInput) { g_editing = false; return; }
+        if (key == 'E' && !ImGui::GetIO().WantTextInput) {
+            if (transport_playing(a)) transport_stop(a);   /* the audition */
+            g_editing = false;
+            return;
+        }
         bt_ui_edit_key(g_edit, (int)key);
         return;
     }
@@ -806,7 +810,19 @@ int usage() {
 
 } /* namespace */
 
+/* A windowed app has no console, so --shot and --help would print into
+ * nothing when run from a terminal. If there is a parent console - which
+ * there is when someone typed the name, and is not when they double-clicked -
+ * borrow it. */
+void attach_console_if_launched_from_one(void) {
+    if (!AttachConsole(ATTACH_PARENT_PROCESS)) return;
+    FILE *f;
+    freopen_s(&f, "CONOUT$", "w", stdout);
+    freopen_s(&f, "CONOUT$", "w", stderr);
+}
+
 int main(int argc, char **argv) {
+    if (argc > 1) attach_console_if_launched_from_one();
     const char *shot = nullptr, *state = "stopped";
     const char *setlist_path = nullptr, *device_path = nullptr;
     int w = 1280, h = 720, song = 2, bar = 17;
@@ -975,6 +991,11 @@ int main(int argc, char **argv) {
 
         if (g_editing) {
             g_edit.song = g_edit.song < 0 ? 0 : g_edit.song;
+            g_edit.playing  = transport_playing(g_app);
+            g_edit.play_sec = g_app.live && g_app.player
+                            ? (double)bt_player_playhead(g_app.player) /
+                              (double)(g_app.dev.sample_rate > 0 ? g_app.dev.sample_rate : 48000)
+                            : 0.0;
             if (!bt_ui_edit_draw(g_edit)) g_editing = false;
 
             /* Routing changed: tear the stream down and build it again from
@@ -984,6 +1005,29 @@ int main(int argc, char **argv) {
                 g_edit.reopen_device = false;
                 reopen_audio(hwnd);
             }
+            if (g_edit.want_open_setlist) {
+                g_edit.want_open_setlist = false;
+                g_editing = false;
+                close_set();
+            }
+            else if (g_edit.want_play) {
+                g_edit.want_play = false;
+                g_app.selected = g_edit.song;
+                transport_start(g_app, false);   /* no count-in while editing */
+            }
+            else if (g_edit.want_stop) {
+                g_edit.want_stop = false;
+                transport_stop(g_app);
+            }
+            else if (g_edit.want_reapply) {
+                g_edit.want_reapply = false;
+                /* Only meaningful for the song actually bound to the engine;
+                 * editing a different one changes nothing to hear. */
+                if (g_app.live && g_app.player &&
+                    bt_player_current(g_app.player) == g_edit.song)
+                    bt_player_reapply(g_app.player);
+            }
+
             if (g_edit.want_export) {
                 g_edit.want_export = false;
                 bool ok = export_wav(g_edit.export_path, g_edit.export_whole_set);
@@ -1007,9 +1051,6 @@ int main(int argc, char **argv) {
                     g_app.selected = r.song;
                     if (!transport_playing(g_app)) transport_start(g_app, true);
                 }
-                break;
-            case bt_ui_click::open_setlist:
-                if (!transport_playing(g_app)) close_set();
                 break;
             default: break;
             }

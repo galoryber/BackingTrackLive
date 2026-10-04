@@ -193,6 +193,8 @@ void draw_setlist_screen(bt_ui_edit &ed) {
     if (ImGui::Button("audio \xe2\x80\xa6")) ed.screen = bt_edit_screen::audio;
     ImGui::SameLine();
     if (ImGui::Button("check \xe2\x80\xa6")) ed.screen = bt_edit_screen::check;
+    ImGui::SameLine(0, 28);
+    if (ImGui::Button("open another set list \xe2\x80\xa6")) ed.want_open_setlist = true;
 
     ImGui::Spacing();
 
@@ -418,6 +420,40 @@ void add_track(bt_ui_edit &ed, bt_song &s) {
     set_status(ed, "added %s", rel);
 }
 
+
+/* A signature of everything the engine renders a song from.
+ *
+ * Twenty-odd widgets set ed.dirty, and asking each of them to also request a
+ * republish is a list someone will fail to add to. Hashing what the engine
+ * actually reads cannot miss a field, and costs nothing at UI rates.
+ *
+ * Deliberately excludes the file path: changing which file a track points at
+ * has to go through the loader, not a republish. */
+uint64_t render_signature(const bt_song &s) {
+    uint64_t h = 1469598103934665603ull;
+    auto mix = [&h](const void *p, size_t n) {
+        const unsigned char *b = (const unsigned char *)p;
+        for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 1099511628211ull; }
+    };
+    mix(&s.tempo.nseg, sizeof(s.tempo.nseg));
+    for (int32_t i = 0; i < s.tempo.nseg; i++) mix(&s.tempo.seg[i], sizeof(s.tempo.seg[i]));
+    mix(&s.tempo.sig_num, sizeof(s.tempo.sig_num));
+    mix(&s.tempo.sig_den, sizeof(s.tempo.sig_den));
+    mix(&s.tempo.downbeat_ms, sizeof(s.tempo.downbeat_ms));
+    mix(&s.count_in_bars, sizeof(s.count_in_bars));
+    mix(&s.length_bars, sizeof(s.length_bars));
+    mix(&s.ntracks, sizeof(s.ntracks));
+    for (int32_t i = 0; i < s.ntracks; i++) {
+        const bt_track &t = s.track[i];
+        mix(&t.type, sizeof(t.type));
+        mix(t.bus, strnlen(t.bus, BT_MAX_NAME));
+        mix(&t.gain_db, sizeof(t.gain_db));
+        mix(&t.offset_ms, sizeof(t.offset_ms));
+        mix(&t.muted, sizeof(t.muted));
+    }
+    return h;
+}
+
 void draw_song_screen(bt_ui_edit &ed) {
     if (ed.song < 0 || ed.song >= ed.sl->nsongs) {
         ed.screen = bt_edit_screen::setlist;
@@ -531,6 +567,21 @@ void draw_song_screen(bt_ui_edit &ed) {
 
     ImGui::Spacing();
     ImGui::Separator();
+    /* Audition. Blocked on nothing: this is the point of the screen. */
+    ImGui::Separator();
+    if (ed.playing) {
+        if (ImGui::Button("stop", ImVec2(110, 0))) ed.want_stop = true;
+    } else {
+        if (ImGui::Button("play", ImVec2(110, 0))) ed.want_play = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("%d:%05.2f", (int)(ed.play_sec / 60.0),
+                        ed.play_sec - 60.0 * (int)(ed.play_sec / 60.0));
+    ImGui::SameLine(0, 20);
+    ImGui::TextDisabled("nudge while it plays - you will hear it from where "
+                        "you are, not from the top");
+
+    ImGui::Spacing();
     ImGui::TextUnformatted("TRACKS");
     ImGui::SameLine();
     if (ImGui::Button("+ add stem")) add_track(ed, s);
@@ -623,6 +674,15 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     case bt_edit_screen::align:   draw_align_screen(ed);   break;
     case bt_edit_screen::audio:   draw_audio_screen(ed);   break;
     case bt_edit_screen::check:   draw_check_screen(ed);   break;
+    }
+
+    /* One place, after everything has drawn, so no widget can forget. */
+    if (ed.sl && ed.song >= 0 && ed.song < ed.sl->nsongs) {
+        uint64_t sig = render_signature(ed.sl->song[ed.song]);
+        if (ed.last_sig != 0 && sig != ed.last_sig) ed.want_reapply = true;
+        ed.last_sig = sig;
+    } else {
+        ed.last_sig = 0;
     }
     ImGui::EndChild();
 

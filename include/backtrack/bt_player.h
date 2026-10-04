@@ -55,6 +55,23 @@ void   bt_player_destroy(bt_player *p);
 
 /* ---- Selection. Loads the song if needed, binds it, leaves it stopped. --- */
 bt_err  bt_player_select(bt_player *p, int32_t song_index);
+/* Re-publish the current song after its tempo, gains, routing or nudges have
+ * changed, keeping the playhead and whether it is playing.
+ *
+ * This is what makes aligning a stem by ear possible: nudge, hear the result
+ * where you already are, nudge again. bt_player_select would restart from the
+ * top and stop, which is the wrong tool for the job.
+ *
+ * The stems themselves are untouched - this only rebuilds the engine's view
+ * of them, so it costs nothing and loads nothing. Changing which *file* a
+ * track points at still needs a select, because that has to go through the
+ * loader.
+ *
+ * There is a brief silence while the swap waits for in-flight renders to
+ * leave the old slot. Audible as a blip when you nudge during playback; the
+ * alternative is tearing, which is worse. */
+bt_err  bt_player_reapply(bt_player *p);
+
 bt_err  bt_player_next(bt_player *p);
 bt_err  bt_player_prev(bt_player *p);
 

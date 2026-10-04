@@ -177,13 +177,20 @@ jobs:
           cmake --build build-ui --config Release
       # Runners have no GPU, which is the point: this renders through WARP to
       # an offscreen target, exactly as it does on the dev VM.
+      # Start-Process -Wait, not a bare invocation: the UI is a windowed
+      # subsystem app now, and a shell that does not wait would check for
+      # frames the program has not finished writing.
       - name: Render each screen headless
-        shell: bash
+        shell: pwsh
         run: |
-          for s in stopped playing countin; do
-            ./build-ui/Release/BackingTrackLive.exe --shot "shot_$s.raw" --w 1280 --h 720 --state "$s"
-          done
-          ls -l shot_*.raw
+          foreach ($s in 'stopped','playing','countin','edit','editsong','editaudio','start') {
+            $p = Start-Process -FilePath ".\build-ui\Release\BackingTrackLive.exe" `
+                   -ArgumentList '--shot',"shot_$s.raw",'--w','1280','--h','720','--state',$s `
+                   -Wait -PassThru -NoNewWindow
+            if ($p.ExitCode -ne 0) { throw "$s exited $($p.ExitCode)" }
+            if (-not (Test-Path "shot_$s.raw")) { throw "$s wrote no frame" }
+          }
+          Get-ChildItem shot_*.raw | ForEach-Object { "  " + $_.Name + "  " + $_.Length }
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: stage-ui-frames

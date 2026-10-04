@@ -87,6 +87,24 @@ bt_err bt_player_select(bt_player *p, int32_t song_index) {
     return BT_OK;
 }
 
+bt_err bt_player_reapply(bt_player *p) {
+    if (!p) return BT_ERR_RANGE;
+    if (p->current < 0 || p->current >= p->sl->nsongs) return BT_ERR_STATE;
+
+    /* Capture before set_song, which stops and rewinds by design: it is built
+     * for changing song, and this is the same machinery used not to. */
+    const bt_frame where   = bt_engine_playhead(p->eng);
+    const bool     running = bt_engine_playing(p->eng);
+
+    bt_err e = bt_engine_set_song(p->eng, &p->sl->song[p->current], &p->dev);
+    if (e != BT_OK) return e;
+
+    bt_engine_seek(p->eng, where);
+    if (running) bt_engine_play(p->eng);
+    p->handled_end = false;
+    return BT_OK;
+}
+
 bt_err bt_player_next(bt_player *p) {
     if (!p) return BT_ERR_RANGE;
     if (p->current + 1 >= p->sl->nsongs) return BT_ERR_RANGE;

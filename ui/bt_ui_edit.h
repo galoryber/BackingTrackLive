@@ -57,6 +57,19 @@ struct bt_ui_edit {
     bool             checked = false;
 
     /* Export. The host does the rendering; this only asks. */
+    /* Audition. The host owns the player; the editor only asks.
+     *
+     * Checking alignment used to mean leaving edit mode, listening, coming
+     * back, nudging, and leaving again. The nudge and the ear belong on the
+     * same screen. */
+    bool             want_play   = false;   /* start from the top          */
+    bool             want_stop   = false;
+    bool             want_reapply = false;  /* an edit the engine must see */
+    bool             playing     = false;   /* host fills this in          */
+    double           play_sec    = 0.0;
+    bool             want_open_setlist = false;
+    uint64_t         last_sig = 0;          /* see render_signature */
+
     bool             want_export = false;
     bool             export_whole_set = false;
     char             export_path[BT_MAX_PATH] = {0};

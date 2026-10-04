@@ -355,7 +355,84 @@ static void test_panic_from_player(void) {
     rig_down(&r);
 }
 
+
+/* Nudging a stem while the song plays must change where that stem sounds
+ * without moving the playhead or stopping the music. That is the whole
+ * alignment workflow: hear it, nudge, hear it again from the same place -
+ * which is why this is not bt_player_select, which rewinds and stops. */
+static void test_reapply_keeps_position_and_playback(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+
+    bt_player_play(r.p);
+    for (int i = 0; i < 4; i++) bt_player_render(r.p, r.win, 1024);
+
+    const bt_frame before = bt_player_playhead(r.p);
+    BT_CHECK(before > 0);
+    BT_CHECK(bt_player_playing(r.p));
+
+    /* The edit someone makes in the align view. */
+    r.sl->song[0].track[1].offset_ms = -30;
+    BT_CHECK_EQI(bt_player_reapply(r.p), BT_OK);
+
+    BT_CHECK_EQI(bt_player_playhead(r.p), before);   /* did not rewind */
+    BT_CHECK(bt_player_playing(r.p));                /* did not stop   */
+
+    for (int i = 0; i < 2; i++) bt_player_render(r.p, r.win, 1024);
+    BT_CHECK(bt_player_playhead(r.p) > before);      /* and carried on */
+
+    rig_down(&r);
+}
+
+/* Reapplying while stopped must not start the music: someone editing a song
+ * they are not listening to should not have it begin playing at them. */
+static void test_reapply_while_stopped_stays_stopped(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+
+    BT_CHECK(!bt_player_playing(r.p));
+    r.sl->song[0].track[1].gain_db = -6.0;
+    BT_CHECK_EQI(bt_player_reapply(r.p), BT_OK);
+    BT_CHECK(!bt_player_playing(r.p));
+    BT_CHECK_EQI(bt_player_playhead(r.p), 0);
+
+    rig_down(&r);
+}
+
+/* A nudge actually moves the audio. Without this the two tests above would
+ * pass over a reapply that did nothing at all. */
+static void test_reapply_moves_the_audio(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+
+    bt_player_play(r.p);
+    bt_player_render(r.p, r.win, 1024);
+    float first[1024];
+    memcpy(first, r.buf[0], sizeof(first));
+
+    /* Back to the top the ordinary way, so the only difference between the
+     * two renders is the nudge that reapply carries. */
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+    r.sl->song[0].track[1].offset_ms = 50;      /* half a buffer and more */
+    BT_CHECK_EQI(bt_player_reapply(r.p), BT_OK);
+    bt_player_play(r.p);
+    bt_player_render(r.p, r.win, 1024);
+
+    int differs = 0;
+    for (int i = 0; i < 1024; i++)
+        if (fabs(first[i] - r.buf[0][i]) > 1e-6) differs++;
+    BT_CHECK(differs > 0);
+
+    rig_down(&r);
+}
+
 int main(void) {
+    BT_RUN(test_reapply_keeps_position_and_playback);
+    BT_RUN(test_reapply_while_stopped_stays_stopped);
+    BT_RUN(test_reapply_moves_the_audio);
     BT_RUN(test_select_and_navigate);
     BT_RUN(test_preload_window);
     BT_RUN(test_preload_ahead_zero);

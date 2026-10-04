@@ -263,7 +263,18 @@ if(BT_BUILD_UI)
     ui/btui_main.cpp ui/bt_ui_screens.cpp ui/bt_ui_edit.cpp ui/bt_ui_start.cpp)
   if(WIN32)
     target_sources(btui PRIVATE ui/res/btlive.rc)
-    set_target_properties(btui PROPERTIES OUTPUT_NAME "BackingTrackLive")
+    # A windowed subsystem, so double-clicking opens the UI and nothing else.
+    # It used to build as a console app, which meant a black terminal window
+    # alongside the program for the whole show. Keeping main() as the entry
+    # point rather than writing a WinMain means the --shot and --help paths
+    # are untouched; see attach_console_if_launched_from_one() for how they
+    # still print.
+    set_target_properties(btui PROPERTIES
+      OUTPUT_NAME "BackingTrackLive"
+      WIN32_EXECUTABLE TRUE)
+    if(MSVC)
+      target_link_options(btui PRIVATE "/ENTRY:mainCRTStartup")
+    endif()
   endif()
   target_link_libraries(btui PRIVATE backtrack backtrack_device imgui_d3d11)
   target_include_directories(btui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ui)

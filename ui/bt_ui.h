@@ -62,7 +62,7 @@ struct bt_ui_state {
  * meant a new user clicking a song got nothing at all - the set list looked
  * like a list of buttons and behaved like a wall. Pointing at a song is the
  * most obvious thing anyone will try. */
-enum class bt_ui_click { none, select, play, open_setlist };
+enum class bt_ui_click { none, select, play };
 
 struct bt_ui_result {
     bt_ui_click click = bt_ui_click::none;

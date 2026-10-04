@@ -185,24 +185,7 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
     const float key_sz = foot_h * 0.34f;
     text_at(dl, f, key_sz, ImVec2(pad, fy + foot_h * 0.32f), COL_TEXT,
             "CLICK  choose      DOUBLE-CLICK or SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose"
-            "      N  next      E  edit      O  open another set list");
-
-    /* "O" is discoverable only if you read the footer, so the set list's own
-     * name is a target too - that is where you look when you want a different
-     * one. */
-    {
-        const char *nm = st.setlist ? st.setlist->name : "No set list";
-        float tw = text_w(f, title_sz, nm);
-        bool hot = mouse.x >= pad && mouse.x <= pad + tw &&
-                   mouse.y >= pad * 0.6f && mouse.y <= pad * 0.6f + title_sz;
-        if (hot) {
-            dl->AddLine(ImVec2(pad, pad * 0.6f + title_sz * 1.02f),
-                        ImVec2(pad + tw, pad * 0.6f + title_sz * 1.02f),
-                        COL_DIM, 1.5f);
-            if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
-                res.click = bt_ui_click::open_setlist;
-        }
-    }
+            "      N  next song      E  edit");
 
     draw_device_badge(dl, st, sz, fy + foot_h * 0.5f, true);
 }
