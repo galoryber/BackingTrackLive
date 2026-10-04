@@ -9,6 +9,11 @@
 #include <cstdarg>
 #include <cstring>
 #include <cstdlib>
+#include <cmath>
+
+#include "backtrack/bt_device.h"
+#include "backtrack/bt_peaks.h"
+#include "bt_ui_start.h"
 
 namespace {
 
@@ -751,8 +756,11 @@ void draw_align_screen(bt_ui_edit &ed) {
     /* Waveform, drawn where it will actually sound: the stem's own time plus
      * its nudge. */
     const double off_sec = t.offset_ms / 1000.0;
-    const int cols = (int)size.x;
-    std::vector<float> mn((size_t)cols), mx((size_t)cols);
+    const int kMaxCols = 4096;
+    int cols = (int)size.x;
+    if (cols > kMaxCols) cols = kMaxCols;
+    if (cols < 1) cols = 1;
+    static float mn[kMaxCols], mx[kMaxCols];
     const bt_frame from = (bt_frame)llround((t0 - off_sec) * sr);
     const bt_frame to   = (bt_frame)llround((t1 - off_sec) * sr);
     const bt_frame per  = (to - from) / (cols > 0 ? cols : 1);
@@ -760,9 +768,9 @@ void draw_align_screen(bt_ui_edit &ed) {
     bool ok;
     if (per < ed.peaks.frames_per_bucket)
         ok = bt_peaks_range((const float *const *)t.pcm, t.channels, t.frames,
-                            from, to, mn.data(), mx.data(), cols) == BT_OK;
+                            from, to, mn, mx, cols) == BT_OK;
     else
-        ok = bt_peaks_read(&ed.peaks, from, to, mn.data(), mx.data(), cols) == BT_OK;
+        ok = bt_peaks_read(&ed.peaks, from, to, mn, mx, cols) == BT_OK;
 
     if (ok) {
         const float mid = p0.y + size.y * 0.5f;
@@ -931,11 +939,6 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
  * configure audio was to read a CLI listing and hand-write JSON.
  * ==================================================================== */
 
-#include "backtrack/bt_device.h"
-#include "backtrack/bt_peaks.h"
-#include "bt_ui_start.h"
-#include <vector>
-#include <cmath>
 
 namespace {
 
@@ -1211,7 +1214,6 @@ void draw_audio_screen(bt_ui_edit &ed) {
  * Validation and export: what btcheck and btrender do, without a terminal.
  * ==================================================================== */
 
-#include "bt_ui_start.h"
 
 namespace {
 
