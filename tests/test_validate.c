@@ -186,17 +186,38 @@ static void test_rate_mismatch_is_announced(void) {
     free(v); bt_setlist_free(sl); cleanup();
 }
 
+/* A stem pushed back so far that it finishes before even the count-in starts
+ * is audio nobody will ever hear. One bar of 4/4 at 120 BPM is two seconds of
+ * count-in, so a half-second stem at -5s is entirely lost. */
 static void test_offset_past_the_stem(void) {
     write_tone("val_good.wav", SR / 2, 0.5f, SR, 1);   /* half a second */
     bt_issue *v = NULL; size_t n = 0; bt_setlist_stats st;
     bt_setlist *sl = run(
       "{\"version\":1,\"name\":\"x\",\"songs\":[{\"title\":\"A\","
-      "\"tempo\":{\"bpm\":120},\"tracks\":["
+      "\"tempo\":{\"bpm\":120},\"count_in_bars\":1,\"tracks\":["
       "{\"type\":\"click\",\"bus\":\"inear\"},"
       "{\"name\":\"G\",\"type\":\"audio\",\"bus\":\"foh\",\"file\":\"val_good.wav\","
-      "\"offset_ms\":-2000}]}]}",
+      "\"offset_ms\":-5000}]}]}",
       &v, &n, &st, true);
-    expect(v, n, BT_ISSUE_WARN, "entirely before the song");
+    expect(v, n, BT_ISSUE_WARN, "before even the count-in");
+    free(v); bt_setlist_free(sl); cleanup();
+}
+
+/* ...but a spoken cue played over the count-in is the point, not a mistake.
+ * The same stem landing on the first count-in beat must not be reported:
+ * a checker that cries wolf is one people stop reading. */
+static void test_a_count_in_cue_is_not_a_warning(void) {
+    write_tone("val_cue.wav", SR / 2, 0.5f, SR, 1);
+    bt_issue *v = NULL; size_t n = 0; bt_setlist_stats st;
+    bt_setlist *sl = run(
+      "{\"version\":1,\"name\":\"x\",\"songs\":[{\"title\":\"A\","
+      "\"tempo\":{\"bpm\":120},\"count_in_bars\":1,\"tracks\":["
+      "{\"type\":\"click\",\"bus\":\"inear\"},"
+      "{\"name\":\"Cue\",\"type\":\"audio\",\"bus\":\"inear\","
+      "\"file\":\"val_cue.wav\",\"offset_ms\":-2000}]}]}",
+      &v, &n, &st, true);
+    BT_CHECK_EQI(st.errors, 0);
+    BT_CHECK_EQI(st.warnings, 0);
     free(v); bt_setlist_free(sl); cleanup();
 }
 
@@ -261,6 +282,7 @@ static void test_empty_and_bad_arguments(void) {
 }
 
 int main(void) {
+    BT_RUN(test_a_count_in_cue_is_not_a_warning);
     BT_RUN(test_clean_set_is_clean);
     BT_RUN(test_missing_file_is_an_error);
     BT_RUN(test_unknown_bus_is_an_error);

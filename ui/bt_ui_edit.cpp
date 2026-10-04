@@ -757,6 +757,10 @@ void draw_check_screen(bt_ui_edit &ed);   /* defined below                    */
  *
  * Returns -1 for a stem that is silent throughout, which happens when the
  * wrong file gets downloaded. */
+int32_t sig_num_of(const bt_song &s) {
+    return s.tempo.sig_num > 0 ? s.tempo.sig_num : 4;
+}
+
 bt_frame find_first_sound(const bt_track &t) {
     if (!t.pcm || t.frames <= 0) return -1;
     float peak = 0.0f;
@@ -857,6 +861,27 @@ void draw_align_screen(bt_ui_edit &ed) {
     if (ImGui::InputInt("nudge (ms)", &off, 1, 10)) {
         if (off > -600000 && off < 600000) { t.offset_ms = off; ed.dirty = true; }
     }
+    /* A spoken cue - "starts on beat three, here we go" - is a stem that
+     * plays over the count-in. The engine needs nothing for it: the playhead
+     * is negative there and a track's offset is subtracted from it. What it
+     * needed was somebody not having to work out that two bars of 4/4 at 148
+     * is -3243 ms. */
+    if (s.count_in_bars > 0) {
+        ImGui::SameLine(0, 20);
+        if (ImGui::Button("start on the count-in")) {
+            const int64_t beats_in = (int64_t)s.count_in_bars * sig_num_of(s);
+            const bt_frame ci = bt_tempo_beat_frame(&s.tempo, -beats_in, sr);
+            const bt_frame first = ed.first_sound > 0 ? ed.first_sound : 0;
+            t.offset_ms = (int32_t)llround((double)(ci - first) * 1000.0 / sr);
+            ed.dirty = true;
+            set_status(ed, "%s now starts with the count-in", t.name);
+        }
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("For a spoken cue played to the in-ears over the\n"
+                              "count-in. Puts this stem's first sound on the\n"
+                              "first count-in beat.");
+    }
+
     ImGui::SameLine(0, 20);
     ImGui::SetNextItemWidth(150);
     float zoom = (float)ed.view_len;

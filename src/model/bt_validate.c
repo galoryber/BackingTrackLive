@@ -138,11 +138,27 @@ bt_err bt_setlist_validate(bt_setlist *sl, const bt_device_cfg *dev,
                     "(no audible loss; costs a little load time)",
                     tr->file, a.sample_rate, sample_rate);
 
-            double off_s = (double)tr->offset_ms / 1000.0;
-            if (off_s <= -secs)
+            /* A stem can deliberately sound before the song starts: a
+             * spoken cue played to the in-ears over the count-in is one, and
+             * reporting it as a mistake teaches people to ignore the report.
+             * The count-in is part of the song as far as this is concerned;
+             * only audio landing before even that is lost. */
+            const double off_s = (double)tr->offset_ms / 1000.0;
+            const int64_t beats_in = (int64_t)s->count_in_bars *
+                                     (int64_t)(s->tempo.sig_num > 0
+                                               ? s->tempo.sig_num : 4);
+            const double ci_s = beats_in > 0
+                ? (double)bt_tempo_beat_frame(&s->tempo, -beats_in,
+                                              sample_rate) / sample_rate
+                : 0.0;
+            if (off_s + secs <= ci_s)
                 add(&is, BT_ISSUE_WARN, i, t,
-                    "offset %d ms shifts %s entirely before the song starts",
-                    tr->offset_ms, tr->file);
+                    "offset %d ms puts %s before even the count-in, where "
+                    "nothing will hear it", tr->offset_ms, tr->file);
+            else if (off_s < ci_s)
+                add(&is, BT_ISSUE_NOTE, i, t,
+                    "%s starts before the count-in does and will be cut short",
+                    tr->file);
 
             /* Resident size is measured at the device rate, since that is
              * what will actually sit in RAM. */

@@ -22,6 +22,10 @@ const ImU32 COL_BEAT_ON  = IM_COL32(255, 214,  92, 255);
 const ImU32 COL_BEAT_OFF = IM_COL32( 62,  66,  76, 255);
 const ImU32 COL_WARN     = IM_COL32(255, 122, 106, 255);
 const ImU32 COL_GOOD     = IM_COL32(112, 206, 142, 255);
+/* Segue. Orange rather than the click's yellow, because "do not stop playing"
+ * is a different kind of news from "here is the beat" and should not be
+ * confused with it at a glance across a stage. */
+const ImU32 COL_SEGUE    = IM_COL32(255, 146,  48, 255);
 
 void text_at(ImDrawList *dl, ImFont *font, float size, ImVec2 p, ImU32 col,
              const char *s) {
@@ -181,6 +185,15 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
         /* Tuning sits left of the tempo. It is the one that makes somebody
          * pick up a different guitar, so it wants reading before the song
          * starts rather than during it. */
+        /* A song that runs into the next one, marked where the set is read. */
+        if (s.on_end == BT_ON_END_NEXT) {
+            const float ms = row_sz * 0.62f;
+            text_at(dl, f, ms,
+                    ImVec2(pad * 1.4f + text_w(f, row_sz, "88") + pad * 0.4f,
+                           y + row_h * 0.30f),
+                    COL_SEGUE, "\xe2\x86\xb3");
+        }
+
         if (s.tuning[0]) {
             /* Right-aligned in a column of its own. Positioning it relative
              * to the tempo's width made the column ragged, because "93" and
@@ -432,9 +445,21 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
             text_at(dl, f, ns * 0.72f,
                     ImVec2(pad + text_w(f, ns, nx.title) + pad * 0.6f,
                            fy + foot_h * 0.50f), COL_DIM, nx.artist);
-        if (s && s->on_end == BT_ON_END_NEXT)
-            text_at(dl, f, nl, ImVec2(sz.x - pad - text_w(f, nl, "SEGUE"),
-                                      fy + foot_h * 0.16f), COL_BEAT_ON, "SEGUE");
+        if (s && s->on_end == BT_ON_END_NEXT) {
+            /* A filled badge rather than coloured text. At the back of a
+             * stage, under lights, a block of colour reads and a word does
+             * not - and this is the one thing on the screen that changes what
+             * the band does when the song ends. */
+            const float ss  = nl * 1.25f;
+            const float tw3 = text_w(f, ss, "SEGUE");
+            const float px  = sz.x - pad - tw3 - ss * 0.55f;
+            const float py2 = fy + foot_h * 0.12f;
+            dl->AddRectFilled(ImVec2(px, py2),
+                              ImVec2(px + tw3 + ss * 1.1f, py2 + ss * 1.5f),
+                              COL_SEGUE, ss * 0.30f);
+            text_at(dl, f, ss, ImVec2(px + ss * 0.55f, py2 + ss * 0.22f),
+                    IM_COL32(26, 18, 8, 255), "SEGUE");
+        }
 
         /* The next song's tuning, which is the moment you would reach for a
          * different guitar - so it belongs here rather than only once the

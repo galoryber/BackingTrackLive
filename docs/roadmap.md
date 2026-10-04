@@ -74,43 +74,26 @@ is not something to ask a stranger to do.
 
 A band records a short spoken lead-in and plays it to the in-ears over the
 click: *"Mr Brightside, starts on beat three with the guitar riff — ready,
-here we go."* Wanted, and not scheduled.
+here we go."*
 
-**Most of it already works.** The engine does not treat the count-in as a
-special region: the playhead is simply negative there, and a track's offset is
-subtracted from it, so a stem nudged back far enough sounds during the
-count-in and stops when the song begins. Route it to `inear` and the audience
-hears nothing. `tests/test_engine.c` has
-`test_a_stem_can_sound_during_the_count_in` to keep that true, because nothing
-else in the suite renders a stem before song frame zero.
+**This works now, without a recorder built in.** Record the cue in anything,
+add it as a stem routed to `inear`, open the align view and press **start on
+the count-in**. The stem's first sound lands on the first count-in beat, it
+plays over the click, and it stops when the song begins. `btcheck` knows the
+difference between that and a mistake, so it reports nothing.
 
-So the file-based version of this feature is: record the cue in anything,
-add it as a stem on `inear`, and nudge it to start on the first count-in beat.
-Today that means working out the nudge by hand — two bars of 4/4 at 148 BPM is
-−3243 ms — which is arithmetic nobody should be doing.
+The engine never needed a feature for it: the count-in is not a special
+region, the playhead is simply negative there, and a track's offset is
+subtracted from it. `tests/test_engine.c` has
+`test_a_stem_can_sound_during_the_count_in` to keep that true.
 
-**What is actually missing**, in the order it is worth doing:
-
-1. **A nudge that understands the count-in.** The align view draws bars and
-   beats either side of zero already; what it lacks is a way to say "start
-   here" and have the offset computed. A button reading *start on the first
-   count-in beat* is the whole feature, and it is small.
-
-2. **`btcheck` should stop calling it a mistake.** The warning *"offset shifts
-   the stem entirely before the song starts"* fires on exactly this, correctly
-   by its own logic and wrongly for the intent. It needs to know that landing
-   inside the count-in is deliberate.
-
-3. **Recording in the program**, which is the only genuinely new engineering.
-   The device layer is output-only; this needs an input stream, somewhere to
-   put the samples, and a way to write a WAV. None of it is hard and all of it
-   is new surface — a second device to choose, a level to watch, a file to
-   name — on a program whose whole argument is that it does less than a DAW.
-
-The honest recommendation is 1 and 2 first. They are small, they make the
-feature usable with any recorder, and they would show whether the band
-actually wants cues on every song or on three of them — which is the thing
-worth knowing before adding a recorder to a player.
+**Recording inside the program** is the part not built, and is deliberately
+last. The device layer is output-only, so it needs an input stream, somewhere
+to put the samples and a way to write a WAV - none of it hard, all of it new
+surface on a program whose argument is that it does less than a DAW: a second
+device to choose, a level to watch, a file to name. Worth paying for if the
+band ends up wanting a cue on every song. Not worth it for three, which a
+phone already covers.
 
 ## Other product gaps, not CLI-shaped
 
