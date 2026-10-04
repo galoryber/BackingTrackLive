@@ -735,7 +735,8 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         if (ed.screen == bt_edit_screen::align) {
             /* A stem that begins 380 ms after the downbeat: what a purchased
              * backing track with a lead-in actually looks like. */
-            bt_song &sg = sl->song[0];
+            if (ed.song < 0 || ed.song >= sl->nsongs) ed.song = 0;
+            bt_song &sg = sl->song[ed.song];
             ed.track = 1;
             for (int32_t i = 0; i < sg.ntracks; i++)
                 if (sg.track[i].type == BT_TRACK_AUDIO) { ed.track = i; break; }
