@@ -1030,10 +1030,21 @@ int main(int argc, char **argv) {
         if (g_editing) {
             g_edit.song = g_edit.song < 0 ? 0 : g_edit.song;
             g_edit.playing  = transport_playing(g_app);
-            g_edit.play_sec = g_app.live && g_app.player
-                            ? (double)bt_player_playhead(g_app.player) /
-                              (double)(g_app.dev.sample_rate > 0 ? g_app.dev.sample_rate : 48000)
-                            : 0.0;
+            {
+                const double sr = g_app.dev.sample_rate > 0 ? g_app.dev.sample_rate : 48000;
+                g_edit.play_sec = g_app.live && g_app.player
+                                ? (double)bt_player_playhead(g_app.player) / sr : 0.0;
+                /* The scrub needs the song's length, and the engine only knows
+                 * it for the song actually bound to it. */
+                g_edit.song_sec = (g_app.live && g_app.player &&
+                                   bt_player_current(g_app.player) == g_edit.song)
+                                ? (double)bt_player_song_frames(g_app.player) / sr
+                                : (g_app.sl && g_edit.song >= 0 &&
+                                   g_edit.song < g_app.sl->nsongs
+                                   ? (double)bt_song_length(&g_app.sl->song[g_edit.song],
+                                                            (int32_t)sr) / sr
+                                   : 0.0);
+            }
             if (!bt_ui_edit_draw(g_edit)) g_editing = false;
 
             /* Routing changed: tear the stream down and build it again from
@@ -1070,6 +1081,20 @@ int main(int argc, char **argv) {
             else if (g_edit.want_stop) {
                 g_edit.want_stop = false;
                 transport_stop(g_app);
+            }
+            else if (g_edit.want_seek) {
+                g_edit.want_seek = false;
+                if (g_app.live && g_app.player) {
+                    /* Seeking a song that is not the live one has to select it
+                     * first, or the playhead would move in a song nobody is
+                     * listening to. */
+                    if (bt_player_current(g_app.player) != g_edit.song) {
+                        g_app.selected = g_edit.song;
+                        bt_player_select(g_app.player, g_edit.song);
+                    }
+                    const double sr = g_app.dev.sample_rate > 0 ? g_app.dev.sample_rate : 48000;
+                    bt_player_seek(g_app.player, (bt_frame)(g_edit.seek_sec * sr));
+                }
             }
             else if (g_edit.want_reapply) {
                 g_edit.want_reapply = false;

@@ -252,11 +252,60 @@ void draw_setlist_screen(bt_ui_edit &ed) {
 
 /* ---------------------------------------------------------- song screen */
 
+
+/* Play, stop and a position scrub.
+ *
+ * Without somewhere to drag, checking the end of a four-minute song means
+ * listening to four minutes of it - and the question that matters most about
+ * a stem, whether it is still in time at the last chorus, lives at the end. */
+void draw_transport(bt_ui_edit &ed, const char *id) {
+    ImGui::PushID(id);
+
+    if (ed.playing) {
+        if (ImGui::Button("stop", ImVec2(90, 0))) ed.want_stop = true;
+    } else {
+        if (ImGui::Button("play", ImVec2(90, 0))) ed.want_play = true;
+    }
+
+    ImGui::SameLine();
+    char pos[64];
+    const double total = ed.song_sec > 0.0 ? ed.song_sec : 0.0;
+    std::snprintf(pos, sizeof(pos), "%d:%05.2f / %d:%05.2f",
+                  (int)(ed.play_sec / 60.0), ed.play_sec - 60.0 * (int)(ed.play_sec / 60.0),
+                  (int)(total / 60.0),       total       - 60.0 * (int)(total / 60.0));
+
+    ImGui::SameLine();
+    ImGui::SetNextItemWidth(-220);
+    float at = (float)ed.play_sec;
+    if (ImGui::SliderFloat("##scrub", &at, 0.0f, (float)(total > 0.0 ? total : 1.0),
+                           pos, ImGuiSliderFlags_NoRoundToFormat)) {
+        ed.want_seek = true;
+        ed.seek_sec  = at;
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("drag to skip");
+
+    /* The ends of a song are where the answers are, so make them one press. */
+    ImGui::SameLine();
+    if (ImGui::SmallButton("start")) { ed.want_seek = true; ed.seek_sec = 0.0; }
+    ImGui::SameLine();
+    if (ImGui::SmallButton("last 20s")) {
+        ed.want_seek = true;
+        ed.seek_sec  = total > 20.0 ? total - 20.0 : 0.0;
+    }
+
+    ImGui::PopID();
+}
+
 void draw_tracks(bt_ui_edit &ed, bt_song &s) {
     const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
                                   ImGuiTableFlags_SizingStretchProp;
-    if (!ImGui::BeginTable("tracks", 7, flags)) return;
+    if (!ImGui::BeginTable("tracks", 8, flags)) return;
 
+    /* A column to click. The table was all widgets and no row, so there was
+     * no way to say which track you meant - and the align button, which acts
+     * on the selected one, could never be reached. */
+    ImGui::TableSetupColumn("",      ImGuiTableColumnFlags_WidthFixed, 26);
     ImGui::TableSetupColumn("name",  ImGuiTableColumnFlags_WidthStretch, 2);
     ImGui::TableSetupColumn("file",  ImGuiTableColumnFlags_WidthStretch, 3);
     ImGui::TableSetupColumn("bus",   ImGuiTableColumnFlags_WidthFixed, 130);
@@ -271,6 +320,17 @@ void draw_tracks(bt_ui_edit &ed, bt_song &s) {
         bt_track &tr = s.track[t];
         ImGui::PushID(t);
         ImGui::TableNextRow();
+
+        /* Spans the row and sits under the widgets, so clicking anywhere that
+         * is not itself a control selects the track. */
+        ImGui::TableNextColumn();
+        const bool is_sel = (ed.track == t);
+        if (ImGui::Selectable("##row", is_sel,
+                              ImGuiSelectableFlags_SpanAllColumns |
+                              ImGuiSelectableFlags_AllowOverlap))
+            ed.track = t;
+        ImGui::SameLine(0, 0);
+        ImGui::TextColored(is_sel ? COL_AMBER : COL_DIM, is_sel ? "\xe2\x97\x8f" : " ");
 
         ImGui::TableNextColumn();
         ImGui::SetNextItemWidth(-1);
@@ -420,6 +480,7 @@ void add_track(bt_ui_edit &ed, bt_song &s) {
 
     std::snprintf(tr.bus, sizeof(tr.bus), "%s",
                   (ed.dev && ed.dev->nbuses > 0) ? ed.dev->bus[0].name : "foh");
+    ed.track = s.ntracks;      /* the one you just added is the one you want */
     s.ntracks++;
     ed.dirty = true;
     set_status(ed, "added %s", rel);
@@ -574,17 +635,9 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::Separator();
     /* Audition. Blocked on nothing: this is the point of the screen. */
     ImGui::Separator();
-    if (ed.playing) {
-        if (ImGui::Button("stop##transport", ImVec2(110, 0))) ed.want_stop = true;
-    } else {
-        if (ImGui::Button("play##transport", ImVec2(110, 0))) ed.want_play = true;
-    }
-    ImGui::SameLine();
-    ImGui::TextDisabled("%d:%05.2f", (int)(ed.play_sec / 60.0),
-                        ed.play_sec - 60.0 * (int)(ed.play_sec / 60.0));
-    ImGui::SameLine(0, 20);
-    ImGui::TextDisabled("nudge while it plays - you will hear it from where "
-                        "you are, not from the top");
+    draw_transport(ed, "song");
+    ImGui::TextDisabled("nudge while it plays - you will hear it from where you are, "
+                        "not from the top");
 
     ImGui::Spacing();
     ImGui::TextUnformatted("TRACKS");
@@ -650,9 +703,8 @@ void draw_align_screen(bt_ui_edit &ed) {
 
     ImGui::SameLine(0, 24);
     ImGui::Text("%s", t.name);
-    ImGui::SameLine(0, 24);
-    if (ed.playing) { if (ImGui::Button("stop##align")) ed.want_stop = true; }
-    else            { if (ImGui::Button("play##align")) ed.want_play = true; }
+    ImGui::Spacing();
+    draw_transport(ed, "align");
 
     /* The stem has to be in memory to be drawn, and only the loader puts it
      * there - so ask the host to make this song the live one. */

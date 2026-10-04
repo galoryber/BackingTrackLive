@@ -429,7 +429,54 @@ static void test_reapply_moves_the_audio(void) {
     rig_down(&r);
 }
 
+
+/* Seeking is what makes the end of a song reachable without sitting through
+ * it, which is the only practical way to tell an alignment problem from a
+ * tempo one. */
+static void test_seek_moves_the_playhead(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+
+    const bt_frame len = bt_player_song_frames(r.p);
+    BT_CHECK(len > 0);
+
+    bt_player_seek(r.p, len / 2);
+    BT_CHECK_EQI(bt_player_playhead(r.p), len / 2);
+
+    /* And playback carries on from there rather than from the top. */
+    bt_player_play(r.p);
+    bt_player_render(r.p, r.win, 1024);
+    BT_CHECK(bt_player_playhead(r.p) > len / 2);
+
+    /* Seeking while stopped must not start it. */
+    bt_player_stop(r.p);
+    bt_player_seek(r.p, 0);
+    BT_CHECK_EQI(bt_player_playhead(r.p), 0);
+    BT_CHECK(!bt_player_playing(r.p));
+
+    rig_down(&r);
+}
+
+/* The length a scrubber is drawn against has to be the song's, not the
+ * engine's idea of where it happens to be. */
+static void test_song_frames_matches_the_stem(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+    BT_CHECK_EQI(bt_player_song_frames(r.p), (bt_frame)(SR * SONG_SEC));
+
+    /* A declared length longer than the stem extends it. */
+    r.sl->song[0].length_bars = 8;      /* 32 beats at 120bpm = 16 s */
+    BT_CHECK_EQI(bt_player_reapply(r.p), BT_OK);
+    BT_CHECK(bt_player_song_frames(r.p) > (bt_frame)(SR * SONG_SEC));
+
+    rig_down(&r);
+}
+
 int main(void) {
+    BT_RUN(test_seek_moves_the_playhead);
+    BT_RUN(test_song_frames_matches_the_stem);
     BT_RUN(test_reapply_keeps_position_and_playback);
     BT_RUN(test_reapply_while_stopped_stays_stopped);
     BT_RUN(test_reapply_moves_the_audio);

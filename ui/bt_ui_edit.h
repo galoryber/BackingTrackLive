@@ -68,6 +68,9 @@ struct bt_ui_edit {
     bool             want_reapply = false;  /* an edit the engine must see */
     bool             playing     = false;   /* host fills this in          */
     double           play_sec    = 0.0;
+    double           song_sec    = 0.0;      /* host fills in; for the scrub */
+    bool             want_seek   = false;
+    double           seek_sec    = 0.0;
     bool             want_open_setlist = false;
     uint64_t         last_sig = 0;          /* see render_signature */
 

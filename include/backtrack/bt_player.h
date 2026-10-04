@@ -87,6 +87,17 @@ void     bt_player_panic(bt_player *p);
 bool     bt_player_playing(const bt_player *p);
 bt_frame bt_player_playhead(const bt_player *p);
 
+/* Move the playhead. Negative frames are the count-in, as everywhere else.
+ *
+ * Needed to check the end of a song without sitting through it: a stem that
+ * is correctly aligned at bar 1 and wrong by the last chorus has a tempo
+ * problem rather than an offset one, and that is not a thing anyone should
+ * have to wait four minutes to find out. */
+void     bt_player_seek(bt_player *p, bt_frame f);
+
+/* Length of the current song in frames, count-in excluded. 0 if no song. */
+bt_frame bt_player_song_frames(const bt_player *p);
+
 /* ---- The audio callback. Forwards only. -------------------------------- */
 void bt_player_render(bt_player *p, float *const *out, int32_t nframes);
 

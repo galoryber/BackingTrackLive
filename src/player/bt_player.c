@@ -146,6 +146,15 @@ bool bt_player_playing(const bt_player *p) {
     return p && bt_engine_playing(p->eng);
 }
 
+void bt_player_seek(bt_player *p, bt_frame f) {
+    if (p) bt_engine_seek(p->eng, f);
+}
+
+bt_frame bt_player_song_frames(const bt_player *p) {
+    if (!p || p->current < 0 || p->current >= p->sl->nsongs) return 0;
+    return bt_song_length(&p->sl->song[p->current], p->cfg.sample_rate);
+}
+
 bt_frame bt_player_playhead(const bt_player *p) {
     return p ? bt_engine_playhead(p->eng) : 0;
 }
