@@ -31,3 +31,11 @@ Thumbs.db
 
 # Generated demo stems (regenerate with examples/setlist/make_demo_tracks.py)
 examples/setlist/tracks/
+
+# Test fixtures written into the working directory. The tests remove their
+# own, but a fixture added without updating cleanup() should not be able to
+# reach a commit.
+/val_*.wav
+/val_setlist.json
+/player_stem_*.wav
+/player_setlist.json

@@ -79,10 +79,14 @@ static bt_setlist *run(const char *json, bt_issue **v, size_t *n,
     return sl;
 }
 
+/* Every fixture this file writes. A name added to a test and not added here
+ * is a file left in the working directory, which is how val_cue.wav ended up
+ * committed to the repository root. */
 static void cleanup(void) {
     remove("val_setlist.json");
     remove("val_good.wav"); remove("val_silent.wav");
     remove("val_hot.wav");  remove("val_441.wav");
+    remove("val_cue.wav");
 }
 
 /* ------------------------------------------------------------------ tests */
