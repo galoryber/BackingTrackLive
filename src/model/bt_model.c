@@ -111,6 +111,19 @@ bt_frame bt_song_length(const bt_song *song, int32_t sample_rate) {
     return end;
 }
 
+bt_err bt_song_move_track(bt_song *song, int32_t from, int32_t to) {
+    if (!song) return BT_ERR_RANGE;
+    if (from < 0 || from >= song->ntracks) return BT_ERR_RANGE;
+    if (to   < 0 || to   >= song->ntracks) return BT_ERR_RANGE;
+    if (from == to) return BT_OK;
+
+    bt_track tmp = song->track[from];
+    if (from < to) for (int32_t i = from; i < to; i++) song->track[i] = song->track[i + 1];
+    else           for (int32_t i = from; i > to; i--) song->track[i] = song->track[i - 1];
+    song->track[to] = tmp;
+    return BT_OK;
+}
+
 size_t bt_song_pcm_bytes(const bt_song *song) {
     if (!song) return 0;
     size_t n = 0;

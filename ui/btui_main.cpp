@@ -42,23 +42,23 @@ namespace {
 
 /* ------------------------------------------------------------ demo data */
 
-struct Demo { const char *title, *artist; double bpm; bool segue; };
+struct Demo { const char *title, *artist; double bpm; bool segue; const char *tuning; };
 const Demo kDemo[] = {
-    { "1985",                 "Bowling for Soup",  156.0, false },
-    { "Mr. Brightside",       "The Killers",       148.0, false },
-    { "Sweet Child O' Mine",  "Guns N' Roses",     125.0, false },
-    { "Basket Case",          "Green Day",         180.0, true  },
-    { "When I Come Around",   "Green Day",         154.0, false },
-    { "Africa",               "Toto",               93.0, false },
-    { "Mr. Jones",            "Counting Crows",    139.0, false },
-    { "Semi-Charmed Life",    "Third Eye Blind",   103.0, false },
-    { "Come As You Are",      "Nirvana",           120.0, false },
-    { "Learn to Fly",         "Foo Fighters",      136.0, false },
-    { "The Middle",           "Jimmy Eat World",   162.0, false },
-    { "All the Small Things", "blink-182",         148.0, false },
-    { "Island in the Sun",    "Weezer",            115.0, false },
-    { "Everlong",             "Foo Fighters",      158.0, false },
-    { "Song 2",               "Blur",              130.0, false },
+    { "1985",                 "Bowling for Soup",  156.0, false, "E0" },
+    { "Mr. Brightside",       "The Killers",       148.0, false, "E1" },
+    { "Sweet Child O' Mine",  "Guns N' Roses",     125.0, false, "E1" },
+    { "Basket Case",          "Green Day",         180.0, true , "E1" },
+    { "When I Come Around",   "Green Day",         154.0, false, "E1" },
+    { "Africa",               "Toto",               93.0, false, "E0" },
+    { "Mr. Jones",            "Counting Crows",    139.0, false, "E0" },
+    { "Semi-Charmed Life",    "Third Eye Blind",   103.0, false, "E0" },
+    { "Come As You Are",      "Nirvana",           120.0, false, "D1" },
+    { "Learn to Fly",         "Foo Fighters",      136.0, false, "E0" },
+    { "The Middle",           "Jimmy Eat World",   162.0, false, "E0" },
+    { "All the Small Things", "blink-182",         148.0, false, "E0" },
+    { "Island in the Sun",    "Weezer",            115.0, false, "E0" },
+    { "Everlong",             "Foo Fighters",      158.0, false, "E0" },
+    { "Song 2",               "Blur",              130.0, false, "E0" },
 };
 
 bt_setlist *make_demo_setlist() {
@@ -71,6 +71,7 @@ bt_setlist *make_demo_setlist() {
         bt_song &s = sl->song[i];
         std::snprintf(s.title,  sizeof(s.title),  "%s", kDemo[i].title);
         std::snprintf(s.artist, sizeof(s.artist), "%s", kDemo[i].artist);
+        std::snprintf(s.tuning, sizeof(s.tuning), "%s", kDemo[i].tuning);
         s.tempo.seg[0].bpm = kDemo[i].bpm;
         s.tempo.nseg = 1;
         s.tempo.sig_num = 4;

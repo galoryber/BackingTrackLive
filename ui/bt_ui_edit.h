@@ -73,6 +73,9 @@ struct bt_ui_edit {
     double           seek_sec    = 0.0;
     bool             want_open_setlist = false;
     uint64_t         last_sig = 0;          /* see render_signature */
+    /* Set when an edit changed the song but not what it sounds like, so the
+     * signature moves on without asking the engine to republish. */
+    bool             sig_only = false;
 
     /* Align view. The envelope is cached per track and rebuilt when the
      * track or its PCM changes; building it scans the whole stem, which is

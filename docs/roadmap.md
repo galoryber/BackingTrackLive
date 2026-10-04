@@ -29,9 +29,22 @@ because they script and they are what CI runs, but nothing requires them.
 | list devices (`--list-devices`) | edit → **audio** |
 | play (`btplay`) | the whole point of the thing |
 
-Still only in `setlist.json` by hand: tempo maps for songs that change tempo,
-and reordering tracks within a song. The format supports both; the editor does
-not expose them yet.
+Still only in `setlist.json` by hand: **tempo maps**, for a song whose tempo
+changes partway through. The file format supports them — `"tempo": {"map":
+[{"beat": 0, "bpm": 96}, {"beat": 8, "bpm": 132}]}` — and the engine plays
+them correctly, including the rule that beat positions are computed from the
+beat index rather than accumulated, so a map does not drift. What is missing
+is a way to edit one.
+
+Not urgent, and deliberately so: the band does not currently play anything
+that changes tempo mid-song, having avoided those arrangements because they
+were awkward to rehearse. The work becomes worth doing when a song they want
+needs it, which is a better trigger than a guess about when it might.
+
+What it would take, when that happens: a list of (beat, bpm) rows in the song
+editor, and the align view drawing the grid from the map rather than a single
+BPM — which it already does, since it asks `bt_tempo_beat_frame` for every
+line rather than multiplying one tempo out.
 
 ## Other product gaps, not CLI-shaped
 

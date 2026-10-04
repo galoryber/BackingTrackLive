@@ -17,6 +17,10 @@ extern "C" {
 typedef int64_t bt_frame;
 
 #define BT_MAX_NAME       64
+/* A tuning note is read at a glance on a dark stage: "E1", "D1".
+ * Short on purpose - anything long enough to be a sentence belongs
+ * somewhere other than the middle of a performance. */
+#define BT_MAX_TUNING     16
 #define BT_MAX_PATH      512
 #define BT_MAX_BUS_CH      2     /* a bus is mono or stereo                */
 #define BT_MAX_BUSES      16

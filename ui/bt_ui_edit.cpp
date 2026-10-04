@@ -397,6 +397,8 @@ void draw_tracks(bt_ui_edit &ed, bt_song &s) {
     ImGui::EndTable();
 
     if (remove_at >= 0) {
+        if (ed.track > remove_at) ed.track--;
+        else if (ed.track == remove_at) ed.track = -1;
         bt_track &tr = s.track[remove_at];
         if (tr.pcm) {
             for (int32_t c = 0; c < tr.channels; c++) free(tr.pcm[c]);
@@ -646,11 +648,39 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::TextUnformatted("TRACKS");
     ImGui::SameLine();
     if (ImGui::Button("+ add stem")) add_track(ed, s);
+
+    const bool have_sel = ed.track >= 0 && ed.track < s.ntracks;
+
+    ImGui::SameLine(0, 18);
+    ImGui::BeginDisabled(!have_sel || ed.track == 0);
+    if (ImGui::Button("move up")) {
+        if (bt_song_move_track(&s, ed.track, ed.track - 1) == BT_OK) {
+            ed.track--;
+            ed.dirty = true;
+            /* Order changes nothing about the sound - the mixer sums the
+             * tracks - so there is no reason to interrupt the audio to
+             * republish it. */
+            ed.sig_only = true;
+        }
+    }
+    ImGui::EndDisabled();
     ImGui::SameLine();
-    ImGui::BeginDisabled(ed.track < 0 || ed.track >= s.ntracks ||
-                         s.track[ed.track].type == BT_TRACK_CLICK);
+    ImGui::BeginDisabled(!have_sel || ed.track + 1 >= s.ntracks);
+    if (ImGui::Button("move down")) {
+        if (bt_song_move_track(&s, ed.track, ed.track + 1) == BT_OK) {
+            ed.track++;
+            ed.dirty = true;
+            ed.sig_only = true;
+        }
+    }
+    ImGui::EndDisabled();
+
+    ImGui::SameLine(0, 18);
+    ImGui::BeginDisabled(!have_sel || s.track[ed.track].type == BT_TRACK_CLICK);
     if (ImGui::Button("align \xe2\x86\x92")) ed.screen = bt_edit_screen::align;
     ImGui::EndDisabled();
+    if (!have_sel && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Click a track below to choose one.");
     ImGui::Spacing();
 
     draw_tracks(ed, s);
@@ -959,8 +989,10 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     /* One place, after everything has drawn, so no widget can forget. */
     if (ed.sl && ed.song >= 0 && ed.song < ed.sl->nsongs) {
         uint64_t sig = render_signature(ed.sl->song[ed.song]);
-        if (ed.last_sig != 0 && sig != ed.last_sig) ed.want_reapply = true;
+        if (ed.last_sig != 0 && sig != ed.last_sig && !ed.sig_only)
+            ed.want_reapply = true;
         ed.last_sig = sig;
+        ed.sig_only = false;
     } else {
         ed.last_sig = 0;
     }

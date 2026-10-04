@@ -155,6 +155,12 @@ static void write_song(sb *s, const bt_song *song) {
     sb_json_string(s, song->artist);
     sb_str(s, ",\n      ");
     write_tempo(s, &song->tempo);
+    /* Omitted when empty, so a set list written before this existed re-saves
+     * byte-identically. */
+    if (song->tuning[0]) {
+        sb_fmt(s, ",\n      \"tuning\": ");
+        sb_json_string(s, song->tuning);
+    }
     sb_fmt(s, ",\n      \"count_in_bars\": %d", song->count_in_bars);
     /* Omitted when zero: it is the normal case, and writing it would add a
      * line to every song in every set list written before this existed. */

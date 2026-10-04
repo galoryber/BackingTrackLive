@@ -130,6 +130,8 @@ static bt_err bind_song(const bt_json *js, bt_song *s) {
     bt_err e = bind_tempo(bt_json_get(js, "tempo"), &s->tempo);
     if (e != BT_OK) return e;
 
+    snprintf(s->tuning, sizeof(s->tuning), "%s",
+             bt_json_string(bt_json_get(js, "tuning"), ""));
     s->count_in_bars = (int32_t)bt_json_number(bt_json_get(js, "count_in_bars"), 1);
     if (s->count_in_bars < 0 || s->count_in_bars > 8) return BT_ERR_SCHEMA;
     s->length_bars = (int32_t)bt_json_number(bt_json_get(js, "length_bars"), 0);

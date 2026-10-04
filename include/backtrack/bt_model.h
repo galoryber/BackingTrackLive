@@ -76,6 +76,14 @@ typedef struct {
     char         title[BT_MAX_NAME];
     char         artist[BT_MAX_NAME];
     bt_tempo_map tempo;
+    /* How the guitars are tuned for this song, in whatever notation the band
+     * uses - "E1" for standard a half step down, "D1" for drop D then a half
+     * step, and so on. Free text and displayed verbatim: it is a note to a
+     * human on stage, and a format that enforced one band's shorthand would
+     * be wrong for the next one and for this one when the shorthand changes.
+     * Empty means nothing is shown. */
+    char         tuning[BT_MAX_TUNING];
+
     int32_t      count_in_bars;
     /* How long the song runs, in bars, when the audio does not say.
      * A song with no stems - just a click to play along to - has no length
@@ -161,6 +169,19 @@ void   bt_song_free_audio(bt_song *song);
 /* Total frames of the song: the longest (stem length + its offset), plus the
  * count-in. Zero when the song has no audio. */
 bt_frame bt_song_length(const bt_song *song, int32_t sample_rate);
+
+/* Move a track within a song, rotating the ones between rather than swapping,
+ * so the others keep their relative order.
+ *
+ * Order has no effect on what is heard - the mixer sums the tracks and
+ * addition does not care - so this is purely how the song reads to the person
+ * editing it. Which is reason enough: a forty-song set is easier to work on
+ * when the click is where you expect it and the stems are in the order you
+ * think about them.
+ *
+ * Moves the loader's pcm pointers with their tracks, which is the part worth
+ * getting right. */
+bt_err bt_song_move_track(bt_song *song, int32_t from, int32_t to);
 
 /* Bytes of PCM currently resident for this song. Surfaced in the UI so nobody
  * is surprised by the preload budget at soundcheck. */

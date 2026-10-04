@@ -234,7 +234,61 @@ static void test_declared_length_against_stems(void) {
     BT_CHECK_EQI(bt_song_length(&s, 48000), 48000 * 20);
 }
 
+
+/* Reordering tracks must carry everything about a track with it - including
+ * the loader's pcm pointer, which is the one that would be silently wrong:
+ * a mismatched pointer plays the wrong audio, or frees something twice. */
+static void test_move_track_carries_everything(void) {
+    bt_song s;
+    memset(&s, 0, sizeof(s));
+    static float a[4], b[4], c[4];
+    static float *pa[1] = { a }, *pb[1] = { b }, *pc[1] = { c };
+
+    snprintf(s.track[0].name, BT_MAX_NAME, "Click");
+    s.track[0].type = BT_TRACK_CLICK;
+    snprintf(s.track[1].name, BT_MAX_NAME, "Synth");
+    s.track[1].type = BT_TRACK_AUDIO; s.track[1].pcm = pa; s.track[1].offset_ms = -300;
+    snprintf(s.track[2].name, BT_MAX_NAME, "Bass");
+    s.track[2].type = BT_TRACK_AUDIO; s.track[2].pcm = pb; s.track[2].gain_db = -6.0;
+    snprintf(s.track[3].name, BT_MAX_NAME, "Pad");
+    s.track[3].type = BT_TRACK_AUDIO; s.track[3].pcm = pc; s.track[3].muted = true;
+    s.ntracks = 4;
+
+    /* Pad to the top. The rest keep their order, rotated down. */
+    BT_CHECK_EQI(bt_song_move_track(&s, 3, 0), BT_OK);
+    BT_CHECK(strcmp(s.track[0].name, "Pad")   == 0);
+    BT_CHECK(strcmp(s.track[1].name, "Click") == 0);
+    BT_CHECK(strcmp(s.track[2].name, "Synth") == 0);
+    BT_CHECK(strcmp(s.track[3].name, "Bass")  == 0);
+
+    /* Each track still owns its own audio and its own settings. */
+    BT_CHECK(s.track[0].pcm == pc && s.track[0].muted);
+    BT_CHECK(s.track[2].pcm == pa);
+    BT_CHECK_EQI(s.track[2].offset_ms, -300);
+    BT_CHECK(s.track[3].pcm == pb);
+    BT_CHECK_NEAR(s.track[3].gain_db, -6.0, 1e-9);
+
+    /* And back down again returns the original order. */
+    BT_CHECK_EQI(bt_song_move_track(&s, 0, 3), BT_OK);
+    BT_CHECK(strcmp(s.track[0].name, "Click") == 0);
+    BT_CHECK(strcmp(s.track[3].name, "Pad")   == 0);
+    BT_CHECK(s.track[1].pcm == pa && s.track[2].pcm == pb && s.track[3].pcm == pc);
+}
+
+static void test_move_track_rejects_nonsense(void) {
+    bt_song s;
+    memset(&s, 0, sizeof(s));
+    s.ntracks = 2;
+    BT_CHECK_EQI(bt_song_move_track(NULL, 0, 1), BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_song_move_track(&s, -1, 0),  BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_song_move_track(&s, 0, 2),   BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_song_move_track(&s, 2, 0),   BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_song_move_track(&s, 1, 1),   BT_OK);   /* a no-op is fine */
+}
+
 int main(void) {
+    BT_RUN(test_move_track_carries_everything);
+    BT_RUN(test_move_track_rejects_nonsense);
     BT_RUN(test_click_only_song_has_a_length);
     BT_RUN(test_declared_length_against_stems);
     BT_RUN(test_good);

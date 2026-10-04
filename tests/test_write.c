@@ -33,6 +33,7 @@ static bool track_eq(const bt_track *a, const bt_track *b) {
 static bool song_eq(const bt_song *a, const bt_song *b) {
     if (strcmp(a->title, b->title) != 0)   return false;
     if (strcmp(a->artist, b->artist) != 0) return false;
+    if (strcmp(a->tuning, b->tuning) != 0) return false;
     if (a->count_in_bars != b->count_in_bars) return false;
     if (a->length_bars != b->length_bars)     return false;
     if (a->on_end != b->on_end)   return false;
@@ -314,7 +315,37 @@ static void test_absent_length_stays_absent(void) {
     bt_setlist_free(sl);
 }
 
+
+/* The tuning note has to survive a save: it is the one thing on screen that
+ * tells a guitarist to pick up a different instrument, and losing it silently
+ * is worse than never having stored it. */
+static void test_tuning_survives(void) {
+    round_trip(
+      "{\"version\":1,\"name\":\"n\",\"songs\":[{"
+      "\"title\":\"Mr Brightside\",\"artist\":\"The Killers\","
+      "\"tuning\":\"E1\",\"tempo\":{\"bpm\":148},"
+      "\"count_in_bars\":1,\"on_end\":\"next\",\"tracks\":["
+      "{\"type\":\"click\",\"bus\":\"inear\"}]}]}", "tuning");
+}
+
+/* And a song without one must not grow the field. */
+static void test_absent_tuning_stays_absent(void) {
+    static const char *src =
+      "{\"version\":1,\"name\":\"n\",\"songs\":[{"
+      "\"tempo\":{\"bpm\":120},\"count_in_bars\":1,\"on_end\":\"stop\","
+      "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}]}]}";
+    bt_setlist *sl = load_mem(src);
+    BT_CHECK(sl != NULL);
+    if (!sl) return;
+    char *out = NULL; size_t n = 0;
+    BT_CHECK_EQI(bt_setlist_to_json(sl, &out, &n), BT_OK);
+    if (out) { BT_CHECK(strstr(out, "tuning") == NULL); free(out); }
+    bt_setlist_free(sl);
+}
+
 int main(void) {
+    BT_RUN(test_tuning_survives);
+    BT_RUN(test_absent_tuning_stays_absent);
     BT_RUN(test_length_bars_survives);
     BT_RUN(test_absent_length_stays_absent);
     BT_RUN(test_basic_round_trip);

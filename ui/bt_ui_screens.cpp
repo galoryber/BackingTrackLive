@@ -14,6 +14,8 @@ const ImU32 COL_PANEL    = IM_COL32( 26,  28,  33, 255);
 const ImU32 COL_TEXT     = IM_COL32(232, 234, 238, 255);
 const ImU32 COL_DIM      = IM_COL32(138, 144, 156, 255);
 const ImU32 COL_ACCENT   = IM_COL32( 94, 168, 255, 255);
+/* Tuning: warm rather than blue, so it does not read as another tempo. */
+const ImU32 COL_ACCENT_T = IM_COL32(236, 196,  96, 255);
 const ImU32 COL_ACCENT_D = IM_COL32( 30,  58,  92, 255);
 const ImU32 COL_HOVER    = IM_COL32( 42,  52,  66, 255);
 const ImU32 COL_BEAT_ON  = IM_COL32(255, 214,  92, 255);
@@ -175,6 +177,18 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
         text_at(dl, f, row_sz, ImVec2(sz.x - pad * 1.2f - text_w(f, row_sz, bpm),
                                       y + row_h * 0.22f),
                 sel ? COL_TEXT : COL_DIM, bpm);
+
+        /* Tuning sits left of the tempo. It is the one that makes somebody
+         * pick up a different guitar, so it wants reading before the song
+         * starts rather than during it. */
+        if (s.tuning[0]) {
+            const float bw = text_w(f, row_sz, bpm);
+            const float tw2 = text_w(f, row_sz, s.tuning);
+            text_at(dl, f, row_sz,
+                    ImVec2(sz.x - pad * 1.2f - bw - pad * 0.9f - tw2,
+                           y + row_h * 0.22f),
+                    COL_ACCENT_T, s.tuning);
+        }
     }
 
     /* Footer: the keys, because this is driven from the keyboard, and the
@@ -214,9 +228,19 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     if (s) {
         const float title_sz = sz.y * 0.105f;
         text_at(dl, f, title_sz, ImVec2(pad, sz.y * 0.075f), COL_TEXT, s->title);
-        if (s->artist[0])
-            text_at(dl, f, sz.y * 0.055f, ImVec2(pad, sz.y * 0.195f),
-                    COL_DIM, s->artist);
+        float ay = sz.y * 0.195f;
+        float ax = pad;
+        if (s->artist[0]) {
+            text_at(dl, f, sz.y * 0.055f, ImVec2(ax, ay), COL_DIM, s->artist);
+            ax += text_w(f, sz.y * 0.055f, s->artist) + pad * 0.8f;
+        }
+        /* Beside the artist, in the warm colour it has everywhere else, so
+         * glancing up mid-song answers "am I on the right guitar". */
+        if (s->tuning[0]) {
+            char lbl[48];
+            std::snprintf(lbl, sizeof(lbl), "TUNING  %s", s->tuning);
+            text_at(dl, f, sz.y * 0.055f, ImVec2(ax, ay), COL_ACCENT_T, lbl);
+        }
     }
 
     /* ---- bar number: kept, demoted ------------------------------------
@@ -339,6 +363,17 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
         if (s && s->on_end == BT_ON_END_NEXT)
             text_at(dl, f, nl, ImVec2(sz.x - pad - text_w(f, nl, "SEGUE"),
                                       fy + foot_h * 0.16f), COL_BEAT_ON, "SEGUE");
+
+        /* The next song's tuning, which is the moment you would reach for a
+         * different guitar - so it belongs here rather than only once the
+         * song has started. */
+        if (nx.tuning[0]) {
+            char lbl[48];
+            std::snprintf(lbl, sizeof(lbl), "TUNING  %s", nx.tuning);
+            text_at(dl, f, ns * 0.8f,
+                    ImVec2(sz.x - pad - text_w(f, ns * 0.8f, lbl),
+                           fy + foot_h * 0.46f), COL_ACCENT_T, lbl);
+        }
     } else {
         text_at(dl, f, foot_h * 0.42f, ImVec2(pad, fy + foot_h * 0.42f), COL_DIM,
                 "end of set");
