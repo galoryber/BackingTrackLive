@@ -34,6 +34,7 @@ static bool song_eq(const bt_song *a, const bt_song *b) {
     if (strcmp(a->title, b->title) != 0)   return false;
     if (strcmp(a->artist, b->artist) != 0) return false;
     if (a->count_in_bars != b->count_in_bars) return false;
+    if (a->length_bars != b->length_bars)     return false;
     if (a->on_end != b->on_end)   return false;
     if (a->ntracks != b->ntracks) return false;
     if (!tempo_eq(&a->tempo, &b->tempo)) return false;
@@ -276,7 +277,46 @@ static void test_bad_arguments(void) {
     BT_CHECK(bt_device_cfg_save_file(&cfg, "no_such_dir_here/x.json") != BT_OK);
 }
 
+
+/* A declared length has to survive a save, or a click-only song silently
+ * reverts to counting in and stopping the next time the set list is opened.
+ * Absent when zero, because that is the normal case and writing it would add
+ * a line to every song in every set list written before it existed. */
+static void test_length_bars_survives(void) {
+    round_trip(
+      "{\"version\":1,\"name\":\"n\",\"songs\":[{"
+      "\"title\":\"Holiday\",\"artist\":\"Green Day\","
+      "\"tempo\":{\"bpm\":147,\"sig\":[4,4],\"downbeat_ms\":0},"
+      "\"count_in_bars\":2,\"length_bars\":147,\"on_end\":\"stop\",\"tracks\":["
+      "{\"name\":\"Click\",\"type\":\"click\",\"bus\":\"inear\"}"
+      "]}]}", "length_bars");
+}
+
+/* And a song without one must not grow the field, so re-saving an old set
+ * list produces no diff. */
+static void test_absent_length_stays_absent(void) {
+    static const char *src =
+      "{\"version\":1,\"name\":\"n\",\"songs\":[{"
+      "\"tempo\":{\"bpm\":120},\"count_in_bars\":1,\"on_end\":\"stop\","
+      "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}]}]}";
+    bt_setlist *sl = load_mem(src);
+    BT_CHECK(sl != NULL);
+    if (!sl) return;
+
+    char *out = NULL;
+    size_t n = 0;
+    BT_CHECK_EQI(bt_setlist_to_json(sl, &out, &n), BT_OK);
+    BT_CHECK(out != NULL);
+    if (out) {
+        BT_CHECK(strstr(out, "length_bars") == NULL);
+        free(out);
+    }
+    bt_setlist_free(sl);
+}
+
 int main(void) {
+    BT_RUN(test_length_bars_survives);
+    BT_RUN(test_absent_length_stays_absent);
     BT_RUN(test_basic_round_trip);
     BT_RUN(test_awkward_numbers_survive);
     BT_RUN(test_tempo_map_survives);

@@ -474,7 +474,24 @@ static void test_song_frames_matches_the_stem(void) {
     rig_down(&r);
 }
 
+
+/* wait_loaded is what a UI calls before drawing a waveform it does not yet
+ * have. Resident already, it returns at once; it must not be the thing that
+ * makes a screen hang. */
+static void test_wait_loaded(void) {
+    rig r;
+    rig_up(&r, 0, 1);
+    BT_CHECK_EQI(bt_player_select(r.p, 0), BT_OK);
+
+    BT_CHECK_EQI(bt_player_wait_loaded(r.p, 0, 5000), BT_OK);
+    BT_CHECK(bt_player_song_resident(r.p, 0));
+    BT_CHECK_EQI(bt_player_wait_loaded(NULL, 0, 10), BT_ERR_RANGE);
+
+    rig_down(&r);
+}
+
 int main(void) {
+    BT_RUN(test_wait_loaded);
     BT_RUN(test_seek_moves_the_playhead);
     BT_RUN(test_song_frames_matches_the_stem);
     BT_RUN(test_reapply_keeps_position_and_playback);
