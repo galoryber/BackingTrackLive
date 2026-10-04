@@ -1,329 +1,133 @@
 # BackingTrackLive
 
-A multi-track backing-track player for live bands.
+Backing tracks for a live band, without a DAW in the way.
 
-Not a DAW. Fixed files, fixed routing, fixed set order: load a set list, pick a
-song, hit play. The click goes to the in-ears, the stems go to front of house,
-and nothing surprising happens at 11pm in a bar.
+Load your set list, pick a song, hit the space bar. The click goes to the
+in-ears, the backing tracks go to front of house, and nothing surprising
+happens at 11pm in a bar.
 
-> **Status: Phase 1.** The engine, model and offline renderer are complete and
-> tested. There is no audio device layer and no GUI yet - see
-> [Roadmap](#roadmap). You can render a set list to a WAV file today; you
-> cannot yet play one through an interface.
+![The set list](docs/images/stopped.png)
 
-## Why
+Free and open source, for Windows. [Download the latest
+release](https://github.com/galoryber/BackingTrackLive/releases/latest), unzip
+it, and run **BackingTrackLive.exe**. Nothing to install.
 
-Every tool that does this job is a *host* - a general engine that runs
-arbitrary plugins and arbitrary signal graphs, with a set list bolted on top.
-A covers band needs a *player*. That is a different shape, not a smaller
-version of the same thing, and you cannot get there by turning features off.
+---
 
-## Design
+## What it does
 
-Three decisions carry most of the weight:
+**Your set list is a list of songs.** Not one long timeline with markers in it.
+Click a song, it plays. Click another, that one plays.
 
-**Three threads, with one job each.** The driver calls `bt_player_render()`,
-which forwards to the engine and does nothing else. The UI thread calls
-`bt_player_tick()`, which decides what end-of-song means and never blocks. A
-loader thread owns every decode, every resample and every `free` - and drains
-the engine before releasing any buffer, so it cannot pull audio out from under
-a render. `tests/test_concurrency.c` runs all three at once under
-ThreadSanitizer, which is the only tool that reliably sees this class of bug.
+**The click track is separate from the music.** Send the click to the drummer's
+in-ears on one pair of outputs and the backing tracks to the desk on another.
+Set it up once on screen; it is remembered.
 
-**The engine is headless.** `bt_engine_render()` is a pure function of engine
-state - no device, no clock, no threads, no allocation. Every question about
-timing, alignment and routing is answered offline, on any platform, with no
-audio hardware attached. That is why the whole of Phase 1 ships without a
-driver.
+**Songs can run straight into the next one.** Mark a song to segue and it does,
+counting in at the new tempo if you want it to.
 
-**The sample counter is the only clock.** Click, transport, stems and - later -
-lighting cues all derive from `playhead_frames`. Nothing consults wall-clock
-time. Beat positions are computed from the beat index rather than accumulated,
-so a three-hour set does not drift.
+**You can see what you are about to play.** Song, artist, tempo — and the
+tuning, if you keep your guitars in different ones.
 
-**Tracks route to logical buses, never to channel numbers.** `setlist.json`
-names `inear` and `foh`; a machine-local `device.json` maps those to physical
-channels. The set list folder is therefore portable - copy it to the backup
-laptop with a different interface in it and it just works - and it is a text
-file you can diff and commit.
+![Playing a song](docs/images/playing.png)
 
-Stems are decoded (WAV, FLAC or MP3) and resampled to the device rate once, at
-load, so by the time the engine sees a track the format it arrived in has
-stopped mattering. Format is detected from content rather than extension - a
-stem named `.wav` that is really an MP3 is what happens when somebody re-saves
-a file, and it should simply work. There is no tempo detection and no
-time-stretching. A song stores its BPM,
-time signature and the offset of its first downbeat, taken from wherever you
-bought the stems. Collapsing the hardest problem in this domain into three
-metadata fields is the single reason this project is tractable.
+The big thing in the middle is the beat. The bar number is in the corner, the
+song is top left, and what is coming next is along the bottom. It is readable
+from across a stage.
 
-## Getting a build
+## Getting your songs in
 
-You do not need a compiler. CI builds Windows, macOS and Linux binaries on
-every push:
+Buy or make your backing tracks however you already do — WAV, FLAC or MP3 all
+work. Then:
 
-- **Latest build** - the Actions tab, open the most recent green `ci` run, and
-  download the `btrender-windows-latest` artifact. Kept 30 days.
-- **Tagged release** - push a `v*` tag and the `release` workflow publishes
-  packaged builds to GitHub Releases.
+**1. Make a set list.** Open the program and choose *New set list*. It makes a
+folder with one song in it.
 
-Windows binaries link the C runtime statically, so the target machine needs no
-Visual C++ redistributable - unzip and run.
+**2. Add your stems.** In edit mode, *+ add stem* and pick the file. It copies
+into the set list folder, so the whole folder stays something you can put on a
+USB stick and hand to the backup laptop.
 
-### What to run
+**3. Tell it the tempo.** Type in the BPM the track was made at. There is no
+tempo detection and no time-stretching — this plays your files as they are.
 
-**`BackingTrackLive.exe`.** That is the whole program: open or create a set
-list, configure the audio interface, check the set, and play the show. Nothing
-in normal use needs a command line.
+![Editing a song](docs/images/editsong.png)
 
-The other three are the same engine with a terminal in front of it, kept
-because they script and because they are what CI runs:
+**4. Line it up.** Downloaded backing tracks almost always start with a bit of
+silence before the music, and how much is anyone's guess. Select the stem, hit
+*align*, and drag it until it sits on the beat.
+
+![Lining up a stem](docs/images/editalign.png)
+
+The vertical lines are the beats, the brighter ones are bars. The blue is your
+stem, drawn where it will actually sound. Drag it, scroll to zoom, and press
+play to hear it from wherever you are looking.
+
+If it lines up at the start and stays lined up at the end, you are done. If it
+drifts, the tempo you were given is wrong rather than the alignment.
+
+## Sending the click somewhere separate
+
+![Choosing the interface](docs/images/editaudio.png)
+
+*Edit → audio* lists whatever interfaces are plugged in. Pick one, and say
+which outputs are front of house and which are the in-ears. On a four-output
+interface the usual answer is 1–2 and 3–4, which it fills in for you.
+
+This is a property of the laptop, not of the set list, so you do it once and
+every set list you open uses it. It survives upgrading the program.
+
+## During the show
 
 | | |
 |---|---|
-| `btcheck` | validate a set list and report every problem at once |
-| `btrender` | render a set list to a WAV offline, deterministically |
-| `btplay` | play a set list through a device, printing latency and xruns |
+| `SPACE` | play the selected song |
+| `↑` `↓` or click | choose a different song |
+| `N` | skip to the next song |
+| `E` | edit mode (blocked while playing) |
+| `F11` | full screen |
+| `ESC` | leave full screen — never quits |
 
-Set lists and stems live wherever you put them, `Documents\BackingTrackLive`
-by default. Settings and the audio routing live in
-`%APPDATA%\BackingTrackLive` - routing describes the machine, so it is
-configured once and applies to every set list. Upgrading replaces the program
-and touches neither.
+When a song finishes, the screen stays put and shows what is next, so one key
+starts it.
 
-One caveat worth reading before trusting a public build on stage: released
-binaries are **WASAPI-only**, because the ASIO SDK cannot be committed to this
-repository. That turns out to be a smaller limitation than expected — the
-UMC404HD's driver exposes a four-channel `OUT 1-4` endpoint under WASAPI, so
-front of house on 1/2 and the click on 3/4 works without ASIO. ASIO remains
-worth having for exclusive device access and lower latency; see
-[`docs/asio.md`](docs/asio.md).
+![Between songs](docs/images/armed.png)
 
-## Build from source
+## Before the gig
 
-Requires CMake 3.16+ and a C11 compiler.
+*Edit → check* reads every song and every stem and tells you everything wrong
+with the set at once — a missing file, a stem that is silent because the wrong
+thing got downloaded, a song pointed at an output your interface does not have.
+Better to find out at home.
 
-```bash
-make check     # configure, build, run the full suite. This is "green".
-```
+## What it deliberately does not do
 
-or directly:
+No plugins, no recording, no mixing beyond level and mute, no tempo detection,
+no time-stretching. It plays fixed files in a fixed order through fixed
+outputs. That is the whole idea: everything it does not do is something that
+cannot go wrong on stage.
 
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Debug
-cmake --build build
-ctest --test-dir build --output-on-failure
-```
+## Known limits
 
-## Playing through a real device
+- **Windows only** in practice. The engine builds and its tests pass on macOS
+  and Linux, but there is no UI build for them.
+- **No ASIO** in the downloadable builds — the Steinberg SDK cannot be
+  redistributed, so released binaries use WASAPI. On a four-output interface
+  that still gives four separate outputs, measured at about 22 ms.
+  See [docs/asio.md](docs/asio.md).
+- **A song that changes tempo partway through** has to have its tempo map
+  written into `setlist.json` by hand. See [docs/roadmap.md](docs/roadmap.md).
+- **No MIDI**, so no footswitch yet.
 
-```bash
-make device                  # builds the device layer (fetches PortAudio)
-./build-dev/btplay --list-devices
-./build-dev/btplay examples/setlist/setlist.json examples/setlist/device.json 0
-```
+## Documentation
 
-`device.json`'s `device` field selects the interface by case-insensitive
-substring - `"UMC404HD"` finds it without anyone transcribing the full name -
-and `"default"` means "pick the best available".
-
-The `api` field picks the driver family, and on Windows it matters more than
-anything else in the file. The same speakers appear under four host APIs with
-very different latency; measured on one machine:
-
-| API | reported latency |
+| | |
 |---|---|
-| WASAPI | 2.7 ms |
-| WDM-KS | 10 ms |
-| MME | 90 ms |
-| DirectSound | 120 ms |
-
-The backend's own "default output device" is the **MME** one. Leaving `api`
-empty therefore does not mean "default" - it means *pick the best API
-present*, in the order ASIO > WASAPI > WDM-KS > Core Audio > JACK > ALSA >
-DirectSound > MME. Naming an API explicitly makes it a requirement: ask for
-`"ASIO"` without the driver installed and it fails loudly rather than quietly
-handing you a hundred milliseconds of latency.
-
-The device layer is a **separate library** from `libbacktrack`. The engine has
-no platform or device dependency at all, and nothing in `tests/` links the
-device code; that is what lets every question about timing, mixing and routing
-be answered offline on any machine.
-
-Phase 2 is not finished. Enumeration, opening a stream, the callback bridge,
-underrun counting and device-loss detection are written and build on Windows,
-macOS and Linux, but they have not yet met a real interface. ASIO is still
-behind `-DBT_ENABLE_ASIO=ON` and needs the Steinberg SDK supplied out of band -
-see [`docs/asio.md`](docs/asio.md).
-
-## Try it
-
-```bash
-python3 examples/setlist/make_demo_tracks.py
-cp examples/setlist/device.example.json examples/setlist/device.json
-./build/btrender examples/setlist/setlist.json examples/setlist/device.json 0 out.wav
-```
-
-`out.wav` is a 4-channel file: the band mix on 1/2, click and cues on 3/4 -
-exactly the samples an interface would have been handed.
-
-To render the whole set list as one continuous file, following each song's
-`on_end`:
-
-```bash
-./build/btrender examples/setlist/setlist.json examples/setlist/device.json --set set.wav
-```
-
-## Checking a set list before the gig
-
-```bash
-./build/btcheck setlist.json device.json
-```
-
-`btrender` and `btplay` stop at the first problem, one song at a time.
-`btcheck` decodes every stem once and reports everything wrong in a single
-pass, then exits non-zero if anything would actually stop the set playing:
-
-```
-Gig Night - 3 song(s), 7 track(s)
-
-  error   song 2 (Real Song) track 1 (Keys): routes to bus "monitor3", which
-          device.json does not define
-  error   song 2 (Real Song) track 1 (Keys): missing.wav: file could not be read
-  warning song 2 (Real Song) track 2 (Vox): silent.wav is entirely silent - wrong file?
-  warning song 2 (Real Song) track 3 (Lead): hot.wav peaks at full scale and may
-          already be clipped
-  warning song 2 (Real Song): no click track - was that intended?
-  warning song 3 (Closer): on_end is "next" but this is the last song; it will stop
-
-  set length      0m 08s of audio (longest song 0m 03s)
-  preload peak    1.3 MB   (current + next song)
-  whole set       1.8 MB   if every song were held at once
-```
-
-Errors are things that will fail. Warnings are things that are probably not
-what anyone meant - a set list full of warnings still plays. The preload peak
-is the largest *adjacent pair* of songs, because that is what the window
-actually holds.
-
-## Set list format
-
-```json
-{
-  "version": 1,
-  "name": "Set List #1",
-  "songs": [{
-    "title": "1985",
-    "artist": "Bowling for Soup",
-    "tempo": { "bpm": 156.0, "sig": [4, 4], "downbeat_ms": 0 },
-    "count_in_bars": 2,
-    "on_end": "stop",
-    "tracks": [
-      { "name": "Click", "type": "click", "bus": "inear" },
-      { "name": "Synth", "type": "audio", "bus": "foh",
-        "file": "1985/synth.wav", "gain_db": -2.0, "offset_ms": 0 }
-    ]
-  }]
-}
-```
-
-- `downbeat_ms` - where beat 1 actually lands. Downloaded stems routinely open
-  with silence or a pickup; this is what makes the click line up with the
-  music instead of with the file.
-- `offset_ms` - per-stem nudge, positive or negative.
-- `on_end` - `stop` waits for a human (the singer is talking); `next` runs
-  straight into the following song. The seam is one render block wide -
-  measured at 5.4 ms at a 512-frame block - so it is gapless to an audience but
-  not sample-accurate. A medley that must be musically locked belongs in one
-  song file with the segue rendered in.
-- `tempo.map` - an array of `{beat, bpm}` for songs that change tempo. The
-  format accepts one from day one so that song never forces a migration.
-- Stem paths are relative to the set list file, and absolute paths and `..`
-  are rejected. A set list folder is meant to be a self-contained unit.
-
-`device.json` is machine-local and gitignored - see
-`examples/setlist/device.example.json`.
-
-Both files can be written as well as read (`bt_setlist_save_file`,
-`bt_device_cfg_save_file`). Saves go to a temporary alongside the target and
-are renamed over it, so an interrupted save cannot leave a half-written set
-list where a working one used to be. Numbers are emitted at the shortest
-precision that parses back exactly, so a 156.37 BPM stays `156.37` rather than
-becoming `156.36999999999999`.
-
-## Testing
-
-The test suite runs headless on Linux, macOS and Windows and needs no audio
-hardware.
-
-- **Golden render** - a fixture set list is rendered and hashed. Stems come
-  from an integer PRNG and the fixture avoids `libm` entirely, so the hash is a
-  fair byte-exact assertion on all three platforms.
-- **Block-size invariance** - the same song must render bit-identically at
-  every buffer size from 32 to 4096 frames. Any difference means state is
-  leaking across a block boundary.
-- **Concurrency** - a render thread, a UI thread selecting songs and the
-  loader thread loading and freeing, all at once, under TSan with
-  `halt_on_error`. Removing the drain before a free fails it immediately.
-- **Allocation failure** - `test_allocfail` fails the Nth allocation and
-  sweeps N across every allocation a workload makes, requiring that no error
-  path leaks. Those `if (!p) return BT_ERR_ALLOC;` branches are otherwise
-  never executed, so nobody would know whether their cleanup was right.
-- **Real-time safety** - `test_rtsafe` wraps the allocator at link time and
-  asserts that a render performs **zero** allocations. The most common cause of
-  a rig glitching on stage is a `malloc` that crept into the audio callback;
-  here that is a build failure rather than a bad night.
-- **Tempo** - exact sample positions, no drift across 30,000 beats, correct
-  accenting through negative (count-in) beats, and `frame_beat` proven to be
-  an exact inverse of `beat_frame`.
-- **Decoding** - FLAC is asserted to decode *bit-identically* to a WAV holding
-  the same 16-bit samples, so losslessness is verified rather than claimed.
-- **Serialisation** - load, save and load again must return the identical
-  model, and saving an unchanged set list must produce byte-identical text.
-  The second property is what keeps a set list you keep in git from churning
-  its diff every time it is opened.
-- **Resampling** - the filter is *measured*, not assumed: passband flatness,
-  stopband rejection, alias suppression and round-trip residual. See
-  [`docs/resampling.md`](docs/resampling.md) for the numbers.
-- **Fuzzing** - libFuzzer targets over the JSON parser, the WAV decoder and the
-  full set list binding path. `make fuzz` builds them.
-- **Sanitizers** - ASan and UBSan on every push.
-
-## Roadmap
-
-[`docs/roadmap.md`](docs/roadmap.md) carries the detail: what still needs a UI
-rather than a command line, and what this deliberately will not do.
-
-
-| Phase | Content | Status |
-|---|---|---|
-| 0 | Repo, build, CI, test harness | done |
-| 1 | Model, JSON, click, mixer, routing, transport | done |
-| 1.5 | Load-time resampling, set list player, preload window | done |
-| 1.6 | WAV / FLAC / MP3 decode | done |
-| 1.7 | Set list / device.json writing | done |
-| 1.8 | Background loader thread | done |
-| 1.9 | Set list checker (`btcheck`) | done |
-| 2 | PortAudio device layer (WASAPI, then ASIO) | WASAPI working on hardware |
-| 3 | Stage UI: play mode, set list and song editors | done |
-| 3.1 | Align view (waveform vs click grid) and routing editor | next |
-| 3 | Stage UI (Dear ImGui via cimgui) | |
-| 4 | MIDI in (footswitch) and out (patch changes) | |
-| 5 | DMX lighting via Art-Net / sACN | |
-
-Measured on the band's laptop (i7-13620H, Behringer UMC404HD, WASAPI): four
-channels out, front of house on 1/2 and the click on 3/4, **zero xruns over
-3m30s at every buffer size tried**, with latency bottoming out at 22 ms where
-WASAPI's shared-mode period takes over. 512 frames is the setting to use.
-
-Still unproven: ASIO (not required — WASAPI exposes the four-channel
-endpoint), and anything on macOS or Linux, which build and pass their tests
-but have never been run.
-
-See [`docs/asio.md`](docs/asio.md) for why the ASIO SDK is not, and will not
-be, committed to this repository, and [`docs/gig-laptop.md`](docs/gig-laptop.md)
-for how the machine that actually plays the show gets set up and measured -
-which does not involve installing a compiler on it.
+| [docs/gig-laptop.md](docs/gig-laptop.md) | setting up the laptop that plays the show, and where files live |
+| [docs/asio.md](docs/asio.md) | ASIO, and why released builds do not have it |
+| [docs/roadmap.md](docs/roadmap.md) | what is planned, and what is deliberately not |
+| [docs/release-notes/](docs/release-notes/) | what changed in each version |
+| [docs/development.md](docs/development.md) | building from source, the design, the test suite |
+| [docs/resampling.md](docs/resampling.md) | the resampler, measured |
 
 ## License
 

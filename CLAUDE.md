@@ -139,6 +139,14 @@ examples/setlist/    a runnable example set list
   against a Windows target.
 - Tests are deterministic. Golden renders compare against committed hashes.
 
+## Documentation
+
+`README.md` is for someone in a band: what it does, screenshots, how to get
+songs in. It is not the place for design rationale or build instructions -
+those live in `docs/development.md`. Screenshots in `docs/images/` are
+rendered from the real UI with `--shot`; regenerate them rather than letting
+them drift.
+
 ## Roadmap
 
 `docs/roadmap.md` tracks CLI/UI parity — every job that today needs a command
