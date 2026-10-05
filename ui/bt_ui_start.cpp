@@ -413,7 +413,8 @@ static bt_err clone_tree(const char *src, const char *dst) {
     return e;
 }
 
-bt_err bt_ui_clone_setlist(const char *src_dir, const char *dst_dir) {
+bt_err bt_ui_clone_setlist(const char *src_dir, const char *dst_dir,
+                           const char *name) {
     if (!src_dir || !*src_dir || !dst_dir || !*dst_dir) return BT_ERR_RANGE;
 
     char probe[MAX_PATH];
@@ -423,7 +424,27 @@ bt_err bt_ui_clone_setlist(const char *src_dir, const char *dst_dir) {
     std::snprintf(probe, sizeof(probe), "%s\\setlist.json", src_dir);
     if (GetFileAttributesA(probe) == INVALID_FILE_ATTRIBUTES) return BT_ERR_NOT_FOUND;
 
-    return clone_tree(src_dir, dst_dir);
+    bt_err e = clone_tree(src_dir, dst_dir);
+    if (e != BT_OK) return e;
+
+    /* The copy carries the original's name inside it, so a set list called
+     * "ClonedSetListTest" on disk still announced itself as the one it came
+     * from - on the set list screen, in the editor, everywhere the name is
+     * read. Rewrite it through the model rather than patching the text, so
+     * the file stays exactly what the writer would produce. */
+    char path[MAX_PATH];
+    std::snprintf(path, sizeof(path), "%s\\setlist.json", dst_dir);
+
+    bt_setlist *sl = nullptr;
+    int line = 0;
+    e = bt_setlist_load_file(path, &sl, &line);
+    if (e != BT_OK) return e;
+
+    std::snprintf(sl->name, sizeof(sl->name), "%s",
+                  name && *name ? name : sl->name);
+    e = bt_setlist_save_file(sl, path);
+    bt_setlist_free(sl);
+    return e;
 }
 
 bt_err bt_ui_new_setlist(const char *dir, const char *name) {

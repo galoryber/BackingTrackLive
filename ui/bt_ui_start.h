@@ -107,6 +107,7 @@ bt_err bt_ui_new_setlist(const char *dir, const char *name);
  * Nothing ever writes to a stem - alignment lives in the set list file - so
  * the sharing cannot be noticed. Falls back to copying when linking fails,
  * which is what happens across volumes. */
-bt_err bt_ui_clone_setlist(const char *src_dir, const char *dst_dir);
+bt_err bt_ui_clone_setlist(const char *src_dir, const char *dst_dir,
+                           const char *name);
 
 #endif /* BT_UI_START_H */

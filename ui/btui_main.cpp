@@ -1082,7 +1082,7 @@ int main(int argc, char **argv) {
                                   g_start.found[g_start.clone_from].path);
                     char *cut = std::strrchr(src, '\\');
                     if (cut) *cut = '\0';
-                    e = bt_ui_clone_setlist(src, dir);
+                    e = bt_ui_clone_setlist(src, dir, safe);
                 } else {
                     e = bt_ui_new_setlist(dir, safe);
                 }
