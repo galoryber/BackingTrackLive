@@ -190,6 +190,15 @@ bt_frame bt_song_length(const bt_song *song, int32_t sample_rate);
  * Non-zero only when a declared length cuts the stems short: ending a song at
  * bar 114 means the audio is still playing there, and stopping a stem
  * mid-note is a click. A song that ends where its stems end needs nothing. */
+/* The shortest text that parses back to exactly this double, into `out`.
+ *
+ * This is how numbers are written to a set list, and it is the only honest way
+ * to show one: a tempo of 96.515 displayed as 96.52 is a different tempo, and
+ * by beat 1000 it is most of a beat out. Screens that round deliberately -
+ * the set list, the playing screen - do their own thing; the editor should
+ * show what the file says. */
+void bt_format_number(double v, char *out, size_t cap);
+
 bt_frame bt_song_fade_frames(const bt_song *song, int32_t sample_rate);
 
 bt_err bt_song_move_track(bt_song *song, int32_t from, int32_t to);

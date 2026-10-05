@@ -252,6 +252,19 @@ void bt_ui_start_draw(bt_ui_start &st) {
                 st.found_index = i;
                 st.action = bt_start_action::open_found;
             }
+            ImGui::SameLine(io.DisplaySize.x * 0.44f);
+            ImGui::PushID(i);
+            if (ImGui::SmallButton("clone")) {
+                st.naming     = true;
+                st.focus_name = true;
+                st.clone_from = i;
+                std::snprintf(st.new_name, sizeof(st.new_name), "%s copy",
+                              st.found[i].name);
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("A copy with every song, stem and alignment\n"
+                                  "already in it. Edit from there.");
+            ImGui::PopID();
         }
         ImGui::Spacing();
         ImGui::Spacing();
@@ -260,7 +273,8 @@ void bt_ui_start_draw(bt_ui_start &st) {
     /* Naming happens before anything is written, so a name you change your
      * mind about costs nothing. */
     if (st.naming) {
-        ImGui::TextColored(COL_DIM, "NAME THE NEW SET LIST");
+        ImGui::TextColored(COL_DIM, st.clone_from >= 0 ? "NAME THE COPY"
+                                                       : "NAME THE NEW SET LIST");
         ImGui::SetNextItemWidth(io.DisplaySize.x * 0.32f);
         /* Once, on the frame the prompt appears. Calling this every frame
          * forces ImGui's active item back to this box on every frame, and a
@@ -280,20 +294,26 @@ void bt_ui_start_draw(bt_ui_start &st) {
         const bool pressed = ImGui::Button("Create");
         ImGui::EndDisabled();
         ImGui::SameLine();
-        if (ImGui::Button("Cancel")) { st.naming = false; st.new_name[0] = '\0'; }
+        if (ImGui::Button("Cancel")) {
+            st.naming = false;
+            st.clone_from = -1;
+            st.new_name[0] = '\0';
+        }
         if (named && (entered || pressed)) {
             st.naming = false;
             st.action = bt_start_action::create_new;
         }
-        ImGui::TextColored(COL_DIM,
-            "It gets a folder of its own, so set lists cannot overwrite "
-            "each other.");
+        ImGui::TextColored(COL_DIM, st.clone_from >= 0
+            ? "A copy of everything in it: songs, stems and alignment."
+            : "It gets a folder of its own, so set lists cannot overwrite "
+              "each other.");
         ImGui::Spacing();
         ImGui::Spacing();
     } else {
         if (ImGui::Button("New set list\xe2\x80\xa6", bsz)) {
             st.naming = true;
             st.focus_name = true;
+            st.clone_from = -1;
             st.new_name[0] = '\0';
         }
         ImGui::SameLine();
@@ -357,6 +377,53 @@ bool bt_ui_machine_device_path(char *out, size_t cap) {
     CreateDirectoryA(dir, nullptr);
     std::snprintf(out, cap, "%s\\device.json", dir);
     return true;
+}
+
+/* One file: linked if the filesystem allows, copied if not. */
+static bool clone_file(const char *from, const char *to) {
+    if (CreateHardLinkA(to, from, nullptr)) return true;
+    return CopyFileA(from, to, FALSE) != FALSE;
+}
+
+static bt_err clone_tree(const char *src, const char *dst) {
+    if (!CreateDirectoryA(dst, nullptr) &&
+        GetLastError() != ERROR_ALREADY_EXISTS) return BT_ERR_IO;
+
+    char glob[MAX_PATH];
+    std::snprintf(glob, sizeof(glob), "%s\\*", src);
+    WIN32_FIND_DATAA fd;
+    HANDLE h = FindFirstFileA(glob, &fd);
+    if (h == INVALID_HANDLE_VALUE) return BT_ERR_IO;
+
+    bt_err e = BT_OK;
+    do {
+        if (!std::strcmp(fd.cFileName, ".") || !std::strcmp(fd.cFileName, "..")) continue;
+
+        char s2[MAX_PATH], d2[MAX_PATH];
+        std::snprintf(s2, sizeof(s2), "%s\\%s", src, fd.cFileName);
+        std::snprintf(d2, sizeof(d2), "%s\\%s", dst, fd.cFileName);
+
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) {
+            e = clone_tree(s2, d2);
+        } else if (!clone_file(s2, d2)) {
+            e = BT_ERR_IO;
+        }
+    } while (e == BT_OK && FindNextFileA(h, &fd));
+    FindClose(h);
+    return e;
+}
+
+bt_err bt_ui_clone_setlist(const char *src_dir, const char *dst_dir) {
+    if (!src_dir || !*src_dir || !dst_dir || !*dst_dir) return BT_ERR_RANGE;
+
+    char probe[MAX_PATH];
+    std::snprintf(probe, sizeof(probe), "%s\\setlist.json", dst_dir);
+    if (GetFileAttributesA(probe) != INVALID_FILE_ATTRIBUTES) return BT_ERR_EXISTS;
+
+    std::snprintf(probe, sizeof(probe), "%s\\setlist.json", src_dir);
+    if (GetFileAttributesA(probe) == INVALID_FILE_ATTRIBUTES) return BT_ERR_NOT_FOUND;
+
+    return clone_tree(src_dir, dst_dir);
 }
 
 bt_err bt_ui_new_setlist(const char *dir, const char *name) {

@@ -1071,7 +1071,24 @@ int main(int argc, char **argv) {
                     if (std::strchr("\\/:*?\"<>|", *c)) *c = '-';
                 std::snprintf(dir, sizeof(dir), "%s\\%s", root, safe);
 
-                bt_err e = bt_ui_new_setlist(dir, safe);
+                /* A clone when one was asked for, otherwise an empty set. */
+                bt_err e;
+                if (g_start.clone_from >= 0 &&
+                    g_start.clone_from < g_start.nfound) {
+                    /* The scan records the setlist.json; the folder is its
+                     * parent. */
+                    char src[BT_MAX_PATH];
+                    std::snprintf(src, sizeof(src), "%s",
+                                  g_start.found[g_start.clone_from].path);
+                    char *cut = std::strrchr(src, '\\');
+                    if (cut) *cut = '\0';
+                    e = bt_ui_clone_setlist(src, dir);
+                } else {
+                    e = bt_ui_new_setlist(dir, safe);
+                }
+                const bool was_clone = g_start.clone_from >= 0;
+                g_start.clone_from = -1;
+
                 if (e == BT_ERR_EXISTS) {
                     std::snprintf(g_start.status, sizeof(g_start.status),
                                   "\"%s\" already exists - open it above, or "
@@ -1088,10 +1105,13 @@ int main(int argc, char **argv) {
                 char sp[BT_MAX_PATH];
                 std::snprintf(sp, sizeof(sp), "%s\\setlist.json", dir);
                 if (open_set(hwnd, sp, nullptr)) {
-                    /* Straight into the editor: a new set list has one empty
-                     * song and nothing to listen to yet. */
                     g_editing = true;
-                    g_edit.screen = bt_edit_screen::song;
+                    /* A new set list has one empty song and nothing to listen
+                     * to, so it opens on that song. A clone has a whole set
+                     * already, and what you came to do is change which songs
+                     * are in it - so it opens on the list. */
+                    g_edit.screen = was_clone ? bt_edit_screen::setlist
+                                              : bt_edit_screen::song;
                     g_edit.song = 0;
                 }
                 break;

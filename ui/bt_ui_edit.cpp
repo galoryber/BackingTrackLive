@@ -213,12 +213,16 @@ void draw_setlist_screen(bt_ui_edit &ed) {
 
     const ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
                                   ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp;
-    if (ImGui::BeginTable("songs", 6, flags, ImVec2(0, 0))) {
+    if (ImGui::BeginTable("songs", 7, flags, ImVec2(0, 0))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("#",      ImGuiTableColumnFlags_WidthFixed, 44);
         ImGui::TableSetupColumn("title",  ImGuiTableColumnFlags_WidthStretch, 3);
         ImGui::TableSetupColumn("artist", ImGuiTableColumnFlags_WidthStretch, 2);
         ImGui::TableSetupColumn("bpm",    ImGuiTableColumnFlags_WidthFixed, 64);
+        /* Tuning here as well as on stage: this is the screen where the set
+         * gets ordered, and grouping songs that share a tuning is most of
+         * what ordering a set is for. */
+        ImGui::TableSetupColumn("tuning", ImGuiTableColumnFlags_WidthFixed, 72);
         ImGui::TableSetupColumn("tracks", ImGuiTableColumnFlags_WidthFixed, 92);
         ImGui::TableSetupColumn("on end", ImGuiTableColumnFlags_WidthFixed, 74);
         ImGui::TableHeadersRow();
@@ -240,6 +244,9 @@ void draw_setlist_screen(bt_ui_edit &ed) {
             ImGui::TableNextColumn(); ImGui::TextDisabled("%s", s.artist);
             ImGui::TableNextColumn();
             ImGui::Text("%.0f", s.tempo.nseg ? s.tempo.seg[0].bpm : 0.0);
+            ImGui::TableNextColumn();
+            if (s.tuning[0]) ImGui::TextColored(COL_AMBER, "%s", s.tuning);
+            else             ImGui::TextDisabled("\xe2\x80\x94");
             ImGui::TableNextColumn();
             /* A song with no audio is not an error, but it is worth noticing
                before soundcheck rather than during it. */
@@ -601,14 +608,28 @@ void draw_song_screen(bt_ui_edit &ed) {
     /* Tempo is metadata, not analysis: it has to match what is already in the
      * stems. Saying so here is cheaper than anyone discovering it. */
     ImGui::Spacing();
+    /* Typed as text, not through InputDouble's format string: a tempo of
+     * 96.515 shown as 96.52 is a different song, and this is the screen where
+     * the number is the truth rather than something rounded for a stage. The
+     * other screens round on purpose; this one shows what the file says. */
     ImGui::SetNextItemWidth(190);
-    double bpm = s.tempo.nseg ? s.tempo.seg[0].bpm : 120.0;
-    if (ImGui::InputDouble("BPM", &bpm, 0.1, 1.0, "%.2f")) {
-        if (bpm > 1.0 && bpm < 400.0) {
-            s.tempo.seg[0].bpm = bpm;
-            if (s.tempo.nseg == 0) s.tempo.nseg = 1;
-            ed.dirty = true;
+    {
+        static char buf[32];
+        static bool editing = false;
+        if (!editing || !ImGui::IsItemActive())
+            bt_format_number(s.tempo.nseg ? s.tempo.seg[0].bpm : 120.0,
+                             buf, sizeof(buf));
+        if (ImGui::InputText("BPM", buf, sizeof(buf),
+                             ImGuiInputTextFlags_CharsDecimal)) {
+            editing = true;
+            const double v = strtod(buf, nullptr);
+            if (v > 1.0 && v < 400.0) {
+                if (s.tempo.nseg == 0) s.tempo.nseg = 1;
+                s.tempo.seg[0].bpm = v;
+                ed.dirty = true;
+            }
         }
+        if (ImGui::IsItemDeactivatedAfterEdit()) editing = false;
     }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(120);

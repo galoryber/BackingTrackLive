@@ -325,7 +325,47 @@ static void test_move_track_rejects_nonsense(void) {
     BT_CHECK_EQI(bt_song_move_track(&s, 1, 1),   BT_OK);   /* a no-op is fine */
 }
 
+
+/* The editor shows a tempo through this, so it has to be the truth as typed.
+ * 96.515 shown as 96.52 is a different song - about a third of a beat out by
+ * beat 1000 - and the file would disagree with the screen. */
+static void test_format_number_is_the_truth(void) {
+    char b[64];
+
+    bt_format_number(96.515, b, sizeof(b));
+    BT_CHECK(strcmp(b, "96.515") == 0);
+
+    bt_format_number(138.78, b, sizeof(b));
+    BT_CHECK(strcmp(b, "138.78") == 0);
+
+    /* Whole numbers stay whole rather than growing decimals. */
+    bt_format_number(120.0, b, sizeof(b));
+    BT_CHECK(strcmp(b, "120") == 0);
+
+    /* And it is shortest-that-round-trips, not longest: no float noise. */
+    bt_format_number(0.1, b, sizeof(b));
+    BT_CHECK(strcmp(b, "0.1") == 0);
+
+    /* Never scientific notation for anything this model holds. A set list is
+     * meant to be readable and editable by hand, and "1.2e+02" is neither -
+     * which is what %g produced for a tempo of 120 before this preferred a
+     * fixed form. */
+    const double plain[] = { 120.0, 93.0, 156.0, 180.0, 1000.0, -6.0, 0.0 };
+    for (size_t i = 0; i < sizeof(plain) / sizeof(plain[0]); i++) {
+        bt_format_number(plain[i], b, sizeof(b));
+        BT_CHECK(strchr(b, 'e') == NULL && strchr(b, 'E') == NULL);
+    }
+
+    /* Whatever comes out must parse back to the identical double. */
+    const double vals[] = { 96.515, 138.78, 120.0, 0.1, 156.37, -12.5, 93.0 };
+    for (size_t i = 0; i < sizeof(vals) / sizeof(vals[0]); i++) {
+        bt_format_number(vals[i], b, sizeof(b));
+        BT_CHECK(strtod(b, NULL) == vals[i]);
+    }
+}
+
 int main(void) {
+    BT_RUN(test_format_number_is_the_truth);
     BT_RUN(test_fade_only_when_the_song_is_cut_short);
     BT_RUN(test_move_track_carries_everything);
     BT_RUN(test_move_track_rejects_nonsense);

@@ -61,6 +61,7 @@ struct bt_ui_start {
     int32_t         nfound = 0;
     bool            rescan = true;        /* set when the folder may have changed */
     int32_t         found_index = -1;
+    int32_t         clone_from = -1;   /* naming a clone of this one */
 };
 
 void bt_ui_start_draw(bt_ui_start &st);
@@ -93,5 +94,19 @@ bool bt_ui_default_setlist_root(char *out, size_t cap);
 
 /* Writes a set list with one empty song to <dir>/setlist.json. */
 bt_err bt_ui_new_setlist(const char *dir, const char *name);
+
+/* Copy a whole set list folder to a new one: the set list file, the device
+ * file if it has one, and every stem.
+ *
+ * Cloning is how a second set gets built - most of a working set carries over,
+ * already aligned, and what changes is a handful of songs. Doing that by
+ * re-adding and re-aligning forty stems is the work this avoids.
+ *
+ * Stems are hard-linked where the filesystem allows it, which it does for two
+ * folders side by side in Documents, so a clone is instant and costs no disk.
+ * Nothing ever writes to a stem - alignment lives in the set list file - so
+ * the sharing cannot be noticed. Falls back to copying when linking fails,
+ * which is what happens across volumes. */
+bt_err bt_ui_clone_setlist(const char *src_dir, const char *dst_dir);
 
 #endif /* BT_UI_START_H */

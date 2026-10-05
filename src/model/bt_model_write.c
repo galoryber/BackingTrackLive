@@ -91,10 +91,7 @@ static void sb_json_string(sb *s, const char *v) {
  * first that survives a parse. */
 static void sb_number(sb *s, double v) {
     char tmp[64];
-    for (int prec = 1; prec <= 17; prec++) {
-        snprintf(tmp, sizeof(tmp), "%.*g", prec, v);
-        if (strtod(tmp, NULL) == v) break;
-    }
+    bt_format_number(v, tmp, sizeof(tmp));
     /* JSON has no Infinity or NaN. Nothing in the model should ever be either;
      * if one appears, write a zero rather than an unparseable file. */
     if (strstr(tmp, "inf") || strstr(tmp, "nan") || strstr(tmp, "INF")

@@ -114,6 +114,26 @@ bt_frame bt_song_length(const bt_song *song, int32_t sample_rate) {
     return end;
 }
 
+void bt_format_number(double v, char *out, size_t cap) {
+    if (!out || cap == 0) return;
+
+    /* Plain decimal first, shortest that parses back exactly. %g reaches for
+     * scientific notation early - it renders 120 as 1.2e+02, which round
+     * trips perfectly and is not a tempo anybody wants to read in a file they
+     * are meant to be able to edit by hand. */
+    for (int prec = 0; prec <= 9; prec++) {
+        snprintf(out, cap, "%.*f", prec, v);
+        if (strtod(out, NULL) == v) return;
+    }
+
+    /* Only for magnitudes a fixed form cannot express: nothing in this model
+     * should get here, but a number is better than a truncated one. */
+    for (int prec = 1; prec <= 17; prec++) {
+        snprintf(out, cap, "%.*g", prec, v);
+        if (strtod(out, NULL) == v) return;
+    }
+}
+
 bt_frame bt_song_fade_frames(const bt_song *song, int32_t sample_rate) {
     if (!song || song->length_bars <= 0 || sample_rate <= 0) return 0;
 
