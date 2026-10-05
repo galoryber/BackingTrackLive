@@ -369,7 +369,37 @@ static void test_absent_cue_stays_absent(void) {
     bt_setlist_free(sl);
 }
 
+
+/* ...and it has to survive being saved. A BPM that comes back as 138.8, or as
+ * 138.78000000000001, is a different song. */
+static void test_a_fractional_bpm_round_trips(void) {
+    round_trip(
+      "{\"version\":1,\"name\":\"n\",\"songs\":[{"
+      "\"title\":\"Summer of 69\",\"tempo\":{\"bpm\":138.78},"
+      "\"count_in_bars\":2,\"on_end\":\"stop\",\"tracks\":["
+      "{\"type\":\"click\",\"bus\":\"inear\"}]}]}", "fractional bpm");
+
+    /* And the text says exactly that, rather than a longer float that happens
+     * to parse back the same. */
+    static const char *src =
+      "{\"version\":1,\"name\":\"n\",\"songs\":[{"
+      "\"tempo\":{\"bpm\":138.78},\"count_in_bars\":1,\"on_end\":\"stop\","
+      "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}]}]}";
+    bt_setlist *sl = load_mem(src);
+    BT_CHECK(sl != NULL);
+    if (!sl) return;
+    char *out = NULL; size_t n = 0;
+    BT_CHECK_EQI(bt_setlist_to_json(sl, &out, &n), BT_OK);
+    if (out) {
+        BT_CHECK(strstr(out, "138.78") != NULL);
+        BT_CHECK(strstr(out, "138.780") == NULL);
+        free(out);
+    }
+    bt_setlist_free(sl);
+}
+
 int main(void) {
+    BT_RUN(test_a_fractional_bpm_round_trips);
     BT_RUN(test_cue_survives);
     BT_RUN(test_absent_cue_stays_absent);
     BT_RUN(test_tuning_survives);

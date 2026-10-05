@@ -202,6 +202,21 @@ list where a working one used to be. Numbers are emitted at the shortest
 precision that parses back exactly, so a 156.37 BPM stays `156.37` rather than
 becoming `156.36999999999999`.
 
+## Tempo precision
+
+A song's BPM is a `double` and is used as given. The UI rounds it for display -
+the set list prints a whole number, the playing screen one decimal, the editor
+two - because three decimal places across a dark room is noise. None of that
+reaches the click.
+
+It matters more than it looks. A purchased backing track at 138.78 BPM, played
+against a click rounded to 138.8, is 62 ms out by beat 1000 - about a seventh
+of a beat. Rounded to 139 it is 684 ms out, which is a beat and a half.
+`tests/test_tempo.c` has `test_a_fractional_bpm_is_honoured_exactly`, and
+`tests/test_write.c` checks the digits survive a save: numbers are written at
+the shortest precision that parses back exactly, so 138.78 stays `138.78`
+rather than becoming `138.78000000000001` or `138.8`.
+
 ## Testing
 
 The test suite runs headless on Linux, macOS and Windows and needs no audio

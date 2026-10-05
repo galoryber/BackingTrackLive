@@ -185,13 +185,17 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
         /* Tuning sits left of the tempo. It is the one that makes somebody
          * pick up a different guitar, so it wants reading before the song
          * starts rather than during it. */
-        /* A song that runs into the next one, marked where the set is read. */
+        /* A song that runs into the next one, marked where the set is read.
+         * A plain down arrow: the font has no U+21B3, so the curved one it
+         * used to draw came out as the missing-glyph box, which reads as an
+         * error rather than as information. The arrows in the footer prove
+         * this one renders. */
         if (s.on_end == BT_ON_END_NEXT) {
             const float ms = row_sz * 0.62f;
             text_at(dl, f, ms,
                     ImVec2(pad * 1.4f + text_w(f, row_sz, "88") + pad * 0.4f,
                            y + row_h * 0.30f),
-                    COL_SEGUE, "\xe2\x86\xb3");
+                    COL_SEGUE, "\xe2\x86\x93");
         }
 
         if (s.tuning[0]) {

@@ -117,7 +117,42 @@ static void test_inverse_across_tempo_change(void) {
     }
 }
 
+
+/* A fractional BPM has to be honoured to its last digit, not to whatever the
+ * UI happens to print.
+ *
+ * Bought backing tracks come with tempos like 138.78. The set list screen
+ * prints 139 and the playing screen 138.8, because three decimal places on a
+ * stage is noise - but the click has to land where 138.78 says, and the
+ * difference is not subtle: by the end of a four minute song it is most of a
+ * beat. */
+static void test_a_fractional_bpm_is_honoured_exactly(void) {
+    bt_tempo_map m;
+    memset(&m, 0, sizeof(m));
+    m.seg[0].bpm = 138.78;
+    m.nseg    = 1;
+    m.sig_num = 4;
+    m.sig_den = 4;
+
+    /* Beat 1000 at 138.78 BPM: 1000 * 60 / 138.78 seconds. */
+    const double want_s = 1000.0 * 60.0 / 138.78;
+    const bt_frame got = bt_tempo_beat_frame(&m, 1000, 48000);
+    BT_CHECK_EQI(got, (bt_frame)llround(want_s * 48000.0));
+
+    /* And it is audibly not the same as the rounded values the UI shows. */
+    bt_tempo_map tenth = m;  tenth.seg[0].bpm = 138.8;
+    bt_tempo_map whole = m;  whole.seg[0].bpm = 139.0;
+    const bt_frame at_tenth = bt_tempo_beat_frame(&tenth, 1000, 48000);
+    const bt_frame at_whole = bt_tempo_beat_frame(&whole, 1000, 48000);
+
+    /* Rounding to a tenth costs about 60 ms by beat 1000; to a whole BPM,
+     * closer to 700 ms. Both are a mistake somebody would hear. */
+    BT_CHECK(llabs((long long)(got - at_tenth)) > 48000 / 40);
+    BT_CHECK(llabs((long long)(got - at_whole)) > 48000 / 2);
+}
+
 int main(void) {
+    BT_RUN(test_a_fractional_bpm_is_honoured_exactly);
     BT_RUN(test_exact_positions);
     BT_RUN(test_downbeat_offset);
     BT_RUN(test_count_in_is_negative);
