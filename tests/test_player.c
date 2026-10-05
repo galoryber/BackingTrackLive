@@ -192,11 +192,13 @@ static void test_preload_window(void) {
     check_resident(&r, 2, false, "outside the window");
     check_resident(&r, 5, false, "outside the window");
 
-    /* Once settled, a tick has nothing new to report. */
+    /* Once settled, a tick reports no song event. It may still report that
+     * the loader finished something, which is a property of when the two
+     * threads happen to meet rather than of the behaviour under test. */
     bt_tick_result t = BT_TICK_IDLE;
     BT_CHECK_EQI(bt_player_tick(r.p, &t), BT_OK);
     BT_CHECK_EQI(bt_player_tick(r.p, &t), BT_OK);
-    BT_CHECK_EQI(t, BT_TICK_IDLE);
+    BT_CHECK(t == BT_TICK_IDLE || t == BT_TICK_PRELOADED);
 
     size_t two_songs = bt_player_resident_bytes(r.p);
     BT_CHECK(two_songs > 0);
@@ -236,9 +238,15 @@ static void test_on_end_stop_waits(void) {
     BT_CHECK_EQI(bt_player_current(r.p), 1);     /* did not move */
     BT_CHECK(!bt_player_playing(r.p));
 
-    /* The end is reported once, not on every subsequent tick. */
+    /* The end is reported once, not on every subsequent tick.
+     *
+     * Not asserted as IDLE: the loader runs on its own thread, and if it
+     * happens to finish something between these two ticks the honest answer
+     * is PRELOADED. Demanding IDLE made this depend on which machine it ran
+     * on, and a macOS runner duly disagreed. What matters is that the end
+     * does not come round again. */
     BT_CHECK_EQI(bt_player_tick(r.p, &t), BT_OK);
-    BT_CHECK_EQI(t, BT_TICK_IDLE);
+    BT_CHECK(t != BT_TICK_SONG_ENDED);
 
     rig_down(&r);
 }
