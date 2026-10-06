@@ -209,6 +209,24 @@ if(BT_WITH_DEVICE)
   target_compile_options(btplay PRIVATE ${BT_WARN})
 endif()
 
+# ----------------------------------------------------------------- midi out
+#
+# Its own library, Windows only, for the same reason the device layer is
+# separate: libbacktrack has no platform dependency and nothing in tests/
+# links either of them. This exists to drive a lighting desk - QLC+ over a
+# loopMIDI port - and is output only.
+if(WIN32)
+  add_library(backtrack_midi STATIC src/midi/bt_midi_win.c)
+  target_include_directories(backtrack_midi
+    PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_link_libraries(backtrack_midi PUBLIC backtrack PRIVATE winmm)
+  target_compile_options(backtrack_midi PRIVATE ${BT_WARN})
+
+  add_executable(btmidi tools/btmidi.c)
+  target_link_libraries(btmidi PRIVATE backtrack_midi)
+  target_compile_options(btmidi PRIVATE ${BT_WARN})
+endif()
+
 # ------------------------------------------------------------------- ui
 #
 # The stage UI. Windows-only for now: it renders with D3D11, which is the

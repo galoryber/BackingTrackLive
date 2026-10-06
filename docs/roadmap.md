@@ -95,6 +95,84 @@ device to choose, a level to watch, a file to name. Worth paying for if the
 band ends up wanting a cue on every song. Not worth it for three, which a
 phone already covers.
 
+## Lighting cues over MIDI
+
+The band runs QLC+ on the same laptop, driving a USB DMX adapter. The plan is
+for a song to carry cues at bar positions, and for the player to send MIDI at
+those bars; QLC+ owns the fixtures, the scenes and the DMX.
+
+**This replaces the Art-Net / sACN plan.** Speaking DMX ourselves would mean
+owning fixture definitions, patching and a 44 Hz output loop, to end up with a
+worse version of a tool that already exists and that the band is already
+learning. Sending MIDI to QLC+ is a few hundred lines; the rest is somebody
+else's problem, correctly.
+
+### Why this is not as hard as it sounds
+
+Cues do not need the real-time path. `bt_player_tick` runs once per UI frame,
+vsynced, so about 16 ms at 60 Hz - and lighting does not care: DMX itself
+refreshes around 44 Hz, and QLC+ adds its own latency. So firing cues is
+ordinary UI-thread work and never touches the rules that govern the audio
+callback.
+
+The split follows the one that already works for audio: the cue list and the
+"which cues fall between the last playhead and this one" question live in
+`libbacktrack`, testable headless on Linux to the sample. Talking to a MIDI
+port lives in a separate platform library, as the PortAudio backend does.
+
+### The decision that shapes the data model
+
+**What does one cue send?**
+
+*A cue-list note.* QLC+ cue lists bind one MIDI note to *Next Cue*. Every cue
+sends the same note and QLC+ advances its own list. The set list stays simple -
+a bar number and a description - and all the lighting detail lives in QLC+
+where it belongs.
+
+The cost is that position is implicit. Jump to bar 80 in rehearsal and QLC+ is
+several cues behind, with no way to know it. Firing the skipped cues rapidly
+to catch up is possible and is a fade-through-every-scene the audience would
+see if it ever happened live.
+
+*A note per cue.* Each cue names its own note, QLC+ binds notes to scenes
+directly, and position is explicit. Jumping anywhere is correct immediately:
+fire the most recent cue and the rig is right. The cost is that the set list
+holds note numbers, and the mapping has to agree with QLC+ in two places.
+
+**Recommended: a note per cue.** Rehearsal is mostly jumping around, which
+this session established repeatedly, and a cue system that only survives
+linear playback is one that is wrong exactly when it is being worked on.
+
+### What follows from it
+
+- **Seeking.** With notes per cue: fire the latest cue at or before the new
+  position, nothing else. With a cue list: catch up, or do not support it.
+- **Segue.** Cues belong to songs, so running into the next song starts that
+  song's cues. The last cue of the outgoing song stays in force until the
+  next one fires, which is what a lighting desk does anyway.
+- **Count-in.** A cue at bar 1 fires when bar 1 arrives, not during the
+  count-in - unless somebody wants a cue *on* the count-in, which negative bar
+  numbers would express and which nothing needs yet.
+- **Stop.** Stopping mid-song should probably send nothing. Blackout on stop
+  sounds tidy and would kill the lights while the singer is talking.
+
+### Shape of the file, either way
+
+```json
+"lighting_cues": [
+  { "bar": 1,  "note": 36, "desc": "intro - guitar synth riff" },
+  { "bar": 12, "note": 37, "desc": "prechorus" }
+]
+```
+
+With a cue list the `note` is omitted and a per-set-list default is used.
+
+### Status
+
+The MIDI output layer is built: port enumeration, open, and sending notes.
+The cue model, the firing logic and the editor are not, and wait on the
+decision above.
+
 ## Other product gaps, not CLI-shaped
 
 - **Hands-free control.** A set cannot currently be run without touching the
