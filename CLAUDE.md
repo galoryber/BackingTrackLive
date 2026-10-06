@@ -121,6 +121,12 @@ src/player/          set list player + loader thread: selection, on_end,
                      and the only code that loads or frees stems
 src/device/          PortAudio backend. A SEPARATE library: libbacktrack has
                      no device dependency, and nothing in tests/ links this.
+src/midi/            MIDI output through winmm, for driving QLC+ over a
+                     loopMIDI port. A SEPARATE library, Windows only, output
+                     only. Never called from the audio callback: sending MIDI
+                     is a syscall. Cues fire from the UI thread, where a
+                     frame of jitter is far below what a lighting rig can
+                     express.
 tools/btplay.c       CLI: plays a set list through a real device
 src/util/            error strings, portable thread/mutex/condvar shim
 tools/btrender.c     CLI: setlist.json -> rendered WAV (offline, deterministic)
@@ -175,8 +181,11 @@ letting future work live only in a conversation.
         a few bars to confirm by ear. `bt_peaks` is in place for it.
       - tempo maps and track reordering, which the format supports and the
         editor does not yet expose.
-- [ ] Phase 4 — MIDI in (footswitch) / MIDI out (patch changes)
-- [ ] Phase 5 — DMX via Art-Net / sACN
+- [ ] Phase 4 — MIDI in (footswitch)
+- [~] Phase 5 — lighting cues. MIDI *out* is built (`src/midi`, `btmidi`);
+      the cue model, the firing logic and the editor are not, and wait on one
+      decision recorded in `docs/roadmap.md`. This replaces the Art-Net/sACN
+      plan: QLC+ owns the fixtures and the DMX, and we send it MIDI.
 
 ## Shipping
 

@@ -78,6 +78,7 @@ jobs:
             Copy-Item "build/Release/$t.exe" stage/ -ErrorAction SilentlyContinue
           }
           Copy-Item build-ui/Release/BackingTrackLive.exe stage/ -Force -ErrorAction SilentlyContinue
+          Copy-Item build/Release/btmidi.exe stage/ -Force -ErrorAction SilentlyContinue
           Copy-Item README.md,LICENSE,NOTICE stage/
           Copy-Item -Recurse examples/setlist stage/examples/
           Copy-Item docs/*.md stage/docs/
@@ -93,7 +94,7 @@ jobs:
         run: |
           set -e
           if [ "${{ runner.os }}" = "Windows" ]; then
-            for t in btrender.exe btcheck.exe btplay.exe BackingTrackLive.exe; do
+            for t in btrender.exe btcheck.exe btplay.exe btmidi.exe BackingTrackLive.exe; do
               test -f "stage/$t" || { echo "MISSING: $t"; exit 1; }
             done
           else
