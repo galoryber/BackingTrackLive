@@ -963,16 +963,39 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                            !std::strcmp(state, "editsong") ||
                            !std::strcmp(state, "editaudio") ||
                            !std::strcmp(state, "editalign") ||
+                           !std::strcmp(state, "editlight") ||
                            !std::strcmp(state, "check");
     if (edit_shot) {
         ed.sl  = sl;
         ed.dev = &shot_dev;
         ed.song = song;
         ed.track = 1;
-        ed.screen = !std::strcmp(state, "editalign") ? bt_edit_screen::align
+        ed.screen = !std::strcmp(state, "editlight") ? bt_edit_screen::lighting
+                  : !std::strcmp(state, "editalign") ? bt_edit_screen::align
                   : !std::strcmp(state, "editsong")  ? bt_edit_screen::song
                   : !std::strcmp(state, "editaudio") ? bt_edit_screen::audio
                                                      : bt_edit_screen::setlist;
+        if (ed.screen == bt_edit_screen::lighting ||
+            ed.screen == bt_edit_screen::song) {
+            sl->light.channel   = 1;
+            sl->light.next_note = 38;
+            sl->light.end_note  = 37;
+            sl->light.velocity  = 127;
+            bt_song &lg = sl->song[ed.song >= 0 && ed.song < sl->nsongs ? ed.song : 0];
+            lg.midi_program = 3;
+            if (lg.nlight_cues == 0) {
+                const int32_t bars[] = { 1, 17, 33, 41, 57, 73, 81, 97 };
+                for (size_t k = 0; k < sizeof(bars) / sizeof(bars[0]); k++)
+                    lg.light_cue[lg.nlight_cues++].bar = bars[k];
+                lg.light_cue[lg.nlight_cues].bar  = 138;
+                lg.light_cue[lg.nlight_cues].note = 37;
+                std::snprintf(lg.light_cue[lg.nlight_cues].desc,
+                              BT_MAX_CUE, "end");
+                lg.nlight_cues++;
+                std::snprintf(lg.light_cue[0].desc, BT_MAX_CUE, "intro");
+            }
+        }
+
         if (ed.screen == bt_edit_screen::align) {
             /* A stem that begins 380 ms after the downbeat: what a purchased
              * backing track with a lead-in actually looks like. */
