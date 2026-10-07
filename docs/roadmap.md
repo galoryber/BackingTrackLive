@@ -166,13 +166,30 @@ every set list written before this byte-identical when re-saved.
 
 ### Status
 
-Built: the MIDI output layer (`src/midi`, `btmidi`), and the cue model -
-cue timing from the beat index, "which cues fired between these two
-playheads", "how many cues has this position passed", and the JSON for all of
-it, round-tripped.
+**Built**, and verified on a real virtual MIDI port with a monitor on the other
+end rather than from the shape of the code: the output layer (`src/midi`,
+`btmidi`), the cue model, the firing - program change on start, notes on bars,
+exact resync on a jump - and the editor, both the lighting screen and the cue
+table per song. `tools/add-cues.py` fills a set list from a table so a show
+planned in a spreadsheet does not have to be retyped. `docs/lighting.md` is
+the setup guide.
 
-Not built: wiring it to the player and the port, and an editor. Until the
-editor exists, cues can be written into `setlist.json` by hand.
+**Not yet proven against a real rig.** Everything above has been checked by
+reading the bytes on the wire, and QLC+ will advance a cue list with no
+fixtures patched, which covers the program changes selecting the right list
+and the bars landing where they should. What is untested is the last hop:
+fixtures, the DMX adapter, and whether the cue bars are musically right when
+there is light in the room. That needs the rig at the practice space.
+
+Open once that happens:
+
+- Whether a **program change should also fire on merely selecting a song**, so
+  the rig changes while browsing between songs. It does not today, because
+  arrow-keying through the set would send a program change per keypress. But
+  between songs, with the band waiting, having the next look up early may
+  matter more. A one-line change either way; it depends on how the set is run.
+- Whether **stop should send anything**. It sends nothing today, deliberately -
+  a blackout while the singer is talking would be worse than stale light.
 
 ## Other product gaps, not CLI-shaped
 
