@@ -274,6 +274,8 @@ bt_err bt_device_cfg_load_mem(const char *text, size_t len, bt_device_cfg *out,
 
     copy_str(out->device, sizeof(out->device), bt_json_get(root, "device"), "default");
     copy_str(out->api,    sizeof(out->api),    bt_json_get(root, "api"),    "");
+    copy_str(out->midi_out, sizeof(out->midi_out),
+             bt_json_get(root, "midi_out"), "");
     out->sample_rate   = (int32_t)bt_json_number(bt_json_get(root, "sample_rate"), 48000);
     out->buffer_frames = (int32_t)bt_json_number(bt_json_get(root, "buffer_frames"), 512);
 

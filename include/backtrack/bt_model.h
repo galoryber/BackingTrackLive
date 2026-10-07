@@ -172,6 +172,16 @@ typedef struct {
      * PortAudio's "default device" is the MME one. Leaving this empty picks
      * the best API present rather than the default. */
     char    api[BT_MAX_NAME];
+
+    /* Which MIDI output the lighting desk is listening on, matched as a
+     * substring of the port name - a loopMIDI port appears under whatever it
+     * was named there.
+     *
+     * Machine-local, like the audio interface and for the same reason: the
+     * backup laptop has its own ports. What is *sent* down it is show design
+     * and lives in the set list. Empty means no lighting from this machine,
+     * which is the default. */
+    char    midi_out[BT_MAX_NAME];
 } bt_device_cfg;
 
 /* ---------------------------------------------------------------------------

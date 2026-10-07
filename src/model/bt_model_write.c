@@ -249,6 +249,12 @@ bt_err bt_device_cfg_to_json(const bt_device_cfg *cfg, char **out, size_t *len) 
     sb_json_string(&s, cfg->device);
     sb_str(&s, ",\n  \"api\": ");
     sb_json_string(&s, cfg->api);
+    /* Omitted when there is no lighting, so a device.json written before this
+     * re-saves byte-identically. */
+    if (cfg->midi_out[0]) {
+        sb_str(&s, ",\n  \"midi_out\": ");
+        sb_json_string(&s, cfg->midi_out);
+    }
     sb_fmt(&s, ",\n  \"sample_rate\": %d,\n  \"buffer_frames\": %d,\n",
            cfg->sample_rate, cfg->buffer_frames);
     sb_str(&s, "  \"buses\": [\n");

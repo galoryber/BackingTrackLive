@@ -162,6 +162,14 @@ static void test_device_cfg(void) {
     const char *badch =
     "{\"buses\":[{\"name\":\"x\",\"channels\":[999]}]}";
     BT_CHECK(bt_device_cfg_load_mem(badch, strlen(badch), &cfg, &line) != BT_OK);
+
+    /* The lighting port is machine-local, like the audio interface, and is
+     * absent from a device.json that has none. */
+    {
+        bt_device_cfg d;
+        bt_device_cfg_defaults(&d);
+        BT_CHECK(d.midi_out[0] == '\0');
+    }
 }
 
 static void test_error_strings(void) {

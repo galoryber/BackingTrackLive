@@ -25,6 +25,7 @@
 #include "backtrack/bt_device.h"
 
 #include "backtrack/bt_demo.h"
+#include "backtrack/bt_midi.h"
 #include "backtrack/bt_wav.h"
 
 #include "bt_ui.h"
@@ -111,6 +112,15 @@ struct App {
     /* Holding on the playing screen after a song ends, with the next one
      * queued. Cleared by going to the set list, or by starting something. */
     bool          armed = false;
+
+    /* Lighting. The port is machine-local; what goes down it is show design
+     * and comes from the set list. */
+    bt_midi      *midi = nullptr;
+    char          midi_name[BT_MIDI_NAME_MAX] = {0};
+    char          midi_why[160] = {0};
+    bt_frame      cue_last = 0;      /* playhead at the previous tick     */
+    int32_t       cue_song = -1;     /* song the above belongs to         */
+    int32_t       cues_fired = 0;    /* for the screen, and for debugging */
     /* A start that is waiting for the loader rather than blocking on it. */
     bool          pending_start    = false;
     bool          pending_count_in = false;
@@ -194,6 +204,11 @@ void transport_start(App &a, bool count_in) {
         a.note[0] = '\0';
         if (count_in) bt_player_start(a.player);
         else { bt_player_stop(a.player); bt_player_play(a.player); }
+        /* The desk loads this song's cue list now, while the count-in runs,
+         * so it is ready before bar 1 arrives. From wherever the playhead
+         * actually is, which is the count-in for a normal start and the
+         * middle of the song after a scrub. */
+        lighting_resync(a, a.selected, bt_player_playhead(a.player));
         return;
     }
     const bt_song &s = a.sl->song[a.selected];
@@ -354,6 +369,7 @@ void toggle_fullscreen(HWND hwnd) {
 void close_set() {
     App &a = g_app;
     g_start.rescan = true;      /* the folder may have changed since last time */
+    close_midi(a);
     if (a.device) { bt_device_stop(a.device); bt_device_close(a.device); a.device = nullptr; }
     if (a.player) { bt_player_destroy(a.player); a.player = nullptr; }
     if (a.sl)     { bt_setlist_free(a.sl); a.sl = nullptr; }
@@ -372,6 +388,122 @@ void close_set() {
 }
 
 void reopen_audio(HWND hwnd);
+
+/* ---- lighting ---------------------------------------------------------
+ *
+ * Cues are sent from here, on the UI thread, and never from the audio
+ * callback: sending MIDI is a syscall. A frame of jitter is about 16 ms and
+ * DMX refreshes at around 44 Hz, so nothing downstream can tell.
+ */
+
+bool lighting_on(const App &a) {
+    return a.midi && a.sl && a.sl->light.channel > 0;
+}
+
+void close_midi(App &a) {
+    if (a.midi) { bt_midi_close(a.midi); a.midi = nullptr; }
+    a.midi_name[0] = '\0';
+}
+
+/* Opens the port named in device.json, if there is one. Failing is not fatal:
+ * a gig without lights is a gig; a gig that will not start because a MIDI
+ * port moved is not. */
+void reopen_midi(App &a) {
+    close_midi(a);
+    a.midi_why[0] = '\0';
+
+    if (!a.dev.midi_out[0]) return;
+
+    const int32_t idx = bt_midi_find(a.dev.midi_out);
+    if (idx < 0) {
+        std::snprintf(a.midi_why, sizeof(a.midi_why),
+                      "no MIDI port matching \"%s\"", a.dev.midi_out);
+        return;
+    }
+    bt_midi_info info;
+    if (bt_midi_get(idx, &info) != BT_OK) std::memset(&info, 0, sizeof(info));
+
+    bt_err e = bt_midi_open(idx, &a.midi);
+    if (e != BT_OK) {
+        std::snprintf(a.midi_why, sizeof(a.midi_why),
+                      "could not open %s: %s", info.name, bt_strerror(e));
+        return;
+    }
+    std::snprintf(a.midi_name, sizeof(a.midi_name), "%s", info.name);
+}
+
+/* Tell the desk which song this is, and put its cue list back to the start.
+ * Sent as a song begins rather than as one is selected: browsing the set with
+ * the arrow keys would otherwise fire a program change per keypress. */
+void lighting_load_song(App &a, int32_t song_index) {
+    if (!lighting_on(a)) return;
+    if (song_index < 0 || song_index >= a.sl->nsongs) return;
+
+    const bt_song &s = a.sl->song[song_index];
+    if (s.midi_program >= 0)
+        bt_midi_send(a.midi, (uint8_t)(0xC0 | (a.sl->light.channel - 1)),
+                     (uint8_t)s.midi_program, 0);
+
+    a.cue_song   = song_index;
+    a.cues_fired = 0;
+}
+
+void lighting_fire(App &a, const bt_light_cue &cue) {
+    const int32_t note = bt_light_cue_note(&a.sl->light, &cue);
+    if (note <= 0) return;
+    int32_t vel = a.sl->light.velocity;
+    if (vel < 1 || vel > 127) vel = 127;
+    bt_midi_trigger(a.midi, a.sl->light.channel, note, vel);
+    a.cues_fired++;
+}
+
+/* A jump - selecting a song, or scrubbing - leaves a QLC+ cue list with no
+ * idea where it is, because a cue list only knows "next". Reload the song,
+ * which puts it at step zero, then advance it once per cue the new position
+ * has already passed. */
+void lighting_resync(App &a, int32_t song_index, bt_frame at) {
+    if (!lighting_on(a)) return;
+    lighting_load_song(a, song_index);
+
+    const bt_song &s = a.sl->song[song_index];
+    const int32_t sr = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
+    const int32_t n  = bt_song_cues_before(&s, at, sr);
+    for (int32_t i = 0; i < n && i < s.nlight_cues; i++)
+        lighting_fire(a, s.light_cue[i]);
+
+    a.cue_last = at;
+}
+
+/* Called every frame while playing. */
+void lighting_tick(App &a) {
+    if (!lighting_on(a) || !a.player) return;
+
+    const int32_t song = bt_player_current(a.player);
+    if (song < 0 || song >= a.sl->nsongs) return;
+
+    const bt_frame now = bt_player_playhead(a.player);
+
+    /* A song change the transport made on its own - a segue. */
+    if (song != a.cue_song) {
+        lighting_load_song(a, song);
+        a.cue_last = now - 1;
+    }
+
+    if (now < a.cue_last) {
+        /* The playhead went backwards without anyone telling us, so the desk
+         * is ahead of the music. Put it back. */
+        lighting_resync(a, song, now);
+        return;
+    }
+
+    const bt_song &s = a.sl->song[song];
+    const int32_t sr = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
+    int32_t idx[BT_MAX_LIGHT_CUES];
+    const int32_t n = bt_song_cues_between(&s, a.cue_last, now, sr,
+                                           idx, BT_MAX_LIGHT_CUES);
+    for (int32_t i = 0; i < n; i++) lighting_fire(a, s.light_cue[idx[i]]);
+    a.cue_last = now;
+}
 
 /* Load a set list and bring up audio for it. device.json defaults to sitting
  * beside the set list, which is where the folder-is-one-unit rule puts it. */
@@ -452,6 +584,7 @@ bool open_set(HWND hwnd, const char *setlist_path, const char *device_path) {
     std::snprintf(g_edit.device_path, sizeof(g_edit.device_path), "%s", dpath);
 
     reopen_audio(hwnd);
+    reopen_midi(a);
     bt_ui_settings_touch(g_settings, setlist_path, dpath);
     g_start.status[0] = '\0';
     return true;
@@ -1178,6 +1311,7 @@ int main(int argc, char **argv) {
         if (g_app.live) {
             bt_tick_result t = BT_TICK_IDLE;
             bt_player_tick(g_app.player, &t);
+            if (transport_playing(g_app)) lighting_tick(g_app);
             if (t == BT_TICK_ADVANCED) g_app.selected = bt_player_current(g_app.player);
 
             /* A song that stops holds the screen instead of dropping to the
@@ -1235,6 +1369,7 @@ int main(int argc, char **argv) {
             if (g_edit.reopen_device) {
                 g_edit.reopen_device = false;
                 reopen_audio(hwnd);
+                reopen_midi(g_app);
             }
             if (g_edit.want_reload) {
                 g_edit.want_reload = false;
@@ -1295,7 +1430,11 @@ int main(int argc, char **argv) {
                         bt_player_select(g_app.player, g_edit.song);
                     }
                     const double sr = g_app.dev.sample_rate > 0 ? g_app.dev.sample_rate : 48000;
-                    bt_player_seek(g_app.player, (bt_frame)(g_edit.seek_sec * sr));
+                    const bt_frame to = (bt_frame)(g_edit.seek_sec * sr);
+                    bt_player_seek(g_app.player, to);
+                    /* Take the lighting desk with it, or it carries on from
+                     * wherever it had got to. */
+                    lighting_resync(g_app, g_edit.song, to);
                 }
             }
             else if (g_edit.want_reapply) {
