@@ -761,8 +761,8 @@ void draw_song_screen(bt_ui_edit &ed) {
                    ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
                    ImGuiTableFlags_SizingStretchProp)) {
             ImGui::TableSetupColumn("bar",  ImGuiTableColumnFlags_WidthFixed, 110);
-            ImGui::TableSetupColumn("note", ImGuiTableColumnFlags_WidthFixed, 130);
-            ImGui::TableSetupColumn("what it is", ImGuiTableColumnFlags_WidthStretch, 3);
+            ImGui::TableSetupColumn("does", ImGuiTableColumnFlags_WidthFixed, 175);
+            ImGui::TableSetupColumn("what it is for", ImGuiTableColumnFlags_WidthStretch, 3);
             ImGui::TableSetupColumn("",     ImGuiTableColumnFlags_WidthFixed, 40);
             ImGui::TableHeadersRow();
 
