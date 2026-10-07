@@ -137,8 +137,12 @@ to buy.
 The band's mapping, which the data model follows:
 
 - **Program change 0-35**, one per song, sent on starting
-- **Note 38** - next cue, at bars like 1, 17, 33, 41, 57, 73, 81, 97
-- **Note 37** - song end
+- **Note 38** - go, at bars like 1, 17, 33, 41, 57, 73, 81, 97
+- **Note 37** - the between-songs look, at the end of a song
+- **Note 39** - blackout, for a song that ends on the chord
+- **Note 36** - step the cue list back, for a rehearsal rewind
+
+All on channel 16.
 
 A cue may override the note, which is how the end cue differs; `note: 0` means
 "use the set list's next-cue note", which is what almost every cue says.
@@ -155,8 +159,11 @@ every set list written before this byte-identical when re-saved.
 
 ### What follows
 
-- **Seeking.** Resend the program change, then advance `cues_before(position)`
-  times. Exact, and only possible because of the program change.
+- **Seeking.** Whichever is fewer messages: step back with note 36, or resend
+  the program change and step forward from the top. A small rewind - the
+  common one, scrubbing while aligning a stem - costs a note or two and the
+  lights simply step back, rather than reloading and racing forward through
+  every look in the song.
 - **Segue.** The next song's program change fires as it starts, so the desk
   follows without anyone touching it.
 - **Count-in.** The program change goes at the start of the count-in, so the
