@@ -212,6 +212,8 @@ bt_err bt_setlist_load_mem(const char *text, size_t len, const char *dir,
         sl->light.channel   = (int32_t)bt_json_number(bt_json_get(lg, "channel"), 0);
         sl->light.next_note = (int32_t)bt_json_number(bt_json_get(lg, "next_note"), 0);
         sl->light.end_note  = (int32_t)bt_json_number(bt_json_get(lg, "end_note"), 0);
+        sl->light.prev_note     = (int32_t)bt_json_number(bt_json_get(lg, "prev_note"), 0);
+        sl->light.blackout_note = (int32_t)bt_json_number(bt_json_get(lg, "blackout_note"), 0);
         sl->light.velocity  = (int32_t)bt_json_number(bt_json_get(lg, "velocity"), 127);
         if (sl->light.channel   < 0 || sl->light.channel   > 16)  return BT_ERR_SCHEMA;
         if (sl->light.next_note < 0 || sl->light.next_note > 127) return BT_ERR_SCHEMA;

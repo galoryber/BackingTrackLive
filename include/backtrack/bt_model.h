@@ -135,8 +135,21 @@ typedef struct {
 typedef struct {
     int32_t channel;      /* 1-16; 0 means "no lighting", the default      */
     int32_t next_note;    /* advance the cue list - QLC+ "Next Cue"        */
-    int32_t end_note;     /* the song is over                              */
+    int32_t end_note;     /* the song is over - the between-songs look     */
     int32_t velocity;     /* 1-127; most desks ignore it                   */
+
+    /* Step the cue list *backwards*. Optional - 0 means the desk has no such
+     * binding, and a rewind is done by reloading the song and replaying.
+     *
+     * Worth having. Scrubbing back four bars while aligning a stem should
+     * send four of these, not reload the cue list and race forward through
+     * every look in the song to catch up. */
+    int32_t prev_note;
+
+    /* An instant blackout, for a song that ends on the chord rather than
+     * fading to the between-songs look. 0 means the desk has no such
+     * binding. A cue selects it by naming this note. */
+    int32_t blackout_note;
 } bt_light_cfg;
 
 typedef struct {
@@ -279,6 +292,16 @@ int32_t bt_song_cues_between(const bt_song *song, bt_frame after, bt_frame upto,
  * position, so after a jump the desk is told to reload the song - which puts
  * it back at step zero - and then advanced this many times. */
 int32_t bt_song_cues_before(const bt_song *song, bt_frame at, int32_t sample_rate);
+
+/* How many of those cues actually step the cue list: the ones that send the
+ * "next" note, not the ones that name their own.
+ *
+ * This is the number that says where the desk's cue list is standing, and it
+ * is not the same as the number of cues passed. An end-of-song cue sends the
+ * between-songs look or a blackout; the desk does that and stays where it
+ * was. Counting it would leave everything after it one step out. */
+int32_t bt_song_steps_before(const bt_song *song, const bt_light_cfg *cfg,
+                             bt_frame at, int32_t sample_rate);
 
 /* The note a cue actually sends, resolving 0 to the set list's default. */
 int32_t bt_light_cue_note(const bt_light_cfg *cfg, const bt_light_cue *cue);

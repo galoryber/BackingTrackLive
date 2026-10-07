@@ -218,6 +218,10 @@ bt_err bt_setlist_to_json(const bt_setlist *sl, char **out, size_t *len) {
         sb_fmt(&s, ",\n  \"lighting\": { \"channel\": %d", sl->light.channel);
         if (sl->light.next_note > 0) sb_fmt(&s, ", \"next_note\": %d", sl->light.next_note);
         if (sl->light.end_note  > 0) sb_fmt(&s, ", \"end_note\": %d",  sl->light.end_note);
+        if (sl->light.prev_note > 0)
+            sb_fmt(&s, ", \"prev_note\": %d", sl->light.prev_note);
+        if (sl->light.blackout_note > 0)
+            sb_fmt(&s, ", \"blackout_note\": %d", sl->light.blackout_note);
         if (sl->light.velocity != 127) sb_fmt(&s, ", \"velocity\": %d", sl->light.velocity);
         sb_str(&s, " }");
     }

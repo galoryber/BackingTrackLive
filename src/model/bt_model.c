@@ -164,6 +164,17 @@ int32_t bt_song_cues_between(const bt_song *song, bt_frame after, bt_frame upto,
     return n;
 }
 
+int32_t bt_song_steps_before(const bt_song *song, const bt_light_cfg *cfg,
+                             bt_frame at, int32_t sample_rate) {
+    if (!song || !cfg || sample_rate <= 0) return 0;
+    int32_t n = 0;
+    for (int32_t i = 0; i < song->nlight_cues; i++) {
+        if (bt_light_cue_note(cfg, &song->light_cue[i]) != cfg->next_note) continue;
+        if (bt_light_cue_frame(song, &song->light_cue[i], sample_rate) <= at) n++;
+    }
+    return n;
+}
+
 int32_t bt_song_cues_before(const bt_song *song, bt_frame at, int32_t sample_rate) {
     if (!song || sample_rate <= 0) return 0;
     int32_t n = 0;

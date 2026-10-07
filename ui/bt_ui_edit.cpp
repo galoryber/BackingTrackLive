@@ -779,17 +779,42 @@ void draw_song_screen(bt_ui_edit &ed) {
                     if (bar >= 1 && bar <= 10000) { c.bar = bar; ed.dirty = true; }
                 }
 
+                /* What the cue does, not which note it sends. The notes are
+                 * set up once on the lighting screen; here the question is
+                 * musical - does the song go on, finish, or stop dead. */
                 ImGui::TableNextColumn();
                 ImGui::SetNextItemWidth(-1);
-                int note = c.note;
-                if (ImGui::InputInt("##note", &note, 0, 0)) {
-                    if (note >= 0 && note <= 127) { c.note = note; ed.dirty = true; }
+                const bt_light_cfg &lc = ed.sl->light;
+                const int32_t eff = bt_light_cue_note(&lc, &c);
+                const char *what = eff == lc.next_note     ? "go"
+                                 : eff == lc.end_note      ? "between songs"
+                                 : eff == lc.blackout_note ? "blackout"
+                                 : eff == lc.prev_note     ? "back one"
+                                 : "note";
+                char combo[48];
+                std::snprintf(combo, sizeof(combo), "%s##what", what);
+                if (ImGui::BeginCombo("##what", combo)) {
+                    if (ImGui::Selectable("go", eff == lc.next_note))
+                        { c.note = 0; ed.dirty = true; }
+                    if (lc.end_note > 0 &&
+                        ImGui::Selectable("between songs", eff == lc.end_note))
+                        { c.note = lc.end_note; ed.dirty = true; }
+                    if (lc.blackout_note > 0 &&
+                        ImGui::Selectable("blackout", eff == lc.blackout_note))
+                        { c.note = lc.blackout_note; ed.dirty = true; }
+                    ImGui::Separator();
+                    ImGui::SetNextItemWidth(90);
+                    int raw = c.note;
+                    if (ImGui::InputInt("note##raw", &raw, 0, 0)) {
+                        if (raw >= 0 && raw <= 127) { c.note = raw; ed.dirty = true; }
+                    }
+                    ImGui::EndCombo();
                 }
                 if (ImGui::IsItemHovered())
-                    ImGui::SetTooltip("0 uses the set list's next-cue note (%d).\n"
-                                      "Name one to send something else - the end\n"
-                                      "of a song usually does.",
-                                      ed.sl->light.next_note);
+                    ImGui::SetTooltip("go      - the next look (note %d)\n"
+                                      "between - the talking look at the end (note %d)\n"
+                                      "blackout- straight to dark, for a hard ending (note %d)",
+                                      lc.next_note, lc.end_note, lc.blackout_note);
 
                 ImGui::TableNextColumn();
                 ImGui::SetNextItemWidth(-1);
@@ -1769,7 +1794,20 @@ void draw_lighting_screen(bt_ui_edit &ed) {
     ImGui::SetNextItemWidth(150);
     int ch = cfg.channel;
     if (ImGui::InputInt("channel", &ch, 1, 1)) {
-        if (ch >= 0 && ch <= 16) { cfg.channel = ch; ed.dirty = true; }
+        if (ch >= 0 && ch <= 16) {
+            /* Switching lighting on for the first time fills in a transport
+             * layout that works, rather than leaving four note numbers at
+             * zero for somebody to look up. They are only defaults. */
+            if (cfg.channel == 0 && ch > 0 && cfg.next_note == 0) {
+                cfg.next_note     = 38;
+                cfg.end_note      = 37;
+                cfg.prev_note     = 36;
+                cfg.blackout_note = 39;
+                cfg.velocity      = 127;
+            }
+            cfg.channel = ch;
+            ed.dirty = true;
+        }
     }
     ImGui::SameLine();
     if (cfg.channel == 0) ImGui::TextColored(COL_AMBER,
@@ -1791,6 +1829,27 @@ void draw_lighting_screen(bt_ui_edit &ed) {
     }
     ImGui::SameLine();
     ImGui::TextDisabled("sent by a cue that names it, at the end of a song");
+
+    ImGui::SetNextItemWidth(150);
+    int pn = cfg.prev_note;
+    if (ImGui::InputInt("previous cue note", &pn, 1, 1)) {
+        if (pn >= 0 && pn <= 127) { cfg.prev_note = pn; ed.dirty = true; }
+    }
+    ImGui::SameLine();
+    if (cfg.prev_note > 0)
+        ImGui::TextDisabled("scrubbing back steps the cue list back, "
+                            "instead of reloading it");
+    else
+        ImGui::TextColored(COL_AMBER,
+            "0 - scrubbing back reloads the song and races forward to catch up");
+
+    ImGui::SetNextItemWidth(150);
+    int bn = cfg.blackout_note;
+    if (ImGui::InputInt("blackout note", &bn, 1, 1)) {
+        if (bn >= 0 && bn <= 127) { cfg.blackout_note = bn; ed.dirty = true; }
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("for a song that ends on the chord, not on a fade");
 
     ImGui::SetNextItemWidth(150);
     int vel = cfg.velocity;

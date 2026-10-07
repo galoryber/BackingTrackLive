@@ -467,6 +467,30 @@ static void test_counting_cues_before_a_position(void) {
 
     /* Past the end, all of them. */
     BT_CHECK_EQI(bt_song_cues_before(&s, (bt_frame)sr * 600, sr), s.nlight_cues);
+
+    /* Only the cues that send the "next" note move the desk's cue list on.
+     * A cue that names its own note - the between-songs look, a blackout -
+     * does its thing and leaves the list standing where it was, so counting
+     * it would put everything after it one step out.
+     *
+     * The fixture ends on note 37 at bar 138, which is the ordinary shape of
+     * a song: eight steps and then a look. */
+    {
+        bt_light_cfg cfg;
+        memset(&cfg, 0, sizeof(cfg));
+        cfg.channel = 16;   /* the band's desk listens here */
+        cfg.next_note = 38;
+        cfg.end_note  = 37;
+
+        const bt_frame past = (bt_frame)sr * 600;
+        BT_CHECK_EQI(bt_song_cues_before(&s, past, sr),  9);
+        BT_CHECK_EQI(bt_song_steps_before(&s, &cfg, past, sr), 8);
+
+        /* Before anything, nothing. */
+        BT_CHECK_EQI(bt_song_steps_before(&s, &cfg, -1, sr), 0);
+        /* On bar 1 exactly, one step. */
+        BT_CHECK_EQI(bt_song_steps_before(&s, &cfg, 0, sr), 1);
+    }
 }
 
 /* Most cues use the set list's next-cue note; the end of a song says its own. */

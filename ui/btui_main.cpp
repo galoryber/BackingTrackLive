@@ -121,6 +121,7 @@ struct App {
     bt_frame      cue_last = 0;      /* playhead at the previous tick     */
     int32_t       cue_song = -1;     /* song the above belongs to         */
     int32_t       cues_fired = 0;    /* for the screen, and for debugging */
+    int32_t       cue_step  = 0;     /* where the desk's cue list stands  */
     /* A start that is waiting for the loader rather than blocking on it. */
     bool          pending_start    = false;
     bool          pending_count_in = false;
@@ -453,31 +454,75 @@ void lighting_load_song(App &a, int32_t song_index) {
 
     a.cue_song   = song_index;
     a.cues_fired = 0;
+    a.cue_step   = 0;   /* the program change arms the list at the top */
 }
 
-void lighting_fire(App &a, const bt_light_cue &cue) {
-    const int32_t note = bt_light_cue_note(&a.sl->light, &cue);
+int32_t lighting_velocity(const App &a) {
+    const int32_t v = a.sl->light.velocity;
+    return (v < 1 || v > 127) ? 127 : v;
+}
+
+/* Sends one note and keeps track of where that leaves the desk.
+ *
+ * Only the "next" note moves a cue list on. A cue that names its own note is
+ * the between-songs look or a blackout: the desk does it and stays where it
+ * was, so counting it would leave everything after it a step out. */
+void lighting_note(App &a, int32_t note) {
     if (note <= 0) return;
-    int32_t vel = a.sl->light.velocity;
-    if (vel < 1 || vel > 127) vel = 127;
-    bt_midi_trigger(a.midi, a.sl->light.channel, note, vel);
+    bt_midi_trigger(a.midi, a.sl->light.channel, note, lighting_velocity(a));
+    if (note == a.sl->light.next_note)      a.cue_step++;
+    else if (note == a.sl->light.prev_note) a.cue_step--;
     a.cues_fired++;
 }
 
-/* A jump - selecting a song, or scrubbing - leaves a QLC+ cue list with no
- * idea where it is, because a cue list only knows "next". Reload the song,
- * which puts it at step zero, then advance it once per cue the new position
- * has already passed. */
+void lighting_fire(App &a, const bt_light_cue &cue) {
+    lighting_note(a, bt_light_cue_note(&a.sl->light, &cue));
+}
+
+/* A jump - selecting a song, or scrubbing - leaves the desk's cue list
+ * somewhere the music no longer is, and a cue list has no way of being told
+ * "go to step 5". There are two ways to put it right, and which is cheaper
+ * depends on which way the jump went.
+ *
+ * Stepping back: send the "previous" note the difference. Scrubbing back four
+ * bars while aligning a stem should step back a cue or two, not reload the
+ * song and race forward through every look in it.
+ *
+ * Starting over: send the program change, which arms the list at the top,
+ * then step forward. This is the only option for a different song, and it is
+ * also fewer messages for a long jump backwards.
+ *
+ * A desk with no "previous" binding has prev_note 0, and then it is always
+ * the second. */
 void lighting_resync(App &a, int32_t song_index, bt_frame at) {
     if (!lighting_on(a)) return;
-    lighting_load_song(a, song_index);
+    if (song_index < 0 || song_index >= a.sl->nsongs) return;
 
     const bt_song &s = a.sl->song[song_index];
     const int32_t sr = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
-    const int32_t n  = bt_song_cues_before(&s, at, sr);
-    for (int32_t i = 0; i < n && i < s.nlight_cues; i++)
-        lighting_fire(a, s.light_cue[i]);
+    const int32_t want = bt_song_steps_before(&s, &a.sl->light, at, sr);
 
+    const bool same_song = (song_index == a.cue_song);
+    const int32_t back   = a.cue_step - want;
+
+    /* Stepping back costs one note each; starting over costs the program
+     * change plus one note per step from the top. */
+    const bool step_back = same_song && a.sl->light.prev_note > 0 &&
+                           back > 0 && back <= want + 1;
+
+    if (step_back) {
+        for (int32_t i = 0; i < back; i++)
+            lighting_note(a, a.sl->light.prev_note);
+    } else if (same_song && want >= a.cue_step) {
+        for (int32_t i = a.cue_step; i < want; i++)
+            lighting_note(a, a.sl->light.next_note);
+    } else {
+        lighting_load_song(a, song_index);
+        for (int32_t i = 0; i < want; i++)
+            lighting_note(a, a.sl->light.next_note);
+    }
+
+    a.cue_song = song_index;
     a.cue_last = at;
 }
 
@@ -498,7 +543,7 @@ void lighting_tick(App &a) {
 
     if (now < a.cue_last) {
         /* The playhead went backwards without anyone telling us, so the desk
-         * is ahead of the music. Put it back. */
+         * is ahead of the music. Step it back. */
         lighting_resync(a, song, now);
         return;
     }
@@ -977,10 +1022,12 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                                                      : bt_edit_screen::setlist;
         if (ed.screen == bt_edit_screen::lighting ||
             ed.screen == bt_edit_screen::song) {
-            sl->light.channel   = 1;
-            sl->light.next_note = 38;
-            sl->light.end_note  = 37;
-            sl->light.velocity  = 127;
+            sl->light.channel       = 16;
+            sl->light.next_note     = 38;
+            sl->light.end_note      = 37;
+            sl->light.prev_note     = 36;
+            sl->light.blackout_note = 39;
+            sl->light.velocity      = 127;
             bt_song &lg = sl->song[ed.song >= 0 && ed.song < sl->nsongs ? ed.song : 0];
             lg.midi_program = 3;
             if (lg.nlight_cues == 0) {
