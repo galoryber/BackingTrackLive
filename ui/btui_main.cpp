@@ -220,6 +220,10 @@ void transport_start(App &a, bool count_in) {
 }
 
 bool transport_playing(const App &a);   /* defined below */
+void close_midi(App &a);                /* defined below, with the lighting */
+void reopen_midi(App &a);
+void lighting_resync(App &a, int32_t song_index, bt_frame at);
+void lighting_tick(App &a);
 
 /* Ask the loader for whatever is selected, so browsing the set warms it.
  *

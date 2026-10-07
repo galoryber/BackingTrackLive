@@ -295,5 +295,10 @@ if(BT_BUILD_UI)
     endif()
   endif()
   target_link_libraries(btui PRIVATE backtrack backtrack_device imgui_d3d11)
+  # Lighting cues go out over MIDI. The target only exists on Windows, which
+  # is also the only platform the UI builds on.
+  if(TARGET backtrack_midi)
+    target_link_libraries(btui PRIVATE backtrack_midi)
+  endif()
   target_include_directories(btui PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/ui)
 endif()
