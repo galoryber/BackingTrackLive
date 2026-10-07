@@ -364,7 +364,121 @@ static void test_format_number_is_the_truth(void) {
     }
 }
 
+
+/* Mr Brightside as the band actually has it: 148 BPM, 4/4, cues on bars
+ * 1, 17, 33, 41, 57, 73, 81, 97, and the end on 138. */
+static bt_song cue_fixture(void) {
+    bt_song s;
+    memset(&s, 0, sizeof(s));
+    snprintf(s.title, sizeof(s.title), "Mr Brightside");
+    s.tempo.seg[0].bpm = 148.0;
+    s.tempo.nseg    = 1;
+    s.tempo.sig_num = 4;
+    s.tempo.sig_den = 4;
+    s.count_in_bars = 2;
+    s.midi_program  = 3;
+
+    const int32_t bars[] = { 1, 17, 33, 41, 57, 73, 81, 97 };
+    for (size_t i = 0; i < sizeof(bars) / sizeof(bars[0]); i++)
+        s.light_cue[s.nlight_cues++].bar = bars[i];
+    /* The end gets its own note. */
+    s.light_cue[s.nlight_cues].bar  = 138;
+    s.light_cue[s.nlight_cues].note = 37;
+    s.nlight_cues++;
+    return s;
+}
+
+/* A cue's bar has to land where the click lands, computed from the beat index
+ * like everything else - at 148 BPM a cue on bar 97 is four minutes in, and
+ * anything accumulated would be audibly adrift by then. */
+static void test_cue_lands_on_its_bar(void) {
+    bt_song s = cue_fixture();
+
+    /* Bar 1 is beat 0 is frame 0. */
+    BT_CHECK_EQI(bt_light_cue_frame(&s, &s.light_cue[0], 48000), 0);
+
+    /* Bar 17 is beat 64. 64 * 60 / 148 seconds. */
+    const double want17 = 64.0 * 60.0 / 148.0;
+    BT_CHECK_EQI(bt_light_cue_frame(&s, &s.light_cue[1], 48000),
+                 (bt_frame)llround(want17 * 48000.0));
+
+    /* Bar 138 is beat 548, a shade over three and a half minutes. */
+    const double want138 = 548.0 * 60.0 / 148.0;
+    BT_CHECK_EQI(bt_light_cue_frame(&s, &s.light_cue[8], 48000),
+                 (bt_frame)llround(want138 * 48000.0));
+
+    /* A bar is however many beats the signature says. In 3/4 the same bar
+     * number is three quarters of the way along, and a cue that assumed four
+     * would fire a bar and a half late by bar 17. */
+    s.tempo.sig_num = 3;
+    const double want17_3 = 48.0 * 60.0 / 148.0;     /* beat 48, not 64 */
+    BT_CHECK_EQI(bt_light_cue_frame(&s, &s.light_cue[1], 48000),
+                 (bt_frame)llround(want17_3 * 48000.0));
+}
+
+/* A UI tick asks "what fired since last time". Each cue must come back
+ * exactly once, however the frames are chopped up. */
+static void test_each_cue_fires_exactly_once(void) {
+    bt_song s = cue_fixture();
+    const int32_t sr = 48000;
+
+    int32_t seen[BT_MAX_LIGHT_CUES];
+    memset(seen, 0, sizeof(seen));
+
+    /* Walk the song in 16 ms steps, as a vsynced UI would. */
+    const bt_frame step = sr / 60;
+    const bt_frame end  = bt_light_cue_frame(&s, &s.light_cue[8], sr) + sr;
+    int32_t out[BT_MAX_LIGHT_CUES];
+
+    /* Starting at the count-in, so the playhead begins negative. */
+    for (bt_frame t = -2 * 4 * sr; t < end; t += step) {
+        const int32_t n = bt_song_cues_between(&s, t, t + step, sr,
+                                               out, BT_MAX_LIGHT_CUES);
+        for (int32_t i = 0; i < n; i++) seen[out[i]]++;
+    }
+
+    for (int32_t i = 0; i < s.nlight_cues; i++) BT_CHECK_EQI(seen[i], 1);
+}
+
+/* Jumping to the middle of a song: how many cues has the position passed?
+ * This is what lets a cue list be resynced - reload the song, then advance
+ * this many times. */
+static void test_counting_cues_before_a_position(void) {
+    bt_song s = cue_fixture();
+    const int32_t sr = 48000;
+
+    /* Before the song starts, nothing has gone by. */
+    BT_CHECK_EQI(bt_song_cues_before(&s, -1, sr), 0);
+    /* On bar 1 exactly, one has. */
+    BT_CHECK_EQI(bt_song_cues_before(&s, 0, sr), 1);
+
+    /* Just before and just after bar 41 - the fourth cue. */
+    const bt_frame at41 = bt_light_cue_frame(&s, &s.light_cue[3], sr);
+    BT_CHECK_EQI(bt_song_cues_before(&s, at41 - 1, sr), 3);
+    BT_CHECK_EQI(bt_song_cues_before(&s, at41, sr), 4);
+
+    /* Past the end, all of them. */
+    BT_CHECK_EQI(bt_song_cues_before(&s, (bt_frame)sr * 600, sr), s.nlight_cues);
+}
+
+/* Most cues use the set list's next-cue note; the end of a song says its own. */
+static void test_cue_note_resolution(void) {
+    bt_song s = cue_fixture();
+    bt_light_cfg cfg;
+    memset(&cfg, 0, sizeof(cfg));
+    cfg.channel = 1;
+    cfg.next_note = 38;
+    cfg.end_note = 37;
+
+    BT_CHECK_EQI(bt_light_cue_note(&cfg, &s.light_cue[0]), 38);
+    BT_CHECK_EQI(bt_light_cue_note(&cfg, &s.light_cue[8]), 37);
+}
+
 int main(void) {
+    BT_RUN(test_cue_lands_on_its_bar);
+    BT_RUN(test_each_cue_fires_exactly_once);
+    BT_RUN(test_counting_cues_before_a_position);
+    BT_RUN(test_cue_note_resolution);
     BT_RUN(test_format_number_is_the_truth);
     BT_RUN(test_fade_only_when_the_song_is_cut_short);
     BT_RUN(test_move_track_carries_everything);

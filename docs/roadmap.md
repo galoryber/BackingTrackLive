@@ -120,58 +120,59 @@ The split follows the one that already works for audio: the cue list and the
 `libbacktrack`, testable headless on Linux to the sample. Talking to a MIDI
 port lives in a separate platform library, as the PortAudio backend does.
 
-### The decision that shapes the data model
+### The decision, made
 
-**What does one cue send?**
+**A cue list, with a program change per song.** Every cue sends the same
+"next cue" note and QLC+ advances its own list; each song also carries a MIDI
+program change, sent when the song starts, telling QLC+ which song's cue list
+to load.
 
-*A cue-list note.* QLC+ cue lists bind one MIDI note to *Next Cue*. Every cue
-sends the same note and QLC+ advances its own list. The set list stays simple -
-a bar number and a description - and all the lighting detail lives in QLC+
-where it belongs.
+That program change is what makes the cue-list approach safe. The worry with a
+shared note was that jumping to bar 80 leaves the desk several cues behind with
+no way to know. It does - but resending the program change puts QLC+ back at
+step zero, and `bt_song_cues_before()` says how many times to then advance. So
+a jump resyncs exactly, which is the property a note-per-cue scheme was going
+to buy.
 
-The cost is that position is implicit. Jump to bar 80 in rehearsal and QLC+ is
-several cues behind, with no way to know it. Firing the skipped cues rapidly
-to catch up is possible and is a fade-through-every-scene the audience would
-see if it ever happened live.
+The band's mapping, which the data model follows:
 
-*A note per cue.* Each cue names its own note, QLC+ binds notes to scenes
-directly, and position is explicit. Jumping anywhere is correct immediately:
-fire the most recent cue and the rig is right. The cost is that the set list
-holds note numbers, and the mapping has to agree with QLC+ in two places.
+- **Program change 0-35**, one per song, sent on starting
+- **Note 38** - next cue, at bars like 1, 17, 33, 41, 57, 73, 81, 97
+- **Note 37** - song end
 
-**Recommended: a note per cue.** Rehearsal is mostly jumping around, which
-this session established repeatedly, and a cue system that only survives
-linear playback is one that is wrong exactly when it is being worked on.
+A cue may override the note, which is how the end cue differs; `note: 0` means
+"use the set list's next-cue note", which is what almost every cue says.
 
-### What follows from it
+### Where the settings live
 
-- **Seeking.** With notes per cue: fire the latest cue at or before the new
-  position, nothing else. With a cue list: catch up, or do not support it.
-- **Segue.** Cues belong to songs, so running into the next song starts that
-  song's cues. The last cue of the outgoing song stays in force until the
-  next one fires, which is what a lighting desk does anyway.
-- **Count-in.** A cue at bar 1 fires when bar 1 arrives, not during the
-  count-in - unless somebody wants a cue *on* the count-in, which negative bar
-  numbers would express and which nothing needs yet.
-- **Stop.** Stopping mid-song should probably send nothing. Blackout on stop
-  sounds tidy and would kill the lights while the singer is talking.
+Which **MIDI port** to open is machine-local and belongs in `device.json`,
+like the audio interface.
 
-### Shape of the file, either way
+The **channel and note numbers** are show design and live in `setlist.json`,
+so a set list carried to the backup laptop drives the lights the same way.
+Channel 0 means a set list has no lighting, which is the default and keeps
+every set list written before this byte-identical when re-saved.
 
-```json
-"lighting_cues": [
-  { "bar": 1,  "note": 36, "desc": "intro - guitar synth riff" },
-  { "bar": 12, "note": 37, "desc": "prechorus" }
-]
-```
+### What follows
 
-With a cue list the `note` is omitted and a per-set-list default is used.
+- **Seeking.** Resend the program change, then advance `cues_before(position)`
+  times. Exact, and only possible because of the program change.
+- **Segue.** The next song's program change fires as it starts, so the desk
+  follows without anyone touching it.
+- **Count-in.** The program change goes at the start of the count-in, so the
+  desk has loaded the song before bar 1 arrives.
+- **Stop.** Sends nothing. Blackout on stop would kill the lights while the
+  singer is talking.
 
 ### Status
 
-The MIDI output layer is built: port enumeration, open, and sending notes.
-The cue model, the firing logic and the editor are not, and wait on the
-decision above.
+Built: the MIDI output layer (`src/midi`, `btmidi`), and the cue model -
+cue timing from the beat index, "which cues fired between these two
+playheads", "how many cues has this position passed", and the JSON for all of
+it, round-tripped.
+
+Not built: wiring it to the player and the port, and an editor. Until the
+editor exists, cues can be written into `setlist.json` by hand.
 
 ## Other product gaps, not CLI-shaped
 

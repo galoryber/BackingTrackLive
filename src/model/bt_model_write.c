@@ -162,6 +162,8 @@ static void write_song(sb *s, const bt_song *song) {
         sb_fmt(s, ",\n      \"cue\": ");
         sb_json_string(s, song->cue);
     }
+    if (song->midi_program >= 0)
+        sb_fmt(s, ",\n      \"midi_program\": %d", song->midi_program);
     sb_fmt(s, ",\n      \"count_in_bars\": %d", song->count_in_bars);
     /* Omitted when zero: it is the normal case, and writing it would add a
      * line to every song in every set list written before this existed. */
@@ -174,7 +176,29 @@ static void write_song(sb *s, const bt_song *song) {
         write_track(s, &song->track[i]);
         sb_str(s, i + 1 < song->ntracks ? ",\n" : "\n");
     }
-    sb_str(s, "      ]\n    }");
+    sb_str(s, "      ]");
+
+    /* Cues last, because they are the part somebody reads down a column of
+     * when checking them against the lighting desk. Omitted entirely when a
+     * song has none, which is every song in every set list written before
+     * this existed. */
+    if (song->nlight_cues > 0) {
+        sb_str(s, ",\n      \"light_cues\": [\n");
+        for (int32_t i = 0; i < song->nlight_cues; i++) {
+            const bt_light_cue *c = &song->light_cue[i];
+            sb_fmt(s, "        { \"bar\": %d", c->bar);
+            if (c->note > 0) sb_fmt(s, ", \"note\": %d", c->note);
+            if (c->desc[0]) {
+                sb_str(s, ", \"desc\": ");
+                sb_json_string(s, c->desc);
+            }
+            sb_str(s, " }");
+            sb_str(s, i + 1 < song->nlight_cues ? ",\n" : "\n");
+        }
+        sb_str(s, "      ]");
+    }
+
+    sb_str(s, "\n    }");
 }
 
 bt_err bt_setlist_to_json(const bt_setlist *sl, char **out, size_t *len) {
@@ -187,6 +211,17 @@ bt_err bt_setlist_to_json(const bt_setlist *sl, char **out, size_t *len) {
 
     sb_str(&s, "{\n  \"version\": 1,\n  \"name\": ");
     sb_json_string(&s, sl->name);
+
+    /* Omitted when there is no lighting, which keeps every set list written
+     * before this byte-identical when re-saved. */
+    if (sl->light.channel > 0) {
+        sb_fmt(&s, ",\n  \"lighting\": { \"channel\": %d", sl->light.channel);
+        if (sl->light.next_note > 0) sb_fmt(&s, ", \"next_note\": %d", sl->light.next_note);
+        if (sl->light.end_note  > 0) sb_fmt(&s, ", \"end_note\": %d",  sl->light.end_note);
+        if (sl->light.velocity != 127) sb_fmt(&s, ", \"velocity\": %d", sl->light.velocity);
+        sb_str(&s, " }");
+    }
+
     sb_str(&s, ",\n  \"songs\": [\n");
     for (int32_t i = 0; i < sl->nsongs; i++) {
         write_song(&s, &sl->song[i]);

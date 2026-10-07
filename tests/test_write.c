@@ -35,6 +35,13 @@ static bool song_eq(const bt_song *a, const bt_song *b) {
     if (strcmp(a->artist, b->artist) != 0) return false;
     if (strcmp(a->tuning, b->tuning) != 0) return false;
     if (strcmp(a->cue, b->cue) != 0)       return false;
+    if (a->midi_program != b->midi_program) return false;
+    if (a->nlight_cues != b->nlight_cues)   return false;
+    for (int32_t i = 0; i < a->nlight_cues; i++) {
+        if (a->light_cue[i].bar  != b->light_cue[i].bar)  return false;
+        if (a->light_cue[i].note != b->light_cue[i].note) return false;
+        if (strcmp(a->light_cue[i].desc, b->light_cue[i].desc) != 0) return false;
+    }
     if (a->count_in_bars != b->count_in_bars) return false;
     if (a->length_bars != b->length_bars)     return false;
     if (a->on_end != b->on_end)   return false;
@@ -398,7 +405,49 @@ static void test_a_fractional_bpm_round_trips(void) {
     bt_setlist_free(sl);
 }
 
+
+/* Lighting is the part somebody checks line by line against the desk, so it
+ * has to come back exactly as written - the bars, the note overrides, the
+ * descriptions, and the program change that tells QLC+ which song this is. */
+static void test_light_cues_survive(void) {
+    round_trip(
+      "{\"version\":1,\"name\":\"n\","
+      "\"lighting\":{\"channel\":1,\"next_note\":38,\"end_note\":37},"
+      "\"songs\":[{"
+      "\"title\":\"Mr Brightside\",\"midi_program\":3,"
+      "\"tempo\":{\"bpm\":148},\"count_in_bars\":2,\"on_end\":\"stop\","
+      "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}],"
+      "\"light_cues\":["
+      "{\"bar\":1,\"desc\":\"intro\"},"
+      "{\"bar\":17},{\"bar\":33},{\"bar\":41},{\"bar\":57},"
+      "{\"bar\":73},{\"bar\":81},{\"bar\":97},"
+      "{\"bar\":138,\"note\":37,\"desc\":\"end\"}]}]}", "light cues");
+}
+
+/* A set list with no lighting must not grow any, so every set list written
+ * before this re-saves byte-identically. */
+static void test_absent_lighting_stays_absent(void) {
+    static const char *src =
+      "{\"version\":1,\"name\":\"n\",\"songs\":[{"
+      "\"tempo\":{\"bpm\":120},\"count_in_bars\":1,\"on_end\":\"stop\","
+      "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}]}]}";
+    bt_setlist *sl = load_mem(src);
+    BT_CHECK(sl != NULL);
+    if (!sl) return;
+    char *out = NULL; size_t n = 0;
+    BT_CHECK_EQI(bt_setlist_to_json(sl, &out, &n), BT_OK);
+    if (out) {
+        BT_CHECK(strstr(out, "lighting") == NULL);
+        BT_CHECK(strstr(out, "light_cues") == NULL);
+        BT_CHECK(strstr(out, "midi_program") == NULL);
+        free(out);
+    }
+    bt_setlist_free(sl);
+}
+
 int main(void) {
+    BT_RUN(test_light_cues_survive);
+    BT_RUN(test_absent_lighting_stays_absent);
     BT_RUN(test_a_fractional_bpm_round_trips);
     BT_RUN(test_cue_survives);
     BT_RUN(test_absent_cue_stays_absent);

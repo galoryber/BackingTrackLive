@@ -134,6 +134,44 @@ void bt_format_number(double v, char *out, size_t cap) {
     }
 }
 
+bt_frame bt_light_cue_frame(const bt_song *song, const bt_light_cue *cue,
+                            int32_t sample_rate) {
+    if (!song || !cue || sample_rate <= 0) return 0;
+    const int32_t sig = song->tempo.sig_num > 0 ? song->tempo.sig_num : 4;
+    /* Bar 1 is beat 0. Computed from the beat index like everything else -
+     * a cue two hundred bars in has to land where the click does. */
+    const int64_t beat = (int64_t)(cue->bar - 1) * (int64_t)sig;
+    return bt_tempo_beat_frame(&song->tempo, beat, sample_rate);
+}
+
+int32_t bt_light_cue_note(const bt_light_cfg *cfg, const bt_light_cue *cue) {
+    if (!cue) return 0;
+    if (cue->note > 0) return cue->note;
+    return cfg ? cfg->next_note : 0;
+}
+
+int32_t bt_song_cues_between(const bt_song *song, bt_frame after, bt_frame upto,
+                             int32_t sample_rate, int32_t *out, int32_t cap) {
+    if (!song || !out || cap <= 0 || sample_rate <= 0) return 0;
+    int32_t n = 0;
+    for (int32_t i = 0; i < song->nlight_cues && n < cap; i++) {
+        const bt_frame f = bt_light_cue_frame(song, &song->light_cue[i], sample_rate);
+        /* Half-open at the start, so a cue fires once however often the UI
+         * ticks; inclusive at the end, so one landing on this frame is not
+         * carried into the next block. */
+        if (f > after && f <= upto) out[n++] = i;
+    }
+    return n;
+}
+
+int32_t bt_song_cues_before(const bt_song *song, bt_frame at, int32_t sample_rate) {
+    if (!song || sample_rate <= 0) return 0;
+    int32_t n = 0;
+    for (int32_t i = 0; i < song->nlight_cues; i++)
+        if (bt_light_cue_frame(song, &song->light_cue[i], sample_rate) <= at) n++;
+    return n;
+}
+
 bt_frame bt_song_fade_frames(const bt_song *song, int32_t sample_rate) {
     if (!song || song->length_bars <= 0 || sample_rate <= 0) return 0;
 

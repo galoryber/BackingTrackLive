@@ -25,6 +25,9 @@ typedef int64_t bt_frame;
  * Room for a sentence, not for a paragraph - anything longer is not something
  * anyone reads while playing. */
 #define BT_MAX_CUE       120
+/* Lighting cues per song. Thirty-six songs of eight cues is the band's whole
+ * show; this leaves room without pretending a song has a hundred moments. */
+#define BT_MAX_LIGHT_CUES 64
 #define BT_MAX_PATH      512
 #define BT_MAX_BUS_CH      2     /* a bus is mono or stereo                */
 #define BT_MAX_BUSES      16

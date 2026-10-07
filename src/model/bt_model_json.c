@@ -134,6 +134,26 @@ static bt_err bind_song(const bt_json *js, bt_song *s) {
              bt_json_string(bt_json_get(js, "tuning"), ""));
     snprintf(s->cue, sizeof(s->cue), "%s",
              bt_json_string(bt_json_get(js, "cue"), ""));
+    s->midi_program = (int32_t)bt_json_number(bt_json_get(js, "midi_program"), -1);
+    if (s->midi_program < -1 || s->midi_program > 127) return BT_ERR_SCHEMA;
+
+    {
+        const bt_json *cues = bt_json_get(js, "light_cues");
+        const size_t n = bt_json_len(cues);
+        if (n > BT_MAX_LIGHT_CUES) return BT_ERR_SCHEMA;
+        for (size_t k = 0; k < n; k++) {
+            const bt_json *c = bt_json_at(cues, k);
+            bt_light_cue *lc = &s->light_cue[s->nlight_cues];
+            lc->bar  = (int32_t)bt_json_number(bt_json_get(c, "bar"), 0);
+            lc->note = (int32_t)bt_json_number(bt_json_get(c, "note"), 0);
+            if (lc->bar < 1 || lc->bar > 10000) return BT_ERR_SCHEMA;
+            if (lc->note < 0 || lc->note > 127) return BT_ERR_SCHEMA;
+            snprintf(lc->desc, sizeof(lc->desc), "%s",
+                     bt_json_string(bt_json_get(c, "desc"), ""));
+            s->nlight_cues++;
+        }
+    }
+
     s->count_in_bars = (int32_t)bt_json_number(bt_json_get(js, "count_in_bars"), 1);
     if (s->count_in_bars < 0 || s->count_in_bars > 8) return BT_ERR_SCHEMA;
     s->length_bars = (int32_t)bt_json_number(bt_json_get(js, "length_bars"), 0);
@@ -184,6 +204,20 @@ bt_err bt_setlist_load_mem(const char *text, size_t len, const char *dir,
     if (!sl) { bt_json_free(root); return BT_ERR_ALLOC; }
 
     copy_str(sl->name, sizeof(sl->name), bt_json_get(root, "name"), "Set List");
+
+    {
+        /* Lighting, if this show has any. Channel 0 means none, which is the
+         * default and what every set list written before this says. */
+        const bt_json *lg = bt_json_get(root, "lighting");
+        sl->light.channel   = (int32_t)bt_json_number(bt_json_get(lg, "channel"), 0);
+        sl->light.next_note = (int32_t)bt_json_number(bt_json_get(lg, "next_note"), 0);
+        sl->light.end_note  = (int32_t)bt_json_number(bt_json_get(lg, "end_note"), 0);
+        sl->light.velocity  = (int32_t)bt_json_number(bt_json_get(lg, "velocity"), 127);
+        if (sl->light.channel   < 0 || sl->light.channel   > 16)  return BT_ERR_SCHEMA;
+        if (sl->light.next_note < 0 || sl->light.next_note > 127) return BT_ERR_SCHEMA;
+        if (sl->light.end_note  < 0 || sl->light.end_note  > 127) return BT_ERR_SCHEMA;
+        if (sl->light.velocity  < 1 || sl->light.velocity  > 127) return BT_ERR_SCHEMA;
+    }
     snprintf(sl->dir, sizeof(sl->dir), "%s", dir ? dir : "");
 
     if (n > 0) {
