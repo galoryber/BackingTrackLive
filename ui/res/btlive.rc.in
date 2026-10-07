@@ -1,4 +1,7 @@
 /* Copyright 2026 Gary Lobermier. Licensed under the Apache License, Version 2.0. */
+/* Generated from btlive.rc.in - the version comes from project() in
+ * CMakeLists.txt, so Explorer's file properties cannot drift away from the
+ * release the way they did between 0.1.7 and 0.1.22. */
 #include <windows.h>
 
 /* 1 is what Windows shows for the file in Explorer: the lowest-numbered icon
@@ -6,8 +9,8 @@
 1 ICON "btlive.ico"
 
 VS_VERSION_INFO VERSIONINFO
-FILEVERSION     0,1,7,0
-PRODUCTVERSION  0,1,7,0
+FILEVERSION     @BT_VER_MAJOR@,@BT_VER_MINOR@,@BT_VER_PATCH@,0
+PRODUCTVERSION  @BT_VER_MAJOR@,@BT_VER_MINOR@,@BT_VER_PATCH@,0
 FILEOS          VOS_NT_WINDOWS32
 FILETYPE        VFT_APP
 BEGIN
@@ -17,12 +20,12 @@ BEGIN
         BEGIN
             VALUE "CompanyName",      "Gary Lobermier"
             VALUE "FileDescription",  "BackingTrackLive"
-            VALUE "FileVersion",      "0.1.7"
+            VALUE "FileVersion",      "@PROJECT_VERSION@"
             VALUE "InternalName",     "BackingTrackLive"
             VALUE "LegalCopyright",   "Copyright 2026 Gary Lobermier. Apache-2.0."
             VALUE "OriginalFilename", "BackingTrackLive.exe"
             VALUE "ProductName",      "BackingTrackLive"
-            VALUE "ProductVersion",   "0.1.7"
+            VALUE "ProductVersion",   "@PROJECT_VERSION@"
         END
     END
     BLOCK "VarFileInfo"

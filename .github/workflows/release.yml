@@ -34,6 +34,22 @@ jobs:
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
+      # The version in Explorer's file properties comes from project() in
+      # CMakeLists.txt. Nothing stops that from disagreeing with the tag, and
+      # it did: 0.1.22 shipped claiming to be 0.1.7. Refuse the release
+      # instead, while the tag can still be moved.
+      - name: Tag matches the project version
+        if: startsWith(github.ref, 'refs/tags/v')
+        shell: bash
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          proj=$(sed -n 's/^project(.*VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          echo "tag $tag, project $proj"
+          if [ "$tag" != "$proj" ]; then
+            echo "::error::tag v$tag does not match project(VERSION $proj) in CMakeLists.txt"
+            exit 1
+          fi
+
       # Warnings are a CI gate, not a release blocker: a Release-config warning
       # that CI's Debug build never saw should not be what stops a release.
       - name: Configure

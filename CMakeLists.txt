@@ -1,6 +1,6 @@
 # Copyright 2026 Gary Lobermier. Licensed under the Apache License, Version 2.0.
 cmake_minimum_required(VERSION 3.16)
-project(BackingTrackLive C)
+project(BackingTrackLive VERSION 0.1.23 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -280,7 +280,19 @@ if(BT_BUILD_UI)
   add_executable(btui
     ui/btui_main.cpp ui/bt_ui_screens.cpp ui/bt_ui_edit.cpp ui/bt_ui_start.cpp)
   if(WIN32)
-    target_sources(btui PRIVATE ui/res/btlive.rc)
+    # The icon and the version Explorer shows. Generated so the version
+    # follows project() above rather than being bumped by hand, which it was
+    # not: 0.1.22 shipped claiming to be 0.1.7.
+    set(BT_VER_MAJOR ${PROJECT_VERSION_MAJOR})
+    set(BT_VER_MINOR ${PROJECT_VERSION_MINOR})
+    set(BT_VER_PATCH ${PROJECT_VERSION_PATCH})
+    configure_file(${CMAKE_CURRENT_SOURCE_DIR}/ui/res/btlive.rc.in
+                   ${CMAKE_CURRENT_BINARY_DIR}/btlive.rc @ONLY)
+    # The .ico is referenced by a bare name, so the resource compiler needs to
+    # be told where to find it from the build directory.
+    target_sources(btui PRIVATE ${CMAKE_CURRENT_BINARY_DIR}/btlive.rc)
+    set_source_files_properties(${CMAKE_CURRENT_BINARY_DIR}/btlive.rc
+        PROPERTIES COMPILE_FLAGS "/I\"${CMAKE_CURRENT_SOURCE_DIR}/ui/res\"")
     # A windowed subsystem, so double-clicking opens the UI and nothing else.
     # It used to build as a console app, which meant a black terminal window
     # alongside the program for the whole show. Keeping main() as the entry
