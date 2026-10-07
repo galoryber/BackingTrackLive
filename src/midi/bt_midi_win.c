@@ -19,6 +19,8 @@ struct bt_midi {
     HMIDIOUT h;
 };
 
+void bt_sleep_10ms(void) { Sleep(10); }
+
 int32_t bt_midi_count(void) {
     return (int32_t)midiOutGetNumDevs();
 }
@@ -123,4 +125,124 @@ bt_err bt_midi_panic(bt_midi *m) {
         if (e != BT_OK) return e;
     }
     return BT_OK;
+}
+
+/* ------------------------------------------------------------------ input */
+
+#define BT_MIDI_IN_QUEUE 256
+
+struct bt_midi_in {
+    HMIDIIN      h;
+    CRITICAL_SECTION lock;
+    bt_midi_msg  q[BT_MIDI_IN_QUEUE];
+    int32_t      head, tail;       /* head == tail means empty */
+    DWORD        opened_ms;
+};
+
+int32_t bt_midi_in_count(void) { return (int32_t)midiInGetNumDevs(); }
+
+bt_err bt_midi_in_get(int32_t index, bt_midi_info *out) {
+    if (!out || index < 0 || index >= bt_midi_in_count()) return BT_ERR_RANGE;
+    MIDIINCAPSA caps;
+    if (midiInGetDevCapsA((UINT_PTR)index, &caps, sizeof(caps)) != MMSYSERR_NOERROR)
+        return BT_ERR_IO;
+    memset(out, 0, sizeof(*out));
+    out->index = index;
+    snprintf(out->name, sizeof(out->name), "%s", caps.szPname);
+    return BT_OK;
+}
+
+int32_t bt_midi_in_find(const char *name_substr) {
+    if (!name_substr || !*name_substr) return -1;
+    const int32_t n = bt_midi_in_count();
+    for (int32_t i = 0; i < n; i++) {
+        bt_midi_info info;
+        if (bt_midi_in_get(i, &info) != BT_OK) continue;
+        if (strstr(info.name, name_substr)) return i;
+    }
+    return -1;
+}
+
+/* Called by winmm on its own thread. Does no allocation and takes one lock
+ * that is never held for more than a few stores. */
+static void CALLBACK in_cb(HMIDIIN h, UINT msg, DWORD_PTR user,
+                           DWORD_PTR p1, DWORD_PTR p2) {
+    (void)h; (void)p2;
+    if (msg != MIM_DATA) return;
+
+    bt_midi_in *m = (bt_midi_in *)user;
+    const DWORD packed = (DWORD)p1;
+
+    EnterCriticalSection(&m->lock);
+    const int32_t next = (m->tail + 1) % BT_MIDI_IN_QUEUE;
+    if (next == m->head) {
+        /* Full: drop the oldest. Blocking the MIDI callback to keep a
+         * monitor's history complete would be the wrong trade. */
+        m->head = (m->head + 1) % BT_MIDI_IN_QUEUE;
+    }
+    m->q[m->tail].status = (uint8_t)(packed & 0xFF);
+    m->q[m->tail].d1     = (uint8_t)((packed >> 8) & 0x7F);
+    m->q[m->tail].d2     = (uint8_t)((packed >> 16) & 0x7F);
+    m->q[m->tail].ms     = (uint32_t)(GetTickCount() - m->opened_ms);
+    m->tail = next;
+    LeaveCriticalSection(&m->lock);
+}
+
+bt_err bt_midi_in_open(int32_t index, bt_midi_in **out) {
+    if (!out) return BT_ERR_RANGE;
+    *out = NULL;
+    if (index < 0 || index >= bt_midi_in_count()) return BT_ERR_RANGE;
+
+    bt_midi_in *m = (bt_midi_in *)calloc(1, sizeof(*m));
+    if (!m) return BT_ERR_ALLOC;
+    InitializeCriticalSection(&m->lock);
+    m->opened_ms = GetTickCount();
+
+    MMRESULT r = midiInOpen(&m->h, (UINT)index, (DWORD_PTR)in_cb,
+                            (DWORD_PTR)m, CALLBACK_FUNCTION);
+    if (r != MMSYSERR_NOERROR) {
+        DeleteCriticalSection(&m->lock);
+        free(m);
+        return BT_ERR_IO;
+    }
+    midiInStart(m->h);
+    *out = m;
+    return BT_OK;
+}
+
+void bt_midi_in_close(bt_midi_in *m) {
+    if (!m) return;
+    midiInStop(m->h);
+    midiInReset(m->h);
+    midiInClose(m->h);
+    DeleteCriticalSection(&m->lock);
+    free(m);
+}
+
+bt_err bt_midi_in_poll(bt_midi_in *m, bt_midi_msg *out) {
+    if (!m || !out) return BT_ERR_RANGE;
+    bt_err e = BT_ERR_NOT_FOUND;
+    EnterCriticalSection(&m->lock);
+    if (m->head != m->tail) {
+        *out = m->q[m->head];
+        m->head = (m->head + 1) % BT_MIDI_IN_QUEUE;
+        e = BT_OK;
+    }
+    LeaveCriticalSection(&m->lock);
+    return e;
+}
+
+const char *bt_midi_describe(const bt_midi_msg *m, char *buf, size_t cap) {
+    if (!m || !buf || cap == 0) return "";
+    const int ch = (m->status & 0x0F) + 1;
+    switch (m->status & 0xF0) {
+    case 0x80: snprintf(buf, cap, "note off  ch%-2d note %3d", ch, m->d1); break;
+    case 0x90: snprintf(buf, cap, m->d2 ? "note on   ch%-2d note %3d vel %d"
+                                        : "note on   ch%-2d note %3d vel %d (= off)",
+                        ch, m->d1, m->d2); break;
+    case 0xB0: snprintf(buf, cap, "control   ch%-2d cc %3d val %d", ch, m->d1, m->d2); break;
+    case 0xC0: snprintf(buf, cap, "program   ch%-2d program %d", ch, m->d1); break;
+    default:   snprintf(buf, cap, "status 0x%02X  %d %d", m->status, m->d1, m->d2); break;
+    }
+    return buf;
 }

@@ -10,8 +10,9 @@
 #include <string.h>
 
 static int usage(void) {
-    printf("btmidi - list MIDI outputs, or send a note\n\n"
+    printf("btmidi - MIDI outputs: list them, send to one, or watch one\n\n"
            "  btmidi --list\n"
+           "  btmidi --listen <port-substring> [seconds]\n"
            "  btmidi <port-substring> <note> [channel] [velocity]\n\n"
            "A port substring matches the name shown by --list; a loopMIDI\n"
            "port appears under whatever it was named there.\n\n"
@@ -37,6 +38,57 @@ int main(int argc, char **argv) {
             if (bt_midi_get(i, &info) != BT_OK) continue;
             printf("  %2d  %s\n", info.index, info.name);
         }
+        return 0;
+    }
+
+    /* Watching a port is how "the lights did not change" gets answered with
+     * what actually went down the wire, rather than with a guess about whose
+     * fault it is. On a gig laptop it is the difference between debugging
+     * this program and debugging the lighting desk. */
+    if (!strcmp(argv[1], "--listen") || !strcmp(argv[1], "-L")) {
+        if (argc < 3) return usage();
+        const int32_t idx = bt_midi_in_find(argv[2]);
+        if (idx < 0) {
+            fprintf(stderr, "no MIDI input matching \"%s\"\n", argv[2]);
+            const int32_t n = bt_midi_in_count();
+            if (n > 0) {
+                fprintf(stderr, "inputs are:\n");
+                for (int32_t i = 0; i < n; i++) {
+                    bt_midi_info in;
+                    if (bt_midi_in_get(i, &in) == BT_OK)
+                        fprintf(stderr, "  %2d  %s\n", in.index, in.name);
+                }
+            }
+            return 1;
+        }
+
+        bt_midi_info in;
+        bt_midi_in_get(idx, &in);
+        const int seconds = argc > 3 ? atoi(argv[3]) : 10;
+
+        bt_midi_in *m = NULL;
+        bt_err e = bt_midi_in_open(idx, &m);
+        if (e != BT_OK) {
+            fprintf(stderr, "could not open %s: %s\n", in.name, bt_strerror(e));
+            return 1;
+        }
+        printf("watching %s for %d second(s)\n", in.name, seconds);
+        fflush(stdout);
+
+        int count = 0;
+        for (int elapsed = 0; elapsed < seconds * 100; elapsed++) {
+            bt_midi_msg msg;
+            while (bt_midi_in_poll(m, &msg) == BT_OK) {
+                char text[96];
+                printf("  %7u ms  %s\n", msg.ms,
+                       bt_midi_describe(&msg, text, sizeof(text)));
+                fflush(stdout);
+                count++;
+            }
+            bt_sleep_10ms();
+        }
+        printf("%d message(s)\n", count);
+        bt_midi_in_close(m);
         return 0;
     }
 

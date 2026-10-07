@@ -64,6 +64,39 @@ bt_err  bt_midi_note_off(bt_midi *m, int32_t channel, int32_t note);
  * leaving a note held would stick if the program exited mid-song. */
 bt_err  bt_midi_trigger(bt_midi *m, int32_t channel, int32_t note, int32_t velocity);
 
+/* ---- Input, for checking what is actually being sent. ------------------
+ *
+ * Not for driving anything. A footswitch would want timing guarantees this
+ * does not try to make; this exists so "the lights did not change" can be
+ * answered with "here is what went down the wire" rather than with a guess
+ * about whose fault it is.
+ *
+ * Messages are queued by winmm's callback and read by whoever asks. The
+ * queue is small and drops the oldest when full: a monitor that blocks the
+ * MIDI callback would be worse than one that misses a message. */
+typedef struct bt_midi_in bt_midi_in;
+
+typedef struct {
+    uint8_t status, d1, d2;
+    uint32_t ms;                  /* since the port was opened */
+} bt_midi_msg;
+
+int32_t bt_midi_in_count(void);
+bt_err  bt_midi_in_get(int32_t index, bt_midi_info *out);
+int32_t bt_midi_in_find(const char *name_substr);
+
+bt_err  bt_midi_in_open(int32_t index, bt_midi_in **out);
+void    bt_midi_in_close(bt_midi_in *m);
+
+/* Oldest queued message, or BT_ERR_NOT_FOUND when there is nothing. */
+bt_err  bt_midi_in_poll(bt_midi_in *m, bt_midi_msg *out);
+
+/* Program change, note on and note off, as text. For a log a human reads. */
+const char *bt_midi_describe(const bt_midi_msg *m, char *buf, size_t cap);
+
+/* Ten milliseconds. Here so a monitor loop does not need windows.h. */
+void bt_sleep_10ms(void);
+
 /* All notes off on every channel. For stopping cleanly, and for the moment
  * somebody closes the program with a rig lit. */
 bt_err  bt_midi_panic(bt_midi *m);
