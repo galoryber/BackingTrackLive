@@ -147,6 +147,13 @@ bt_ui_start    g_start;
 /* Nothing open: the start screen is showing. */
 bool nothing_open() { return g_app.sl == nullptr; }
 
+/* Defined further down, with the lighting. Declared here because the
+ * transport uses them and comes first. */
+void close_midi(App &a);
+void reopen_midi(App &a);
+void lighting_resync(App &a, int32_t song_index, bt_frame at);
+void lighting_tick(App &a);
+
 bool file_exists(const char *path) {
     DWORD a = GetFileAttributesA(path);
     return a != INVALID_FILE_ATTRIBUTES && !(a & FILE_ATTRIBUTE_DIRECTORY);
@@ -220,10 +227,6 @@ void transport_start(App &a, bool count_in) {
 }
 
 bool transport_playing(const App &a);   /* defined below */
-void close_midi(App &a);                /* defined below, with the lighting */
-void reopen_midi(App &a);
-void lighting_resync(App &a, int32_t song_index, bt_frame at);
-void lighting_tick(App &a);
 
 /* Ask the loader for whatever is selected, so browsing the set warms it.
  *
