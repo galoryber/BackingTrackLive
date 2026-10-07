@@ -70,10 +70,14 @@ bt_err bt_midi_open(int32_t index, bt_midi **out) {
 
 void bt_midi_close(bt_midi *m) {
     if (!m) return;
-    /* Leaving a note sounding because the program exited is the lighting
-     * equivalent of walking off with the stage lit. */
-    bt_midi_panic(m);
-    midiOutReset(m->h);
+    /* Closes quietly. This used to panic and reset on the way out, which put
+     * sixteen "all notes off" controllers on the wire every time the port was
+     * closed - visible the moment a monitor was pointed at it.
+     *
+     * For a synth that is good manners. For a lighting desk it is noise that
+     * someone may well have bound to something, and it is unnecessary:
+     * bt_midi_trigger sends its note off immediately, so a cue never leaves
+     * anything held. bt_midi_panic is still there for a caller who wants it. */
     midiOutClose(m->h);
     free(m);
 }

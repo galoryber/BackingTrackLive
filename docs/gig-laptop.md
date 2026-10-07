@@ -268,3 +268,32 @@ genuine win if the laptop dies the night before a gig, and a nuisance if it
 decides to sync forty songs of WAV over hotel wifi. If the set is large,
 either keep it outside Documents or exclude that folder in OneDrive's
 settings.
+
+
+## Lighting: proving the MIDI before blaming the desk
+
+The player sends MIDI to QLC+ over a loopMIDI port; QLC+ owns the fixtures and
+the DMX. When the lights do not change, the first question is which side is
+wrong, and `btmidi` answers it without guessing.
+
+```
+btmidi --list                       what ports exist
+btmidi --listen "loopMIDI" 30       watch one for thirty seconds
+btmidi "loopMIDI" 38                send note 38 to it
+```
+
+Run `--listen` on the port in one window and play a song in another. If the
+cues appear there, this program is doing its job and the problem is in QLC+'s
+input profile or its cue list. If they do not, it is this program.
+
+A cue should put exactly two messages on the wire - a note on and the matching
+note off - and a song starting should put one program change. Anything else is
+a bug here: an earlier version sent sixteen "all notes off" controllers every
+time it closed the port, which is the sort of thing a desk may well have bound
+to something.
+
+### Setting up loopMIDI
+
+Install it, run it, press **+** to add a port, and name it something you will
+recognise. The port only exists while loopMIDI is running, so set it to start
+with Windows. QLC+ opens the same port as a MIDI *input*.
