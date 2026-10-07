@@ -1353,6 +1353,12 @@ int main(int argc, char **argv) {
         if (g_editing) {
             g_edit.song = g_edit.song < 0 ? 0 : g_edit.song;
             g_edit.playing  = transport_playing(g_app);
+            g_edit.midi_open_name = g_app.midi_name[0] ? g_app.midi_name : nullptr;
+            g_edit.midi_why       = g_app.midi_why[0]  ? g_app.midi_why  : nullptr;
+            g_edit.cues_fired     = g_app.cues_fired;
+            if (!g_edit.midi_dirty)
+                std::snprintf(g_edit.midi_port, sizeof(g_edit.midi_port), "%s",
+                              g_app.dev.midi_out);
             {
                 const double sr = g_app.dev.sample_rate > 0 ? g_app.dev.sample_rate : 48000;
                 g_edit.play_sec = g_app.live && g_app.player
@@ -1377,6 +1383,28 @@ int main(int argc, char **argv) {
                 g_edit.reopen_device = false;
                 reopen_audio(hwnd);
                 reopen_midi(g_app);
+            }
+            if (g_edit.midi_dirty) {
+                g_edit.midi_dirty = false;
+                std::snprintf(g_app.dev.midi_out, sizeof(g_app.dev.midi_out),
+                              "%s", g_edit.midi_port);
+                reopen_midi(g_app);
+                /* The port is machine config, so it goes in device.json
+                 * rather than waiting for the set list to be saved. */
+                if (g_edit.can_save_device)
+                    bt_device_cfg_save_file(&g_app.dev, g_edit.device_path);
+            }
+            if (g_edit.want_test_note > 0) {
+                const int32_t note = g_edit.want_test_note;
+                g_edit.want_test_note = 0;
+                if (g_app.midi && g_app.sl && g_app.sl->light.channel > 0) {
+                    int32_t vel = g_app.sl->light.velocity;
+                    if (vel < 1 || vel > 127) vel = 127;
+                    bt_midi_trigger(g_app.midi, g_app.sl->light.channel, note, vel);
+                    std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                  "sent note %d on channel %d", note,
+                                  g_app.sl->light.channel);
+                }
             }
             if (g_edit.want_reload) {
                 g_edit.want_reload = false;

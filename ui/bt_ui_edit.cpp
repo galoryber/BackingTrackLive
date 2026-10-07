@@ -13,6 +13,7 @@
 
 #include "backtrack/bt_device.h"
 #include "backtrack/bt_peaks.h"
+#include "backtrack/bt_midi.h"
 #include "bt_ui_start.h"
 
 namespace {
@@ -206,6 +207,8 @@ void draw_setlist_screen(bt_ui_edit &ed) {
     if (ImGui::Button("audio \xe2\x80\xa6")) ed.screen = bt_edit_screen::audio;
     ImGui::SameLine();
     if (ImGui::Button("check \xe2\x80\xa6")) ed.screen = bt_edit_screen::check;
+    ImGui::SameLine();
+    if (ImGui::Button("lighting \xe2\x80\xa6")) ed.screen = bt_edit_screen::lighting;
     ImGui::SameLine(0, 28);
     if (ImGui::Button("open another set list \xe2\x80\xa6")) ed.want_open_setlist = true;
 
@@ -719,6 +722,105 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::TextDisabled("nudge while it plays - you will hear it from where you are, "
                         "not from the top");
 
+    /* ---- lighting cues ---------------------------------------------- */
+    if (ed.sl && ed.sl->light.channel > 0) {
+        ImGui::Spacing();
+        ImGui::Separator();
+        ImGui::TextUnformatted("LIGHTING");
+        ImGui::SameLine();
+
+        ImGui::SetNextItemWidth(130);
+        int pc = s.midi_program;
+        if (ImGui::InputInt("program", &pc, 1, 1)) {
+            if (pc >= -1 && pc <= 127) { s.midi_program = pc; ed.dirty = true; }
+        }
+        ImGui::SameLine();
+        if (s.midi_program < 0)
+            ImGui::TextDisabled("-1 sends nothing - the desk keeps whatever it had");
+        else
+            ImGui::TextDisabled("sent when this song starts, so the desk loads "
+                                "its cue list before bar 1");
+
+        ImGui::SameLine(0, 22);
+        ImGui::BeginDisabled(s.nlight_cues >= BT_MAX_LIGHT_CUES);
+        if (ImGui::Button("+ cue")) {
+            bt_light_cue &c = s.light_cue[s.nlight_cues];
+            std::memset(&c, 0, sizeof(c));
+            /* A bar after the last one, since cues are written in order and
+             * the next one is always later than the last. */
+            c.bar = s.nlight_cues > 0 ? s.light_cue[s.nlight_cues - 1].bar + 8 : 1;
+            s.nlight_cues++;
+            ed.dirty = true;
+        }
+        ImGui::EndDisabled();
+
+        if (s.nlight_cues == 0) {
+            ImGui::TextDisabled("no cues - this song sends its program change "
+                                "and nothing else");
+        } else if (ImGui::BeginTable("cues", 4,
+                   ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                   ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("bar",  ImGuiTableColumnFlags_WidthFixed, 110);
+            ImGui::TableSetupColumn("note", ImGuiTableColumnFlags_WidthFixed, 130);
+            ImGui::TableSetupColumn("what it is", ImGuiTableColumnFlags_WidthStretch, 3);
+            ImGui::TableSetupColumn("",     ImGuiTableColumnFlags_WidthFixed, 40);
+            ImGui::TableHeadersRow();
+
+            int32_t remove_cue = -1;
+            for (int32_t i = 0; i < s.nlight_cues; i++) {
+                bt_light_cue &c = s.light_cue[i];
+                ImGui::PushID(3000 + i);
+                ImGui::TableNextRow();
+
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-1);
+                int bar = c.bar;
+                if (ImGui::InputInt("##bar", &bar, 0, 0)) {
+                    if (bar >= 1 && bar <= 10000) { c.bar = bar; ed.dirty = true; }
+                }
+
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-1);
+                int note = c.note;
+                if (ImGui::InputInt("##note", &note, 0, 0)) {
+                    if (note >= 0 && note <= 127) { c.note = note; ed.dirty = true; }
+                }
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("0 uses the set list's next-cue note (%d).\n"
+                                      "Name one to send something else - the end\n"
+                                      "of a song usually does.",
+                                      ed.sl->light.next_note);
+
+                ImGui::TableNextColumn();
+                ImGui::SetNextItemWidth(-1);
+                if (ImGui::InputText("##desc", c.desc, sizeof(c.desc))) ed.dirty = true;
+
+                ImGui::TableNextColumn();
+                if (ImGui::SmallButton("x")) remove_cue = i;
+                ImGui::PopID();
+            }
+            ImGui::EndTable();
+
+            if (remove_cue >= 0) {
+                for (int32_t i = remove_cue; i + 1 < s.nlight_cues; i++)
+                    s.light_cue[i] = s.light_cue[i + 1];
+                s.nlight_cues--;
+                ed.dirty = true;
+            }
+        }
+
+        /* Cues out of order would fire out of order, and a cue list only
+         * knows "next" - so it is worth saying rather than discovering. */
+        for (int32_t i = 1; i < s.nlight_cues; i++) {
+            if (s.light_cue[i].bar <= s.light_cue[i - 1].bar) {
+                ImGui::TextColored(COL_WARN,
+                    "cue %d is not after cue %d - a cue list advances in order, "
+                    "so these will not line up", i + 1, i);
+                break;
+            }
+        }
+    }
+
     ImGui::Spacing();
     ImGui::TextUnformatted("TRACKS");
     ImGui::SameLine();
@@ -765,6 +867,7 @@ void draw_song_screen(bt_ui_edit &ed) {
 
 void draw_audio_screen(bt_ui_edit &ed);   /* defined below, needs bt_device.h */
 void draw_check_screen(bt_ui_edit &ed);   /* defined below                    */
+void draw_lighting_screen(bt_ui_edit &ed);
 
 
 /* The first sample loud enough to be the music rather than the room.
@@ -1070,6 +1173,7 @@ void bt_ui_edit_key(bt_ui_edit &ed, int vk) {
         else if (ed.screen == bt_edit_screen::song)  ed.screen = bt_edit_screen::setlist;
         else if (ed.screen == bt_edit_screen::audio) ed.screen = bt_edit_screen::setlist;
         else if (ed.screen == bt_edit_screen::check) ed.screen = bt_edit_screen::setlist;
+        else if (ed.screen == bt_edit_screen::lighting) ed.screen = bt_edit_screen::setlist;
         else                                         ed.leave = true;
         break;
     case 'S':
@@ -1111,6 +1215,7 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     case bt_edit_screen::align:   draw_align_screen(ed);   break;
     case bt_edit_screen::audio:   draw_audio_screen(ed);   break;
     case bt_edit_screen::check:   draw_check_screen(ed);   break;
+    case bt_edit_screen::lighting: draw_lighting_screen(ed); break;
     }
 
     /* One place, after everything has drawn, so no widget can forget. */
@@ -1590,6 +1695,136 @@ void draw_check_screen(bt_ui_edit &ed) {
             ed.want_export = true;
         }
     }
+}
+
+
+/* ======================================================================
+ * Lighting
+ *
+ * Two kinds of setting on one screen, because this is where somebody sets up
+ * lighting and they should not have to know which file each thing lands in.
+ * The screen says which is which instead: the port belongs to this laptop,
+ * the notes belong to the show and travel with the set list.
+ * ==================================================================== */
+
+void draw_lighting_screen(bt_ui_edit &ed) {
+    ImGui::PushStyleColor(ImGuiCol_Text, COL_DIM);
+    ImGui::TextUnformatted("EDIT  \xe2\x80\xa2  lighting");
+    ImGui::PopStyleColor();
+    if (ImGui::Button("\xe2\x86\x90 set list")) ed.screen = bt_edit_screen::setlist;
+    ImGui::Separator();
+
+    if (!ed.sl) { ImGui::TextDisabled("No set list open."); return; }
+    bt_light_cfg &cfg = ed.sl->light;
+
+    /* ---- the port: this machine ---- */
+    ImGui::TextUnformatted("PORT");
+    ImGui::SameLine();
+    ImGui::TextDisabled("belongs to this laptop - stored with the audio "
+                        "settings, not with the set list");
+
+    const int32_t n = bt_midi_count();
+    if (n == 0) {
+        ImGui::TextColored(COL_AMBER, "No MIDI outputs on this machine.");
+        ImGui::TextDisabled("Install loopMIDI, create a port, and leave it "
+                            "running; QLC+ opens the same port as an input.");
+    }
+
+    ImGui::BeginChild("ports", ImVec2(0, 130), true);
+    for (int32_t i = 0; i < n; i++) {
+        bt_midi_info info;
+        if (bt_midi_get(i, &info) != BT_OK) continue;
+        const bool sel = ed.midi_port[0] &&
+                         std::strstr(info.name, ed.midi_port) != nullptr;
+        char row[200];
+        std::snprintf(row, sizeof(row), "%s##mp%d", info.name, i);
+        if (ImGui::Selectable(row, sel)) {
+            std::snprintf(ed.midi_port, sizeof(ed.midi_port), "%s", info.name);
+            ed.midi_dirty = true;
+        }
+    }
+    ImGui::EndChild();
+
+    if (ed.midi_open_name && *ed.midi_open_name)
+        ImGui::TextColored(COL_OK, "open: %s", ed.midi_open_name);
+    else if (ed.midi_why && *ed.midi_why)
+        ImGui::TextColored(COL_WARN, "%s", ed.midi_why);
+    else if (!ed.midi_port[0])
+        ImGui::TextDisabled("no port chosen - nothing is sent");
+
+    ImGui::SameLine();
+    if (ImGui::Button("none")) { ed.midi_port[0] = '\0'; ed.midi_dirty = true; }
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Stop sending lighting from this machine.");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    /* ---- the notes: this show ---- */
+    ImGui::TextUnformatted("WHAT TO SEND");
+    ImGui::SameLine();
+    ImGui::TextDisabled("belongs to the show - travels with the set list, so "
+                        "the backup laptop lights the same");
+
+    ImGui::SetNextItemWidth(150);
+    int ch = cfg.channel;
+    if (ImGui::InputInt("channel", &ch, 1, 1)) {
+        if (ch >= 0 && ch <= 16) { cfg.channel = ch; ed.dirty = true; }
+    }
+    ImGui::SameLine();
+    if (cfg.channel == 0) ImGui::TextColored(COL_AMBER,
+        "0 - this set list has no lighting");
+    else ImGui::TextDisabled("1-16, as the desk counts them");
+
+    ImGui::SetNextItemWidth(150);
+    int nn = cfg.next_note;
+    if (ImGui::InputInt("next cue note", &nn, 1, 1)) {
+        if (nn >= 0 && nn <= 127) { cfg.next_note = nn; ed.dirty = true; }
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("bind this to \"Next Cue\" in QLC+");
+
+    ImGui::SetNextItemWidth(150);
+    int en = cfg.end_note;
+    if (ImGui::InputInt("song end note", &en, 1, 1)) {
+        if (en >= 0 && en <= 127) { cfg.end_note = en; ed.dirty = true; }
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("sent by a cue that names it, at the end of a song");
+
+    ImGui::SetNextItemWidth(150);
+    int vel = cfg.velocity;
+    if (ImGui::InputInt("velocity", &vel, 1, 10)) {
+        if (vel >= 1 && vel <= 127) { cfg.velocity = vel; ed.dirty = true; }
+    }
+    ImGui::SameLine();
+    ImGui::TextDisabled("most desks ignore it");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    /* ---- proving it, without a song and without a rig ---- */
+    ImGui::TextUnformatted("TEST");
+    ImGui::SameLine();
+    ImGui::TextDisabled("sends one note now, so the desk can be checked "
+                        "before a rehearsal rather than during one");
+
+    ImGui::BeginDisabled(!(ed.midi_open_name && *ed.midi_open_name) || cfg.channel == 0);
+    if (ImGui::Button("send the next-cue note")) ed.want_test_note = cfg.next_note;
+    ImGui::SameLine();
+    if (ImGui::Button("send the song-end note")) ed.want_test_note = cfg.end_note;
+    ImGui::EndDisabled();
+
+    ImGui::Spacing();
+    ImGui::TextDisabled(
+        "In QLC+: bind the next-cue note to a cue list's Next Cue, and a\n"
+        "program change per song to the cue list for that song. Watch what is\n"
+        "actually being sent with:   btmidi --listen \"%s\" 60",
+        ed.midi_port[0] ? ed.midi_port : "your port");
+
+    if (ed.cues_fired > 0)
+        ImGui::TextDisabled("%d cue(s) sent since this song started",
+                            ed.cues_fired);
 }
 
 } /* namespace */

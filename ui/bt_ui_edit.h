@@ -21,7 +21,7 @@
 #include "backtrack/bt_validate.h"
 #include "backtrack/bt_peaks.h"
 
-enum class bt_edit_screen { setlist, song, align, audio, check };
+enum class bt_edit_screen { setlist, song, align, audio, check, lighting };
 
 struct bt_ui_edit {
     bt_setlist    *sl = nullptr;          /* mutable, unlike the play view */
@@ -91,6 +91,16 @@ struct bt_ui_edit {
     double           view_len    = 8.0;
     bool             want_select = false;     /* host: make this song live */
     bt_frame         first_sound = -1;        /* cached with the peaks     */
+
+    /* Lighting. The port belongs to the machine and the rest to the show, so
+     * the screen says which is which rather than leaving someone to find out
+     * by copying a set list to the backup laptop. */
+    char             midi_port[BT_MAX_NAME] = {0};   /* from device.json    */
+    bool             midi_dirty = false;             /* port changed        */
+    const char      *midi_open_name = nullptr;       /* host fills in       */
+    const char      *midi_why = nullptr;             /* why it is not open  */
+    int32_t          want_test_note = 0;             /* host sends this     */
+    int32_t          cues_fired = 0;                 /* host fills in       */
 
     bool             want_export = false;
     bool             export_whole_set = false;
