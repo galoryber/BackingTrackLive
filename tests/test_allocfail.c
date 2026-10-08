@@ -28,6 +28,7 @@
 #include "backtrack/bt_resample.h"
 #include "backtrack/bt_engine.h"
 #include "backtrack/bt_peaks.h"
+#include "backtrack/bt_lightshow.h"
 
 extern void *__real_malloc(size_t);
 extern void *__real_calloc(size_t, size_t);
@@ -98,6 +99,25 @@ static void work_json(void) {
         (void)bt_json_len(bt_json_get(j, "songs"));
         bt_json_free(j);
     }
+}
+
+/* The lighting cue file: a show, its songs, and each song's events. Three
+ * nested allocations with a partly-built show to free on the way out of any
+ * of them, which is exactly the shape that leaks. */
+static const char *LIGHT_JSON =
+    "{\"format\":\"random-riot-lighting/1\",\"midi_port\":\"BackTrackQLC\","
+    "\"specials\":{\"between_songs\":{\"ch\":16,\"note\":37}},"
+    "\"songs\":["
+    "{\"title\":\"a\",\"events\":[{\"bar\":1,\"ch\":1,\"note\":0},"
+    "{\"bar\":17,\"ch\":1,\"note\":1},{\"bar\":33,\"ch\":1,\"note\":2}]},"
+    "{\"title\":\"b\",\"events\":[{\"bar\":1,\"ch\":1,\"note\":3},"
+    "{\"bar\":9,\"ch\":16,\"note\":37,\"type\":\"end\"}]}]}";
+
+static void work_lightshow(void) {
+    bt_lightshow *sh = NULL;
+    int line = 0;
+    if (bt_lightshow_load_mem(LIGHT_JSON, strlen(LIGHT_JSON), &sh, &line) == BT_OK)
+        bt_lightshow_free(sh);
 }
 
 static void work_setlist(void) {
@@ -270,6 +290,7 @@ static void test_every_allocation_failure(void) {
     sweep(work_json,           "bt_json_parse");
     sweep(work_setlist,        "bt_setlist_load_mem");
     sweep(work_setlist_write,  "bt_setlist_to_json");
+    sweep(work_lightshow,      "bt_lightshow_load_mem");
     sweep(work_wav_decode,     "bt_wav_decode");
     sweep(work_resample,       "bt_resample_planar");
     sweep(work_peaks,          "bt_peaks_build");
