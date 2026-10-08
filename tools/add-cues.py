@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
-"""Merge a table of lighting cues into a set list, matching songs by title.
+"""SUPERSEDED. Merged cue tables into a set list's own light_cues.
+
+Lighting cues no longer live in setlist.json. They come from the lighting
+project's lighting_cues.json, which is generated from its own show design -
+see docs/lighting-contract.md. Nothing reads what this writes.
+
+Kept because the title-matching here is the same problem that file has, and
+because a set list written before the change still loads. Do not reach for it
+for new work.
+
+Merge a table of lighting cues into a set list, matching songs by title.
 
 Until the cue editor exists, this is how 267 cues get into setlist.json
 without anybody typing them. It is also the right tool afterwards for a band

@@ -21,11 +21,14 @@
 #include "imgui_impl_dx11.h"
 #include "imgui_impl_win32.h"
 
+#include <vector>
+
 #include "backtrack/bt_player.h"
 #include "backtrack/bt_device.h"
 
 #include "backtrack/bt_demo.h"
 #include "backtrack/bt_midi.h"
+#include "backtrack/bt_lightshow.h"
 #include "backtrack/bt_wav.h"
 
 #include "bt_ui.h"
@@ -118,10 +121,20 @@ struct App {
     bt_midi      *midi = nullptr;
     char          midi_name[BT_MIDI_NAME_MAX] = {0};
     char          midi_why[160] = {0};
+
+    bt_lightshow *show = nullptr;    /* the lighting side's cue file      */
+    char          show_why[200] = {0};
+    int32_t       show_matched = 0;  /* set list songs the show knows     */
+    /* Which of them, for the screen. char rather than bool because
+     * std::vector<bool> is a bitfield and has no array to hand out. */
+    std::vector<char> song_lit;
+
     bt_frame      cue_last = 0;      /* playhead at the previous tick     */
     int32_t       cue_song = -1;     /* song the above belongs to         */
     int32_t       cues_fired = 0;    /* for the screen, and for debugging */
-    int32_t       cue_step  = 0;     /* where the desk's cue list stands  */
+    int32_t       last_ch = -1;      /* what is showing, so a repeat does */
+    int32_t       last_note = -1;    /* not toggle it back off            */
+    char          cue_label[BT_MAX_CUE] = {0};
     /* A start that is waiting for the loader rather than blocking on it. */
     bool          pending_start    = false;
     bool          pending_count_in = false;
@@ -152,6 +165,8 @@ bool nothing_open() { return g_app.sl == nullptr; }
  * transport uses them and comes first. */
 void close_midi(App &a);
 void reopen_midi(App &a);
+void close_show(App &a);
+void reopen_show(App &a, const char *setlist_path);
 void lighting_resync(App &a, int32_t song_index, bt_frame at);
 void lighting_tick(App &a);
 
@@ -378,6 +393,7 @@ void close_set() {
     App &a = g_app;
     g_start.rescan = true;      /* the folder may have changed since last time */
     close_midi(a);
+    close_show(a);
     if (a.device) { bt_device_stop(a.device); bt_device_close(a.device); a.device = nullptr; }
     if (a.player) { bt_player_destroy(a.player); a.player = nullptr; }
     if (a.sl)     { bt_setlist_free(a.sl); a.sl = nullptr; }
@@ -404,28 +420,52 @@ void reopen_audio(HWND hwnd);
  * DMX refreshes at around 44 Hz, so nothing downstream can tell.
  */
 
-bool lighting_on(const App &a) {
-    return a.midi && a.sl && a.sl->light.channel > 0;
-}
+/* ---- lighting ---------------------------------------------------------
+ *
+ * The show belongs to the lighting project: it decides what every look is,
+ * which bar each section starts on, and which note means which look, and
+ * bakes all of that into a cue file. Everything here does is send the note
+ * when the playhead reaches the bar. docs/lighting-contract.md is the
+ * agreement, and neither side may change it alone.
+ *
+ * Every event is absolute - "show look number N" - so there is no cue list
+ * position to keep in step with and nothing to resync. A song that is
+ * skipped, restarted or scrubbed cannot leave the desk out of step.
+ *
+ * Sent from this thread and never from the audio callback: sending MIDI is a
+ * syscall. The playhead is a sample counter, so cues land within a frame of
+ * the bar - about 16 ms, inside what the contract asks for.
+ */
+
+bool lighting_on(const App &a) { return a.midi && a.show; }
 
 void close_midi(App &a) {
     if (a.midi) { bt_midi_close(a.midi); a.midi = nullptr; }
     a.midi_name[0] = '\0';
 }
 
-/* Opens the port named in device.json, if there is one. Failing is not fatal:
- * a gig without lights is a gig; a gig that will not start because a MIDI
- * port moved is not. */
+/* Which port: the cue file says, because the show was built for it. A
+ * midi_out in device.json overrides that, for a machine whose loopMIDI port
+ * is named something else. */
+const char *lighting_port_name(const App &a) {
+    if (a.dev.midi_out[0]) return a.dev.midi_out;
+    if (a.show && a.show->port[0]) return a.show->port;
+    return "";
+}
+
+/* Failing is not fatal and says why. A gig without lights is a gig; a gig
+ * that will not start because a MIDI port moved is not. */
 void reopen_midi(App &a) {
     close_midi(a);
     a.midi_why[0] = '\0';
 
-    if (!a.dev.midi_out[0]) return;
+    const char *want = lighting_port_name(a);
+    if (!*want) return;
 
-    const int32_t idx = bt_midi_find(a.dev.midi_out);
+    const int32_t idx = bt_midi_find(want);
     if (idx < 0) {
         std::snprintf(a.midi_why, sizeof(a.midi_why),
-                      "no MIDI port matching \"%s\"", a.dev.midi_out);
+                      "no MIDI port matching \"%s\"", want);
         return;
     }
     bt_midi_info info;
@@ -440,120 +480,124 @@ void reopen_midi(App &a) {
     std::snprintf(a.midi_name, sizeof(a.midi_name), "%s", info.name);
 }
 
-/* Tell the desk which song this is, and put its cue list back to the start.
- * Sent as a song begins rather than as one is selected: browsing the set with
- * the arrow keys would otherwise fire a program change per keypress. */
-void lighting_load_song(App &a, int32_t song_index) {
-    if (!lighting_on(a)) return;
-    if (song_index < 0 || song_index >= a.sl->nsongs) return;
-
-    const bt_song &s = a.sl->song[song_index];
-    if (s.midi_program >= 0)
-        bt_midi_send(a.midi, (uint8_t)(0xC0 | (a.sl->light.channel - 1)),
-                     (uint8_t)s.midi_program, 0);
-
-    a.cue_song   = song_index;
-    a.cues_fired = 0;
-    a.cue_step   = 0;   /* the program change arms the list at the top */
+void close_show(App &a) {
+    if (a.show) { bt_lightshow_free(a.show); a.show = nullptr; }
+    a.show_why[0] = '\0';
+    a.show_matched = 0;
+    a.song_lit.clear();
+    a.cue_label[0] = '\0';
+    a.last_ch = a.last_note = -1;
 }
 
-int32_t lighting_velocity(const App &a) {
-    const int32_t v = a.sl->light.velocity;
-    return (v < 1 || v > 127) ? 127 : v;
+/* The cue file lives beside setlist.json, so a set list folder copied to the
+ * backup laptop takes its lighting with it. Absent is the ordinary case and
+ * not an error; present but unreadable is worth a line on screen. */
+void reopen_show(App &a, const char *setlist_path) {
+    close_show(a);
+    if (!setlist_path || !*setlist_path) return;
+
+    char path[1024];
+    std::snprintf(path, sizeof(path), "%s", setlist_path);
+    char *slash = std::strrchr(path, '\\');
+    char *fwd   = std::strrchr(path, '/');
+    if (fwd > slash) slash = fwd;
+    if (slash) slash[1] = '\0'; else path[0] = '\0';
+    std::strncat(path, "lighting_cues.json", sizeof(path) - std::strlen(path) - 1);
+
+    FILE *probe = std::fopen(path, "rb");
+    if (!probe) return;        /* no lighting here, which is fine */
+    std::fclose(probe);
+
+    int line = 0;
+    bt_err e = bt_lightshow_load_file(path, &a.show, &line);
+    if (e != BT_OK) {
+        a.show = nullptr;
+        if (e == BT_ERR_SCHEMA)
+            std::snprintf(a.show_why, sizeof(a.show_why),
+                          "lighting_cues.json is not format %s - ignoring it",
+                          BT_LIGHTSHOW_FORMAT);
+        else
+            std::snprintf(a.show_why, sizeof(a.show_why),
+                          "lighting_cues.json line %d: %s", line, bt_strerror(e));
+        return;
+    }
+    /* How many of the set list's songs the show knows about. A title that
+     * drifted between the two files shows up here and nowhere else. */
+    if (a.sl) {
+        a.song_lit.assign((size_t)a.sl->nsongs, 0);
+        for (int32_t i = 0; i < a.sl->nsongs; i++) {
+            const bool lit = bt_lightshow_find(a.show, a.sl->song[i].title) != nullptr;
+            a.song_lit[(size_t)i] = lit ? 1 : 0;
+            if (lit) a.show_matched++;
+        }
+    }
 }
 
-/* Sends one note and keeps track of where that leaves the desk.
- *
- * Only the "next" note moves a cue list on. A cue that names its own note is
- * the between-songs look or a blackout: the desk does it and stays where it
- * was, so counting it would leave everything after it a step out. */
-void lighting_note(App &a, int32_t note) {
-    if (note <= 0) return;
-    bt_midi_trigger(a.midi, a.sl->light.channel, note, lighting_velocity(a));
-    if (note == a.sl->light.next_note)      a.cue_step++;
-    else if (note == a.sl->light.prev_note) a.cue_step--;
+/* QLC+'s buttons toggle, so sending the note of the look that is already
+ * showing would switch it off. Tracked as a channel and note together: looks
+ * are on channel 1 and specials on 16, and note 37 on one is not the same
+ * button as note 37 on the other. */
+void lighting_send(App &a, int32_t ch, int32_t note, bool is_look,
+                   const char *label) {
+    if (!a.midi || ch < 1 || ch > 16 || note < 0 || note > 127) return;
+    if (is_look && ch == a.last_ch && note == a.last_note) return;
+
+    int32_t vel = a.show ? a.show->velocity : 127;
+    if (vel < 1 || vel > 127) vel = 127;
+    bt_midi_trigger(a.midi, ch, note, vel);
+
+    a.last_ch = ch;
+    a.last_note = note;
     a.cues_fired++;
+    if (label && *label) std::snprintf(a.cue_label, sizeof(a.cue_label), "%s", label);
 }
 
-void lighting_fire(App &a, const bt_light_cue &cue) {
-    lighting_note(a, bt_light_cue_note(&a.sl->light, &cue));
+void lighting_event(App &a, const bt_light_event &ev) {
+    lighting_send(a, ev.ch, ev.note, ev.kind == BT_LIGHT_LOOK, ev.label);
 }
 
-/* A jump - selecting a song, or scrubbing - leaves the desk's cue list
- * somewhere the music no longer is, and a cue list has no way of being told
- * "go to step 5". There are two ways to put it right, and which is cheaper
- * depends on which way the jump went.
- *
- * Stepping back: send the "previous" note the difference. Scrubbing back four
- * bars while aligning a stem should step back a cue or two, not reload the
- * song and race forward through every look in it.
- *
- * Starting over: send the program change, which arms the list at the top,
- * then step forward. This is the only option for a different song, and it is
- * also fewer messages for a long jump backwards.
- *
- * A desk with no "previous" binding has prev_note 0, and then it is always
- * the second. */
+const bt_light_song *lighting_song(const App &a, int32_t song_index) {
+    if (!a.show || !a.sl || song_index < 0 || song_index >= a.sl->nsongs) return nullptr;
+    return bt_lightshow_find(a.show, a.sl->song[song_index].title);
+}
+
+/* Starting, or landing anywhere after a jump. One question: what should the
+ * stage look like here. The hits that were missed stay missed. */
 void lighting_resync(App &a, int32_t song_index, bt_frame at) {
     if (!lighting_on(a)) return;
-    if (song_index < 0 || song_index >= a.sl->nsongs) return;
-
-    const bt_song &s = a.sl->song[song_index];
-    const int32_t sr = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
-    const int32_t want = bt_song_steps_before(&s, &a.sl->light, at, sr);
-
-    const bool same_song = (song_index == a.cue_song);
-    const int32_t back   = a.cue_step - want;
-
-    /* Stepping back costs one note each; starting over costs the program
-     * change plus one note per step from the top. */
-    const bool step_back = same_song && a.sl->light.prev_note > 0 &&
-                           back > 0 && back <= want + 1;
-
-    if (step_back) {
-        for (int32_t i = 0; i < back; i++)
-            lighting_note(a, a.sl->light.prev_note);
-    } else if (same_song && want >= a.cue_step) {
-        for (int32_t i = a.cue_step; i < want; i++)
-            lighting_note(a, a.sl->light.next_note);
-    } else {
-        lighting_load_song(a, song_index);
-        for (int32_t i = 0; i < want; i++)
-            lighting_note(a, a.sl->light.next_note);
-    }
-
+    const bt_light_song *ls = lighting_song(a, song_index);
     a.cue_song = song_index;
     a.cue_last = at;
+    if (!ls) return;
+
+    const bt_song &s  = a.sl->song[song_index];
+    const int32_t sr  = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
+    const int32_t idx = bt_light_look_at(ls, &s, at, sr);
+    if (idx >= 0) lighting_event(a, ls->ev[idx]);
 }
 
-/* Called every frame while playing. */
 void lighting_tick(App &a) {
     if (!lighting_on(a) || !a.player) return;
 
     const int32_t song = bt_player_current(a.player);
     if (song < 0 || song >= a.sl->nsongs) return;
-
     const bt_frame now = bt_player_playhead(a.player);
 
     /* A song change the transport made on its own - a segue. */
-    if (song != a.cue_song) {
-        lighting_load_song(a, song);
-        a.cue_last = now - 1;
-    }
+    if (song != a.cue_song) { lighting_resync(a, song, now); return; }
 
-    if (now < a.cue_last) {
-        /* The playhead went backwards without anyone telling us, so the desk
-         * is ahead of the music. Step it back. */
-        lighting_resync(a, song, now);
-        return;
-    }
+    /* The playhead went backwards without anyone saying so. */
+    if (now < a.cue_last) { lighting_resync(a, song, now); return; }
+
+    const bt_light_song *ls = lighting_song(a, song);
+    if (!ls) { a.cue_last = now; return; }
 
     const bt_song &s = a.sl->song[song];
     const int32_t sr = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
-    int32_t idx[BT_MAX_LIGHT_CUES];
-    const int32_t n = bt_song_cues_between(&s, a.cue_last, now, sr,
-                                           idx, BT_MAX_LIGHT_CUES);
-    for (int32_t i = 0; i < n; i++) lighting_fire(a, s.light_cue[idx[i]]);
+    int32_t idx[64];
+    const int32_t n = bt_light_events_between(ls, &s, a.cue_last, now, sr,
+                                              idx, 64);
+    for (int32_t i = 0; i < n; i++) lighting_event(a, ls->ev[idx[i]]);
     a.cue_last = now;
 }
 
@@ -636,6 +680,7 @@ bool open_set(HWND hwnd, const char *setlist_path, const char *device_path) {
     std::snprintf(g_edit.device_path, sizeof(g_edit.device_path), "%s", dpath);
 
     reopen_audio(hwnd);
+    reopen_show(a, setlist_path);
     reopen_midi(a);
     bt_ui_settings_touch(g_settings, setlist_path, dpath);
     g_start.status[0] = '\0';
@@ -1426,6 +1471,14 @@ int main(int argc, char **argv) {
             g_edit.midi_open_name = g_app.midi_name[0] ? g_app.midi_name : nullptr;
             g_edit.midi_why       = g_app.midi_why[0]  ? g_app.midi_why  : nullptr;
             g_edit.cues_fired     = g_app.cues_fired;
+            g_edit.show_why       = g_app.show_why[0] ? g_app.show_why : nullptr;
+            g_edit.show_loaded    = g_app.show != nullptr;
+            g_edit.show_songs     = g_app.show ? g_app.show->nsongs : 0;
+            g_edit.show_matched   = g_app.show_matched;
+            g_edit.song_has_light = g_app.song_lit.empty()
+                                  ? nullptr : g_app.song_lit.data();
+            g_edit.show_port      = g_app.show ? g_app.show->port : nullptr;
+            g_edit.cue_label      = g_app.cue_label[0] ? g_app.cue_label : nullptr;
             if (!g_edit.midi_dirty)
                 std::snprintf(g_edit.midi_port, sizeof(g_edit.midi_port), "%s",
                               g_app.dev.midi_out);
@@ -1460,22 +1513,29 @@ int main(int argc, char **argv) {
                               "%s", g_edit.midi_port);
                 reopen_midi(g_app);
                 /* The port is machine config, so it goes in device.json
-                 * rather than waiting for the set list to be saved. */
+                 * rather than waiting for the set list to be saved. It
+                 * overrides the one the cue file names. */
                 if (g_edit.can_save_device)
                     bt_device_cfg_save_file(&g_app.dev, g_edit.device_path);
             }
-            if (g_edit.want_test_note > 0) {
-                const int32_t note = g_edit.want_test_note;
-                g_edit.want_test_note = 0;
-                if (g_app.midi && g_app.sl && g_app.sl->light.channel > 0) {
-                    int32_t vel = g_app.sl->light.velocity;
-                    if (vel < 1 || vel > 127) vel = 127;
-                    bt_midi_trigger(g_app.midi, g_app.sl->light.channel, note, vel);
+            /* The two the contract says a person may press: between songs,
+             * and everything off. Sent only because somebody asked - never
+             * on stopping, where stale light beats a surprise. */
+            if (g_edit.want_special != 0 && g_app.midi && g_app.show) {
+                const bt_light_special &sp =
+                    g_edit.want_special == 1 ? g_app.show->between_songs
+                                             : g_app.show->stop_all;
+                g_edit.want_special = 0;
+                if (sp.note >= 0) {
+                    lighting_send(g_app, sp.ch, sp.note, false, nullptr);
                     std::snprintf(g_edit.status, sizeof(g_edit.status),
-                                  "sent note %d on channel %d", note,
-                                  g_app.sl->light.channel);
+                                  "sent note %d on channel %d", sp.note, sp.ch);
+                } else {
+                    std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                  "the cue file does not define that one");
                 }
             }
+            g_edit.want_special = 0;
             if (g_edit.want_reload) {
                 g_edit.want_reload = false;
                 /* A stem was added, removed or re-pointed: the loader holds

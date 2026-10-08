@@ -182,10 +182,14 @@ letting future work live only in a conversation.
       - tempo maps and track reordering, which the format supports and the
         editor does not yet expose.
 - [ ] Phase 4 — MIDI in (footswitch)
-- [~] Phase 5 — lighting cues. MIDI *out* is built (`src/midi`, `btmidi`);
-      the cue model, the firing logic and the editor are not, and wait on one
-      decision recorded in `docs/roadmap.md`. This replaces the Art-Net/sACN
-      plan: QLC+ owns the fixtures and the DMX, and we send it MIDI.
+- [~] Phase 5 — lighting cues. Built and verified on the wire: MIDI out
+      (`src/midi`, `btmidi`), the cue file reader (`src/model/bt_lightshow.c`)
+      and the firing. The show itself belongs to a separate lighting project
+      which generates `lighting_cues.json`; the agreement between the two is
+      `docs/lighting-contract.md` (`random-riot-lighting/1`) and **neither
+      side changes it alone**. Nothing about show content is edited here, so
+      adding songs or moving a cue needs no change in this repo. Untested
+      against physical fixtures.
 
 ## Shipping
 

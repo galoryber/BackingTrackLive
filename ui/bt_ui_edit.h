@@ -99,8 +99,17 @@ struct bt_ui_edit {
     bool             midi_dirty = false;             /* port changed        */
     const char      *midi_open_name = nullptr;       /* host fills in       */
     const char      *midi_why = nullptr;             /* why it is not open  */
-    int32_t          want_test_note = 0;             /* host sends this     */
     int32_t          cues_fired = 0;                 /* host fills in       */
+
+    /* The lighting side's cue file, which owns the show. */
+    bool             show_loaded = false;
+    int32_t          show_songs = 0;                 /* songs it describes  */
+    int32_t          show_matched = 0;               /* ...that we also have*/
+    const char      *show_port = nullptr;            /* port it asks for    */
+    const char      *show_why = nullptr;             /* why it is not loaded*/
+    const char      *cue_label = nullptr;            /* the look showing now*/
+    int32_t          want_special = 0;               /* 1 between, 2 all off*/
+    const char      *song_has_light = nullptr;       /* per set list song  */
 
     bool             want_export = false;
     bool             export_whole_set = false;
