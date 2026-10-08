@@ -137,7 +137,7 @@ jobs:
           GCOVR="gcovr --root . --filter src/ --exclude third_party/ \
                  --gcov-ignore-parse-errors=negative_hits.warn"
           $GCOVR --print-summary --txt | tee cov.txt
-          $GCOVR --fail-under-line 95 --fail-under-branch 72 >/dev/null
+          $GCOVR --fail-under-line 95.5 --fail-under-branch 72.5 >/dev/null
           {
             echo '### Coverage'
             echo '```'

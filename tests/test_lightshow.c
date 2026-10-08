@@ -7,6 +7,7 @@
 #include "backtrack/bt_lightshow.h"
 #include "bt_test.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
 
@@ -198,6 +199,72 @@ static void test_a_bad_row_costs_one_look(void) {
     bt_lightshow_free(sh);
 }
 
+/* The cue file is read off disk in the real thing, and the disk has its own
+ * failure modes: it is not there at all, which is the ordinary case for a set
+ * list without lighting, and it is there but unreadable. */
+static void test_reading_it_off_disk(void) {
+    const char *tmp = "lightshow_test_cues.json";
+
+    FILE *f = fopen(tmp, "wb");
+    BT_CHECK(f != NULL);
+    fwrite(SHOW, 1, strlen(SHOW), f);
+    fclose(f);
+
+    bt_lightshow *sh = NULL;
+    int line = 0;
+    BT_CHECK_EQI(bt_lightshow_load_file(tmp, &sh, &line), BT_OK);
+    BT_CHECK(sh != NULL);
+    BT_CHECK_EQI(sh->nsongs, 1);
+    BT_CHECK(!strcmp(sh->port, "BackTrackQLC"));
+    BT_CHECK(bt_lightshow_find(sh, "Corduroy") != NULL);
+    bt_lightshow_free(sh);
+    remove(tmp);
+
+    /* No cue file is how most set lists look, and it must not be an error
+     * the caller has to special-case beyond "no lighting". */
+    sh = NULL;
+    BT_CHECK_EQI(bt_lightshow_load_file("no_such_cue_file.json", &sh, &line),
+                 BT_ERR_IO);
+    BT_CHECK(sh == NULL);
+
+    /* A file that is there but is not a cue file. */
+    f = fopen(tmp, "wb");
+    BT_CHECK(f != NULL);
+    fputs("{\"format\":\"something-else/9\"}", f);
+    fclose(f);
+    sh = NULL;
+    BT_CHECK_EQI(bt_lightshow_load_file(tmp, &sh, &line), BT_ERR_SCHEMA);
+    BT_CHECK(sh == NULL);
+    remove(tmp);
+
+    /* And one that is not JSON at all. */
+    f = fopen(tmp, "wb");
+    BT_CHECK(f != NULL);
+    fputs("not json", f);
+    fclose(f);
+    sh = NULL;
+    BT_CHECK(bt_lightshow_load_file(tmp, &sh, &line) == BT_ERR_PARSE);
+    BT_CHECK(sh == NULL);
+    remove(tmp);
+
+    /* Nothing left behind: the fixture above bit this project once. */
+    BT_CHECK(fopen(tmp, "rb") == NULL);
+}
+
+/* Arguments that cannot be honoured, rather than crashed on. */
+static void test_refuses_nonsense_arguments(void) {
+    bt_lightshow *sh = NULL;
+    BT_CHECK_EQI(bt_lightshow_load_file(NULL, &sh, NULL), BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_lightshow_load_file("x", NULL, NULL), BT_ERR_RANGE);
+    BT_CHECK_EQI(bt_lightshow_load_mem(NULL, 0, &sh, NULL), BT_ERR_RANGE);
+    BT_CHECK(bt_lightshow_find(NULL, "a") == NULL);
+    BT_CHECK(bt_light_event_frame(NULL, NULL, 48000) == 0);
+    BT_CHECK_EQI(bt_light_look_at(NULL, NULL, 0, 48000), -1);
+    BT_CHECK_EQI(bt_light_events_between(NULL, NULL, 0, 1, 48000, NULL, 0), 0);
+    /* Freeing nothing is allowed, as everywhere else here. */
+    bt_lightshow_free(NULL);
+}
+
 int main(void) {
     BT_RUN(test_reads_the_contract);
     BT_RUN(test_a_title_that_contains_another);
@@ -206,5 +273,7 @@ int main(void) {
     BT_RUN(test_what_fires_between_two_playheads);
     BT_RUN(test_seeking_restores_the_look_and_not_the_hits);
     BT_RUN(test_a_bad_row_costs_one_look);
+    BT_RUN(test_reading_it_off_disk);
+    BT_RUN(test_refuses_nonsense_arguments);
     BT_REPORT();
 }
