@@ -211,10 +211,16 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
              * by being wrong about it. Centred from its own size so it stays
              * put as it grows. */
             const float ms = row_h * 0.72f;
+            /* Right-aligned into the gap before the title rather than placed
+             * at a fixed offset from the number: the arrow grew, and a fixed
+             * offset put it through the first letter of the song on a narrow
+             * window. Measured from its own width so it cannot do that
+             * again at any size. */
+            const char *mark = "\xe2\x86\x93";
             text_at(dl, f, ms,
-                    ImVec2(pad * 1.4f + text_w(f, row_sz, "88") + pad * 0.4f,
+                    ImVec2(pad * 3.2f - text_w(f, ms, mark) - pad * 0.22f,
                            y + (row_h - ms) * 0.5f),
-                    COL_SEGUE, "\xe2\x86\x93");
+                    COL_SEGUE, mark);
         }
 
         if (s.tuning[0]) {
@@ -274,7 +280,9 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
         "SPACE  play      E  edit",
         "",
     };
-    const float room = sz.x - pad * 2.0f - device_badge_w(f, st, sz);
+    /* A gap, not merely an absence of overlap: text that ends exactly
+     * where the badge starts reads as one run-on line. */
+    const float room = sz.x - pad * 2.0f - device_badge_w(f, st, sz) - pad;
     for (size_t i = 0; i < sizeof(hints) / sizeof(hints[0]); i++) {
         if (!*hints[i] || text_w(f, key_sz, hints[i]) <= room) {
             if (*hints[i])
