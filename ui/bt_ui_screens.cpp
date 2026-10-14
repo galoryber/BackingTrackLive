@@ -45,6 +45,32 @@ void fmt_clock(char *dst, size_t cap, double sec) {
 
 /* The audio interface, as a dot and a name. Green when a stream is open, red
  * when it is not - and when it is not, why. */
+/* One source for what the badge says, so measuring it and drawing it cannot
+ * disagree - the footer has to know how much room it leaves. */
+void device_badge_label(const bt_ui_state &st, char *out, size_t cap) {
+    if (st.device_live) {
+        /* The running xrun total belongs here, including when it is zero.
+         * Shown only on a problem it is correct for stage and useless for
+         * confidence: "no badge" and "never counted" look identical, and
+         * after a set you want to know which. */
+        std::snprintf(out, cap, "%s  \xc2\xb7  %llu xrun%s",
+                      (st.device_name && st.device_name[0]) ? st.device_name : "audio ready",
+                      (unsigned long long)st.xruns, st.xruns == 1 ? "" : "s");
+    } else {
+        std::snprintf(out, cap, "%s",
+                      (st.device_note && st.device_note[0]) ? st.device_note
+                                                            : "no audio device");
+    }
+}
+
+float device_badge_w(ImFont *f, const bt_ui_state &st, ImVec2 sz) {
+    char label[224];
+    device_badge_label(st, label, sizeof(label));
+    const float ts = sz.y * 0.021f;
+    /* The text, plus the dot and the gap it sits in. */
+    return text_w(f, ts, label) + ts * 1.6f;
+}
+
 void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
                        float cy, bool with_name) {
     ImFont *f = ImGui::GetFont();
@@ -55,20 +81,8 @@ void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
     const float r   = ts * 0.40f;
 
     char live_label[224];
-    const char *label;
-    if (st.device_live) {
-        /* The running xrun total belongs here, including when it is zero.
-         * Shown only on a problem it is correct for stage and useless for
-         * confidence: "no badge" and "never counted" look identical, and
-         * after a set you want to know which. */
-        std::snprintf(live_label, sizeof(live_label), "%s  \xc2\xb7  %llu xrun%s",
-                      (st.device_name && st.device_name[0]) ? st.device_name : "audio ready",
-                      (unsigned long long)st.xruns, st.xruns == 1 ? "" : "s");
-        label = live_label;
-    } else {
-        label = (st.device_note && st.device_note[0]) ? st.device_note
-                                                      : "no audio device";
-    }
+    device_badge_label(st, live_label, sizeof(live_label));
+    const char *label = live_label;
     if (!with_name && st.device_live) return;   /* silence is the good news */
 
     float tw = text_w(f, ts, label);
@@ -196,7 +210,7 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
              * does not stop, which is the one thing nobody wants to find out
              * by being wrong about it. Centred from its own size so it stays
              * put as it grows. */
-            const float ms = row_h * 0.52f;
+            const float ms = row_h * 0.72f;
             text_at(dl, f, ms,
                     ImVec2(pad * 1.4f + text_w(f, row_sz, "88") + pad * 0.4f,
                            y + (row_h - ms) * 0.5f),
@@ -245,9 +259,30 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
     float fy = sz.y - foot_h;
     dl->AddRectFilled(ImVec2(0, fy), ImVec2(sz.x, sz.y), COL_PANEL);
     const float key_sz = foot_h * 0.34f;
-    text_at(dl, f, key_sz, ImVec2(pad, fy + foot_h * 0.32f), COL_TEXT,
-            "CLICK  choose      DOUBLE-CLICK or SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose"
-            "      N  next song      E  edit");
+
+    /* The hints and the interface badge both live on this line and used to
+     * be drawn over each other on a narrow window - "E edit" ended up inside
+     * the device name. Drop the least load-bearing hints until what is left
+     * fits: the keys are a reminder, and the badge answers "am I plugged in",
+     * which is the question somebody actually has before counting a song in.
+     */
+    static const char *const hints[] = {
+        "CLICK  choose      DOUBLE-CLICK or SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose"
+        "      N  next song      E  edit",
+        "CLICK  choose      SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose      E  edit",
+        "SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose      E  edit",
+        "SPACE  play      E  edit",
+        "",
+    };
+    const float room = sz.x - pad * 2.0f - device_badge_w(f, st, sz);
+    for (size_t i = 0; i < sizeof(hints) / sizeof(hints[0]); i++) {
+        if (!*hints[i] || text_w(f, key_sz, hints[i]) <= room) {
+            if (*hints[i])
+                text_at(dl, f, key_sz, ImVec2(pad, fy + foot_h * 0.32f),
+                        COL_TEXT, hints[i]);
+            break;
+        }
+    }
 
     draw_device_badge(dl, st, sz, fy + foot_h * 0.5f, true);
 }
