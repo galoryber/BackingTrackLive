@@ -191,10 +191,15 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
          * error rather than as information. The arrows in the footer prove
          * this one renders. */
         if (s.on_end == BT_ON_END_NEXT) {
-            const float ms = row_sz * 0.62f;
+            /* Sized against the row rather than the row's text, so it reads
+             * from the back of a stage at a glance - it marks where the set
+             * does not stop, which is the one thing nobody wants to find out
+             * by being wrong about it. Centred from its own size so it stays
+             * put as it grows. */
+            const float ms = row_h * 0.52f;
             text_at(dl, f, ms,
                     ImVec2(pad * 1.4f + text_w(f, row_sz, "88") + pad * 0.4f,
-                           y + row_h * 0.30f),
+                           y + (row_h - ms) * 0.5f),
                     COL_SEGUE, "\xe2\x86\x93");
         }
 
