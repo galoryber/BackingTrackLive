@@ -1096,24 +1096,39 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                                                      : bt_edit_screen::setlist;
         if (ed.screen == bt_edit_screen::lighting ||
             ed.screen == bt_edit_screen::song) {
-            sl->light.channel       = 16;
-            sl->light.next_note     = 38;
-            sl->light.end_note      = 37;
-            sl->light.prev_note     = 36;
-            sl->light.blackout_note = 39;
-            sl->light.velocity      = 127;
+            bt_light_cfg &lc = sl->light;
+            lc.velocity = 127;
+            if (lc.nlooks == 0) {
+                struct { const char *name; int32_t ch, note; bt_light_kind k; } looks[] = {
+                    { "Intro Blue",     1,  0, BT_LIGHT_LOOK },
+                    { "Verse Warm",     1,  1, BT_LIGHT_LOOK },
+                    { "Chorus Punch",   1,  2, BT_LIGHT_LOOK },
+                    { "Solo Chase",     1,  3, BT_LIGHT_LOOK },
+                    { "Fog Blast",     16, 77, BT_LIGHT_HIT  },
+                    { "Between Songs", 16, 37, BT_LIGHT_END  },
+                };
+                for (size_t k = 0; k < sizeof(looks) / sizeof(looks[0]); k++) {
+                    bt_light_look &lk = lc.look[lc.nlooks++];
+                    std::memset(&lk, 0, sizeof(lk));
+                    std::snprintf(lk.name, sizeof(lk.name), "%s", looks[k].name);
+                    lk.ch = looks[k].ch; lk.note = looks[k].note; lk.kind = looks[k].k;
+                }
+            }
             bt_song &lg = sl->song[ed.song >= 0 && ed.song < sl->nsongs ? ed.song : 0];
-            lg.midi_program = 3;
             if (lg.nlight_cues == 0) {
-                const int32_t bars[] = { 1, 17, 33, 41, 57, 73, 81, 97 };
-                for (size_t k = 0; k < sizeof(bars) / sizeof(bars[0]); k++)
-                    lg.light_cue[lg.nlight_cues++].bar = bars[k];
-                lg.light_cue[lg.nlight_cues].bar  = 138;
-                lg.light_cue[lg.nlight_cues].note = 37;
-                std::snprintf(lg.light_cue[lg.nlight_cues].desc,
-                              BT_MAX_CUE, "end");
-                lg.nlight_cues++;
-                std::snprintf(lg.light_cue[0].desc, BT_MAX_CUE, "intro");
+                const int32_t bars[] = { 1, 17, 33, 41, 57, 73 };
+                const int32_t which[] = { 0, 1, 2, 1, 3, 2 };
+                for (size_t k = 0; k < sizeof(bars) / sizeof(bars[0]); k++) {
+                    bt_light_event &c = lg.light_cue[lg.nlight_cues++];
+                    std::memset(&c, 0, sizeof(c));
+                    const bt_light_look &lk = lc.look[which[k]];
+                    c.bar = bars[k]; c.ch = lk.ch; c.note = lk.note; c.kind = lk.kind;
+                    std::snprintf(c.label, sizeof(c.label), "%s", lk.name);
+                }
+                bt_light_event &e = lg.light_cue[lg.nlight_cues++];
+                std::memset(&e, 0, sizeof(e));
+                e.bar = 138; e.ch = 16; e.note = 37; e.kind = BT_LIGHT_END;
+                std::snprintf(e.label, sizeof(e.label), "Between Songs");
             }
         }
 
