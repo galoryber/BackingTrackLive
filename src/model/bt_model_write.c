@@ -217,26 +217,6 @@ bt_err bt_setlist_to_json(const bt_setlist *sl, char **out, size_t *len) {
     sb_str(&s, "{\n  \"version\": 1,\n  \"name\": ");
     sb_json_string(&s, sl->name);
 
-    /* Omitted when a set list has no looks, which keeps every set list
-     * written before this byte-identical when re-saved. */
-    if (sl->light.nlooks > 0) {
-        sb_str(&s, ",\n  \"lighting\": {");
-        if (sl->light.velocity != 127)
-            sb_fmt(&s, " \"velocity\": %d,", sl->light.velocity);
-        sb_str(&s, "\n    \"looks\": [\n");
-        for (int32_t i = 0; i < sl->light.nlooks; i++) {
-            const bt_light_look *lk = &sl->light.look[i];
-            sb_str(&s, "      { \"name\": ");
-            sb_json_string(&s, lk->name);
-            sb_fmt(&s, ", \"ch\": %d, \"note\": %d", lk->ch, lk->note);
-            if (lk->kind != BT_LIGHT_LOOK)
-                sb_fmt(&s, ", \"type\": \"%s\"",
-                       lk->kind == BT_LIGHT_HIT ? "hit" : "end");
-            sb_str(&s, " }");
-            sb_str(&s, i + 1 < sl->light.nlooks ? ",\n" : "\n");
-        }
-        sb_str(&s, "    ]\n  }");
-    }
 
     sb_str(&s, ",\n  \"songs\": [\n");
     for (int32_t i = 0; i < sl->nsongs; i++) {

@@ -724,14 +724,13 @@ void draw_song_screen(bt_ui_edit &ed) {
 
     /* ---- lighting cues ----------------------------------------------
      *
-     * Bar plus a look, chosen by name. The note numbers live once in the
-     * palette on the lighting screen, because typing one into every cue of
-     * every song is how a set ends up with a wrong number nobody finds until
-     * the lights do something odd in front of people. */
+     * A bar, a channel and a note: what somebody reads off their lighting
+     * desk and types in. BackingTrackLive never needs to know what the note
+     * means - that lives in the desk - so it does not pretend to, and there
+     * is nothing to set up before a cue can be added. */
     {
         const bool from_file = ed.show_loaded && ed.song_has_light &&
                                ed.song >= 0 && ed.song_has_light[ed.song];
-        bt_light_cfg &cfg = ed.sl->light;
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -741,24 +740,23 @@ void draw_song_screen(bt_ui_edit &ed) {
         if (from_file) {
             ImGui::TextDisabled("this song's cues come from "
                                 "lighting_cues.json - edit them there");
-        } else if (cfg.nlooks == 0) {
-            ImGui::TextDisabled("no looks defined yet");
-            ImGui::SameLine();
-            if (ImGui::Button("set them up \xe2\x80\xa6"))
-                ed.screen = bt_edit_screen::lighting;
         } else {
             ImGui::BeginDisabled(s.nlight_cues >= BT_MAX_LIGHT_CUES);
             if (ImGui::Button("+ cue")) {
                 bt_light_event &c = s.light_cue[s.nlight_cues];
                 std::memset(&c, 0, sizeof(c));
-                /* After the last one, since cues are read down a column and
-                 * the next one is always later than the last. */
-                c.bar = s.nlight_cues > 0
-                      ? s.light_cue[s.nlight_cues - 1].bar + 8 : 1;
-                c.ch   = cfg.look[0].ch;
-                c.note = cfg.look[0].note;
-                c.kind = cfg.look[0].kind;
-                std::snprintf(c.label, sizeof(c.label), "%s", cfg.look[0].name);
+                /* After the last one: cues are read down a column and the
+                 * next is always later than the last. The channel and note
+                 * carry over too, since consecutive cues on a desk are
+                 * usually neighbours. */
+                if (s.nlight_cues > 0) {
+                    const bt_light_event &prev = s.light_cue[s.nlight_cues - 1];
+                    c.bar  = prev.bar + 8;
+                    c.ch   = prev.ch;
+                    c.note = prev.note + 1 <= 127 ? prev.note + 1 : prev.note;
+                } else {
+                    c.bar = 1; c.ch = 1; c.note = 0;
+                }
                 s.nlight_cues++;
                 ed.dirty = true;
             }
@@ -770,12 +768,15 @@ void draw_song_screen(bt_ui_edit &ed) {
             if (s.nlight_cues == 0) {
                 ImGui::TextDisabled("no cues - this song's lights do not "
                                     "change");
-            } else if (ImGui::BeginTable("cues", 3,
+            } else if (ImGui::BeginTable("cues", 6,
                        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
                        ImGuiTableFlags_SizingStretchProp)) {
-                ImGui::TableSetupColumn("bar",  ImGuiTableColumnFlags_WidthFixed, 110);
-                ImGui::TableSetupColumn("look", ImGuiTableColumnFlags_WidthStretch, 3);
-                ImGui::TableSetupColumn("",     ImGuiTableColumnFlags_WidthFixed, 40);
+                ImGui::TableSetupColumn("bar",       ImGuiTableColumnFlags_WidthFixed, 90);
+                ImGui::TableSetupColumn("channel",   ImGuiTableColumnFlags_WidthFixed, 90);
+                ImGui::TableSetupColumn("midi note", ImGuiTableColumnFlags_WidthFixed, 100);
+                ImGui::TableSetupColumn("what it is", ImGuiTableColumnFlags_WidthStretch, 3);
+                ImGui::TableSetupColumn("on a rewind", ImGuiTableColumnFlags_WidthFixed, 150);
+                ImGui::TableSetupColumn("",          ImGuiTableColumnFlags_WidthFixed, 40);
                 ImGui::TableHeadersRow();
 
                 int32_t remove_at = -1;
@@ -790,36 +791,43 @@ void draw_song_screen(bt_ui_edit &ed) {
                     if (ImGui::InputInt("##bar", &bar, 0, 0))
                         if (bar >= 1 && bar <= 10000) { c.bar = bar; ed.dirty = true; }
 
-                    /* Named if the palette knows this note, and still shown
-                     * honestly if it does not - a cue imported from a file,
-                     * or a look since deleted, should say what it is rather
-                     * than pretend to be the first entry. */
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
-                    int sel = -1;
-                    for (int32_t k = 0; k < cfg.nlooks; k++)
-                        if (cfg.look[k].ch == c.ch && cfg.look[k].note == c.note)
-                            { sel = k; break; }
-                    char shown[BT_MAX_NAME + 40];
-                    if (sel >= 0) std::snprintf(shown, sizeof(shown), "%s", cfg.look[sel].name);
-                    else std::snprintf(shown, sizeof(shown), "channel %d note %d",
-                                       c.ch, c.note);
+                    int ch = c.ch;
+                    if (ImGui::InputInt("##ch", &ch, 0, 0))
+                        if (ch >= 1 && ch <= 16) { c.ch = ch; ed.dirty = true; }
 
-                    if (ImGui::BeginCombo("##look", shown)) {
-                        for (int32_t k = 0; k < cfg.nlooks; k++) {
-                            ImGui::PushID(k);
-                            if (ImGui::Selectable(cfg.look[k].name, k == sel)) {
-                                c.ch   = cfg.look[k].ch;
-                                c.note = cfg.look[k].note;
-                                c.kind = cfg.look[k].kind;
-                                std::snprintf(c.label, sizeof(c.label), "%s",
-                                              cfg.look[k].name);
-                                ed.dirty = true;
-                            }
-                            ImGui::PopID();
-                        }
-                        ImGui::EndCombo();
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(-1);
+                    int note = c.note;
+                    if (ImGui::InputInt("##note", &note, 0, 0))
+                        if (note >= 0 && note <= 127) { c.note = note; ed.dirty = true; }
+
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(-1);
+                    if (ImGui::InputText("##what", c.label, sizeof(c.label)))
+                        ed.dirty = true;
+
+                    /* The one thing worth asking beyond the three numbers,
+                     * and only because scrubbing in rehearsal would otherwise
+                     * set off the fog again. */
+                    ImGui::TableNextColumn();
+                    ImGui::SetNextItemWidth(-1);
+                    const char *kinds[] = { "put it back", "skip it", "ends the song" };
+                    int kind = (int)c.kind;
+                    if (ImGui::Combo("##kind", &kind, kinds, 3)) {
+                        c.kind = (bt_light_kind)kind;
+                        ed.dirty = true;
                     }
+                    if (ImGui::IsItemHovered())
+                        ImGui::SetTooltip(
+                            "What happens when you drop into the middle of\n"
+                            "the song, or scrub backwards.\n\n"
+                            "put it back    - a lighting state. The most\n"
+                            "                 recent one is sent again.\n"
+                            "skip it        - a moment, like fog or a\n"
+                            "                 blinder. Not set off late.\n"
+                            "ends the song  - the between-songs look.");
 
                     ImGui::TableNextColumn();
                     if (ImGui::SmallButton("x")) remove_at = i;
@@ -834,9 +842,9 @@ void draw_song_screen(bt_ui_edit &ed) {
                     ed.dirty = true;
                 }
 
-                /* Out of order is not wrong any more - every cue is absolute
-                 * - but it is almost certainly a typo, and it makes the
-                 * column unreadable. */
+                /* Out of order is not wrong - every cue is absolute - but it
+                 * is almost certainly a typo, and it makes the column
+                 * unreadable. */
                 for (int32_t i = 1; i < s.nlight_cues; i++)
                     if (s.light_cue[i].bar < s.light_cue[i - 1].bar) {
                         ImGui::TextColored(COL_AMBER,
@@ -844,6 +852,10 @@ void draw_song_screen(bt_ui_edit &ed) {
                             i + 1, i);
                         break;
                     }
+
+                ImGui::TextDisabled("the channel and note are whatever your "
+                                    "lighting desk is listening for - look "
+                                    "them up there once and type them here");
             }
         }
     }
@@ -1742,185 +1754,23 @@ void draw_lighting_screen(bt_ui_edit &ed) {
     ImGui::Separator();
 
     if (!ed.sl) { ImGui::TextDisabled("No set list open."); return; }
-    bt_light_cfg &cfg = ed.sl->light;
-
-    /* ---- the looks -------------------------------------------------- */
-    ImGui::TextUnformatted("LOOKS");
-    ImGui::SameLine();
-    ImGui::TextDisabled("the names you will choose cues from");
 
     ImGui::TextDisabled(
-        "BackingTrackLive does not know what any of these look like, and "
-        "cannot find out - that lives in the lighting desk. Each one is a "
-        "name for a note, written down once here instead of typed into every "
-        "cue of every song.");
-
-    ImGui::Spacing();
-    ImGui::BeginDisabled(cfg.nlooks >= BT_MAX_LOOKS);
-    if (ImGui::Button("+ look")) {
-        bt_light_look &lk = cfg.look[cfg.nlooks];
-        std::memset(&lk, 0, sizeof(lk));
-        std::snprintf(lk.name, sizeof(lk.name), "look %d", cfg.nlooks + 1);
-        lk.ch = 1;
-        /* One past the last, which is how a desk's buttons usually run. */
-        lk.note = cfg.nlooks > 0 ? cfg.look[cfg.nlooks - 1].note + 1 : 0;
-        cfg.nlooks++;
-        ed.dirty = true;
-    }
-    ImGui::EndDisabled();
-
-    /* Importing is the painless way when a cue file exists: it already names
-     * every look it uses, against the very desk these numbers belong to. */
-    if (ed.show_loaded) {
-        ImGui::SameLine();
-        if (ImGui::Button("take the looks from lighting_cues.json"))
-            ed.want_import_looks = true;
-        if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("Reads every distinct note the cue file uses,\n"
-                              "with the name it gives it. Adds what is\n"
-                              "missing and leaves what is there alone.");
-    }
-
-    ImGui::SameLine();
-    if (ImGui::Button("learn \xe2\x80\xa6")) ed.want_learn = !ed.want_learn;
-    if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Press a look on the desk and have its note filled\n"
-                          "in here, if the desk is set up to send what it is\n"
-                          "doing back down the port.");
-    if (ed.want_learn) {
-        ImGui::TextColored(COL_AMBER,
-            "listening - press the button on the desk for the look you are "
-            "adding");
-        if (ed.learned_note >= 0) {
-            ImGui::TextColored(COL_OK, "heard channel %d note %d",
-                               ed.learned_ch, ed.learned_note);
-            ImGui::SameLine();
-            ImGui::BeginDisabled(cfg.nlooks >= BT_MAX_LOOKS);
-            if (ImGui::Button("add it as a look")) {
-                bt_light_look &lk = cfg.look[cfg.nlooks];
-                std::memset(&lk, 0, sizeof(lk));
-                std::snprintf(lk.name, sizeof(lk.name), "look %d", cfg.nlooks + 1);
-                lk.ch = ed.learned_ch;
-                lk.note = ed.learned_note;
-                cfg.nlooks++;
-                ed.dirty = true;
-                ed.learned_note = -1;   /* ready for the next one */
-            }
-            ImGui::EndDisabled();
-            ImGui::TextDisabled("give it a name in the table below");
-        }
-        else
-            ImGui::TextDisabled("nothing yet. The desk only sends this if it "
-                                "is configured to, which many are not.");
-    }
-
-    if (cfg.nlooks == 0) {
-        ImGui::TextDisabled("no looks yet - add one, or import them from a "
-                            "cue file");
-    } else if (ImGui::BeginTable("looks", 5,
-               ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
-               ImGuiTableFlags_SizingStretchProp)) {
-        ImGui::TableSetupColumn("name",    ImGuiTableColumnFlags_WidthStretch, 3);
-        ImGui::TableSetupColumn("channel", ImGuiTableColumnFlags_WidthFixed, 90);
-        ImGui::TableSetupColumn("note",    ImGuiTableColumnFlags_WidthFixed, 90);
-        ImGui::TableSetupColumn("kind",    ImGuiTableColumnFlags_WidthFixed, 150);
-        ImGui::TableSetupColumn("",        ImGuiTableColumnFlags_WidthFixed, 40);
-        ImGui::TableHeadersRow();
-
-        int32_t remove_at = -1;
-        for (int32_t i = 0; i < cfg.nlooks; i++) {
-            bt_light_look &lk = cfg.look[i];
-            ImGui::PushID(4000 + i);
-            ImGui::TableNextRow();
-
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(-1);
-            if (ImGui::InputText("##name", lk.name, sizeof(lk.name))) ed.dirty = true;
-
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(-1);
-            int ch = lk.ch;
-            if (ImGui::InputInt("##ch", &ch, 0, 0))
-                if (ch >= 1 && ch <= 16) { lk.ch = ch; ed.dirty = true; }
-
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(-1);
-            int note = lk.note;
-            if (ImGui::InputInt("##note", &note, 0, 0))
-                if (note >= 0 && note <= 127) { lk.note = note; ed.dirty = true; }
-
-            ImGui::TableNextColumn();
-            ImGui::SetNextItemWidth(-1);
-            const char *kinds[] = { "stays up", "a moment", "ends the song" };
-            int kind = (int)lk.kind;
-            if (ImGui::Combo("##kind", &kind, kinds, 3)) {
-                lk.kind = (bt_light_kind)kind;
-                ed.dirty = true;
-            }
-            if (ImGui::IsItemHovered())
-                ImGui::SetTooltip(
-                    "stays up      - a state. Landing mid-song puts it back.\n"
-                    "a moment      - a blinder or fog. Never replayed late.\n"
-                    "ends the song - the between-songs look.");
-
-            ImGui::TableNextColumn();
-            if (ImGui::SmallButton("x")) remove_at = i;
-            ImGui::PopID();
-        }
-        ImGui::EndTable();
-
-        if (remove_at >= 0) {
-            for (int32_t i = remove_at; i + 1 < cfg.nlooks; i++)
-                cfg.look[i] = cfg.look[i + 1];
-            cfg.nlooks--;
-            ed.dirty = true;
-        }
-
-        /* Two looks on one note are the same button under two names, which
-         * will be baffling the first time a cue picks the wrong one. */
-        for (int32_t i = 0; i < cfg.nlooks; i++)
-            for (int32_t j = i + 1; j < cfg.nlooks; j++)
-                if (cfg.look[i].ch == cfg.look[j].ch &&
-                    cfg.look[i].note == cfg.look[j].note) {
-                    ImGui::TextColored(COL_AMBER,
-                        "\"%s\" and \"%s\" are the same note - they will do "
-                        "the same thing", cfg.look[i].name, cfg.look[j].name);
-                    i = cfg.nlooks; break;
-                }
-    }
+        "Cues are added on each song's own screen: a bar, a channel and a\n"
+        "MIDI note. This screen is the port they go out of, and what is\n"
+        "coming back in.");
 
     ImGui::Spacing();
     ImGui::Separator();
 
-    /* ---- the cue file, if there is one ------------------------------ */
-    ImGui::TextUnformatted("CUE FILE");
-    ImGui::SameLine();
-    ImGui::TextDisabled("lighting_cues.json beside the set list - optional, "
-                        "and it wins for any song it names");
-
-    if (ed.show_why) {
-        ImGui::TextColored(COL_WARN, "%s", ed.show_why);
-    } else if (!ed.show_loaded) {
-        ImGui::TextDisabled("none - every song's lighting comes from the cues "
-                            "on its own screen");
-    } else {
-        ImGui::TextColored(COL_OK, "loaded: %d song(s)", ed.show_songs);
-        ImGui::SameLine();
-        ImGui::TextDisabled("%d of this set list's %d songs take their cues "
-                            "from it", ed.show_matched, ed.sl->nsongs);
-    }
-
-    ImGui::Spacing();
-    ImGui::Separator();
-
-    /* ---- the port --------------------------------------------------- */
+    /* ---- the port ---------------------------------------------------- */
     ImGui::TextUnformatted("PORT");
     ImGui::SameLine();
     if (ed.show_port && *ed.show_port)
         ImGui::TextDisabled("the cue file asks for \"%s\"", ed.show_port);
     else
         ImGui::TextDisabled("belongs to this laptop, stored with the audio "
-                            "settings");
+                            "settings - not with the set list");
 
     const int32_t n = bt_midi_count();
     if (n == 0) {
@@ -1929,7 +1779,7 @@ void draw_lighting_screen(bt_ui_edit &ed) {
                             "running; QLC+ opens the same port as an input.");
     }
 
-    ImGui::BeginChild("ports", ImVec2(0, 95), true);
+    ImGui::BeginChild("ports", ImVec2(0, 110), true);
     for (int32_t i = 0; i < n; i++) {
         bt_midi_info info;
         if (bt_midi_get(i, &info) != BT_OK) continue;
@@ -1950,6 +1800,53 @@ void draw_lighting_screen(bt_ui_edit &ed) {
         ImGui::TextColored(COL_WARN, "%s", ed.midi_why);
     else
         ImGui::TextDisabled("nothing is being sent");
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    /* ---- what is arriving --------------------------------------------
+     *
+     * Looking a note up on the desk is the one unavoidable step. This is the
+     * shortcut for when the desk is willing to say what it is doing: press
+     * the look there, read the number off here, type it into the cue. */
+    ImGui::TextUnformatted("WHAT IS COMING IN");
+    ImGui::SameLine();
+    ImGui::TextDisabled("a way to find a note number without hunting for it");
+
+    if (ImGui::Button(ed.want_learn ? "stop listening" : "listen"))
+        ed.want_learn = !ed.want_learn;
+    ImGui::SameLine();
+    ImGui::TextDisabled("press a look on the desk and its number appears "
+                        "here, if the desk is set to send what it is doing");
+
+    if (ed.want_learn) {
+        if (ed.learned_note >= 0)
+            ImGui::TextColored(COL_OK, "channel %d, note %d",
+                               ed.learned_ch, ed.learned_note);
+        else
+            ImGui::TextColored(COL_AMBER,
+                "listening - nothing yet. Many desks do not send this unless "
+                "they are told to.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    /* ---- the cue file, if there is one -------------------------------- */
+    ImGui::TextUnformatted("CUE FILE");
+    ImGui::SameLine();
+    ImGui::TextDisabled("lighting_cues.json beside the set list - optional, "
+                        "and it wins for any song it names");
+
+    if (ed.show_why)
+        ImGui::TextColored(COL_WARN, "%s", ed.show_why);
+    else if (!ed.show_loaded)
+        ImGui::TextDisabled("none - every song's lighting comes from the cues "
+                            "on its own screen");
+    else
+        ImGui::TextColored(COL_OK,
+            "loaded: %d song(s), of which %d are in this set list",
+            ed.show_songs, ed.show_matched);
 
     ImGui::Spacing();
     ImGui::TextDisabled(

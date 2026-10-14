@@ -109,7 +109,6 @@ struct bt_ui_edit {
     const char      *show_why = nullptr;             /* why it is not loaded*/
     const char      *cue_label = nullptr;            /* the look showing now*/
     int32_t          want_special = 0;               /* 1 between, 2 all off*/
-    bool             want_import_looks = false;      /* from the cue file   */
     bool             want_learn = false;             /* listen for a note   */
     int32_t          learned_ch = -1, learned_note = -1;
     const char      *song_has_light = nullptr;       /* per set list song  */

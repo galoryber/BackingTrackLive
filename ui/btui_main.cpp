@@ -555,8 +555,9 @@ void lighting_send(App &a, int32_t ch, int32_t note, bool is_look,
     if (!a.midi || ch < 1 || ch > 16 || note < 0 || note > 127) return;
     if (is_look && ch == a.last_ch && note == a.last_note) return;
 
-    int32_t vel = a.show ? a.show->velocity
-                : (a.sl ? a.sl->light.velocity : 127);
+    /* The cue file carries its own; cues typed in go out at full, which is
+     * what a desk triggering on note-on wants and what every desk ignores. */
+    int32_t vel = a.show ? a.show->velocity : 127;
     if (vel < 1 || vel > 127) vel = 127;
     bt_midi_trigger(a.midi, ch, note, vel);
 
@@ -1102,39 +1103,23 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                                                      : bt_edit_screen::setlist;
         if (ed.screen == bt_edit_screen::lighting ||
             ed.screen == bt_edit_screen::song) {
-            bt_light_cfg &lc = sl->light;
-            lc.velocity = 127;
-            if (lc.nlooks == 0) {
-                struct { const char *name; int32_t ch, note; bt_light_kind k; } looks[] = {
-                    { "Intro Blue",     1,  0, BT_LIGHT_LOOK },
-                    { "Verse Warm",     1,  1, BT_LIGHT_LOOK },
-                    { "Chorus Punch",   1,  2, BT_LIGHT_LOOK },
-                    { "Solo Chase",     1,  3, BT_LIGHT_LOOK },
-                    { "Fog Blast",     16, 77, BT_LIGHT_HIT  },
-                    { "Between Songs", 16, 37, BT_LIGHT_END  },
-                };
-                for (size_t k = 0; k < sizeof(looks) / sizeof(looks[0]); k++) {
-                    bt_light_look &lk = lc.look[lc.nlooks++];
-                    std::memset(&lk, 0, sizeof(lk));
-                    std::snprintf(lk.name, sizeof(lk.name), "%s", looks[k].name);
-                    lk.ch = looks[k].ch; lk.note = looks[k].note; lk.kind = looks[k].k;
-                }
-            }
             bt_song &lg = sl->song[ed.song >= 0 && ed.song < sl->nsongs ? ed.song : 0];
             if (lg.nlight_cues == 0) {
-                const int32_t bars[] = { 1, 17, 33, 41, 57, 73 };
-                const int32_t which[] = { 0, 1, 2, 1, 3, 2 };
-                for (size_t k = 0; k < sizeof(bars) / sizeof(bars[0]); k++) {
+                struct { int32_t bar, ch, note; bt_light_kind k; const char *what; } cues[] = {
+                    {   1,  1,  0, BT_LIGHT_LOOK, "warm orange verse" },
+                    {  17,  1,  1, BT_LIGHT_LOOK, "blue, drums in"    },
+                    {  33,  1,  2, BT_LIGHT_LOOK, "chorus - full"     },
+                    {  49, 16, 77, BT_LIGHT_HIT,  "fog"               },
+                    {  57,  1,  3, BT_LIGHT_LOOK, "solo chase"        },
+                    { 138, 16, 37, BT_LIGHT_END,  "between songs"     },
+                };
+                for (size_t k = 0; k < sizeof(cues) / sizeof(cues[0]); k++) {
                     bt_light_event &c = lg.light_cue[lg.nlight_cues++];
                     std::memset(&c, 0, sizeof(c));
-                    const bt_light_look &lk = lc.look[which[k]];
-                    c.bar = bars[k]; c.ch = lk.ch; c.note = lk.note; c.kind = lk.kind;
-                    std::snprintf(c.label, sizeof(c.label), "%s", lk.name);
+                    c.bar = cues[k].bar; c.ch = cues[k].ch;
+                    c.note = cues[k].note; c.kind = cues[k].k;
+                    std::snprintf(c.label, sizeof(c.label), "%s", cues[k].what);
                 }
-                bt_light_event &e = lg.light_cue[lg.nlight_cues++];
-                std::memset(&e, 0, sizeof(e));
-                e.bar = 138; e.ch = 16; e.note = 37; e.kind = BT_LIGHT_END;
-                std::snprintf(e.label, sizeof(e.label), "Between Songs");
             }
         }
 
@@ -1571,69 +1556,6 @@ int main(int argc, char **argv) {
             /* The two the contract says a person may press: between songs,
              * and everything off. Sent only because somebody asked - never
              * on stopping, where stale light beats a surprise. */
-            /* Take the looks the cue file names. Adds what is missing and
-             * leaves alone what is already there, so pressing it twice is
-             * harmless and a renamed look is not clobbered. */
-            /* Listening is only open while the screen asks for it, so the
-             * port is free the rest of the time - some drivers allow one
-             * reader. */
-            if (g_edit.want_learn && !g_app.listen) {
-                const char *want = lighting_port_name(g_app);
-                const int32_t in = bt_midi_in_find(want && *want ? want : "");
-                if (in >= 0 && bt_midi_in_open(in, &g_app.listen) != BT_OK)
-                    g_app.listen = nullptr;
-                g_edit.learned_ch = g_edit.learned_note = -1;
-            } else if (!g_edit.want_learn && g_app.listen) {
-                bt_midi_in_close(g_app.listen);
-                g_app.listen = nullptr;
-            }
-            if (g_app.listen) {
-                bt_midi_msg m;
-                /* Drain, so the most recent press wins rather than the first
-                 * one still sitting in the queue. */
-                while (bt_midi_in_poll(g_app.listen, &m) == BT_OK) {
-                    if ((m.status & 0xF0) == 0x90 && m.d2 > 0) {
-                        g_edit.learned_ch   = (m.status & 0x0F) + 1;
-                        g_edit.learned_note = m.d1;
-                    }
-                }
-            }
-
-            if (g_edit.want_import_looks && g_app.show && g_app.sl) {
-                g_edit.want_import_looks = false;
-                bt_light_cfg &cfg = g_app.sl->light;
-                int32_t added = 0;
-                for (int32_t i = 0; i < g_app.show->nsongs; i++) {
-                    const bt_light_song &ls = g_app.show->song[i];
-                    for (int32_t k = 0; k < ls.nev; k++) {
-                        const bt_light_event &ev = ls.ev[k];
-                        bool have = false;
-                        for (int32_t j = 0; j < cfg.nlooks; j++)
-                            if (cfg.look[j].ch == ev.ch && cfg.look[j].note == ev.note)
-                                { have = true; break; }
-                        if (have || cfg.nlooks >= BT_MAX_LOOKS) continue;
-                        bt_light_look &lk = cfg.look[cfg.nlooks++];
-                        std::memset(&lk, 0, sizeof(lk));
-                        lk.ch = ev.ch; lk.note = ev.note; lk.kind = ev.kind;
-                        if (ev.label[0])
-                            std::snprintf(lk.name, sizeof(lk.name), "%s", ev.label);
-                        else
-                            std::snprintf(lk.name, sizeof(lk.name), "ch%d note %d",
-                                          ev.ch, ev.note);
-                        added++;
-                    }
-                }
-                if (added > 0) g_edit.dirty = true;
-                std::snprintf(g_edit.status, sizeof(g_edit.status),
-                              added ? "took %d look(s) from the cue file"
-                                    : "nothing new - every look is already here",
-                              added);
-                if (cfg.nlooks >= BT_MAX_LOOKS)
-                    std::snprintf(g_edit.status, sizeof(g_edit.status),
-                                  "stopped at %d looks, which is the most a "
-                                  "set list holds", BT_MAX_LOOKS);
-            }
-
             if (g_edit.want_special != 0 && g_app.midi && g_app.show) {
                 const bt_light_special &sp =
                     g_edit.want_special == 1 ? g_app.show->between_songs

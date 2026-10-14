@@ -102,21 +102,9 @@ typedef struct {
     int32_t       ch;             /* 1-16, as bt_midi_* counts           */
     int32_t       note;           /* 0-127                               */
     bt_light_kind kind;
-    char          label[BT_MAX_CUE];   /* what it is, for people         */
+    char          label[BT_MAX_CUE];   /* what it is, for whoever reads  */
 } bt_light_event;
 
-/* A named look, so a cue can be chosen by what it is rather than by a number.
- *
- * BackingTrackLive has no idea what "Warm Wash" looks like and cannot find
- * out - that mapping lives in the lighting desk and nowhere else. This is
- * only somewhere to write it down once, instead of typing a note number into
- * every cue of every song and finding out it was wrong on stage. */
-typedef struct {
-    char          name[BT_MAX_NAME];
-    int32_t       ch;
-    int32_t       note;
-    bt_light_kind kind;          /* what cues made from it default to */
-} bt_light_look;
 
 typedef struct {
     char         title[BT_MAX_NAME];
@@ -155,17 +143,6 @@ typedef struct {
     int32_t      nlight_cues;
 } bt_song;
 
-/* The show's own looks, in the set list because they are show design and
- * travel with it: a set list carried to the backup laptop lights the same.
- *
- * The note numbers themselves come from the lighting desk. They can be typed
- * in, or imported wholesale from a lighting_cues.json that was generated
- * against that desk, which is the painless way when there is one. */
-typedef struct {
-    int32_t       velocity;      /* 1-127; most desks ignore it */
-    bt_light_look look[BT_MAX_LOOKS];
-    int32_t       nlooks;
-} bt_light_cfg;
 
 typedef struct {
     char     name[BT_MAX_NAME];
@@ -173,7 +150,6 @@ typedef struct {
     bt_song *song;
     int32_t  nsongs;
     int32_t  cap;
-    bt_light_cfg light;
 } bt_setlist;
 
 /* ---------------------------------------------------------------------------

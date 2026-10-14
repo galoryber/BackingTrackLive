@@ -373,43 +373,35 @@ static void test_format_number_is_the_truth(void) {
 }
 
 
-/* The palette and the cues somebody typed. BackingTrackLive has no idea what
- * "Warm Wash" looks like - that lives in the lighting desk - so all it has to
- * do is carry the name, the note, and which bar it belongs to, intact. */
-static void test_looks_and_cues_round_trip(void) {
+/* A cue is a bar, a channel and a note - what somebody reads off their
+ * lighting desk and types in - plus a note to self about what it is.
+ * BackingTrackLive never needs to know what the note means. */
+static void test_cues_round_trip(void) {
     bt_setlist *sl = NULL;
     BT_CHECK(load(
-        "{\"version\":1,\"name\":\"s\","
-        "\"lighting\":{\"velocity\":100,\"looks\":["
-        "  {\"name\":\"Warm Wash\",\"ch\":1,\"note\":0},"
-        "  {\"name\":\"Fog Blast\",\"ch\":16,\"note\":77,\"type\":\"hit\"},"
-        "  {\"name\":\"Between Songs\",\"ch\":16,\"note\":37,\"type\":\"end\"}]},"
-        "\"songs\":[{\"title\":\"a\",\"tempo\":{\"bpm\":120,\"sig\":[4,4]},"
+        "{\"version\":1,\"name\":\"s\",\"songs\":[{\"title\":\"a\","
+        "\"tempo\":{\"bpm\":120,\"sig\":[4,4]},"
         "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}],"
-        "\"light_cues\":[{\"bar\":1,\"ch\":1,\"note\":0,\"label\":\"intro\"},"
-        "{\"bar\":33,\"ch\":16,\"note\":77,\"type\":\"hit\"}]}]}", &sl) == BT_OK);
+        "\"light_cues\":["
+        "{\"bar\":1,\"ch\":1,\"note\":0,\"label\":\"warm orange verse\"},"
+        "{\"bar\":33,\"ch\":16,\"note\":77,\"type\":\"hit\",\"label\":\"fog\"},"
+        "{\"bar\":65,\"ch\":16,\"note\":37,\"type\":\"end\"}]}]}", &sl) == BT_OK);
     BT_CHECK(sl != NULL);
 
-    BT_CHECK_EQI(sl->light.velocity, 100);
-    BT_CHECK_EQI(sl->light.nlooks, 3);
-    BT_CHECK(!strcmp(sl->light.look[0].name, "Warm Wash"));
-    BT_CHECK_EQI(sl->light.look[0].note, 0);
-    BT_CHECK(sl->light.look[0].kind == BT_LIGHT_LOOK);
-    BT_CHECK(sl->light.look[1].kind == BT_LIGHT_HIT);
-    BT_CHECK(sl->light.look[2].kind == BT_LIGHT_END);
-    BT_CHECK_EQI(sl->light.look[1].ch, 16);
-
     const bt_song *sg = &sl->song[0];
-    BT_CHECK_EQI(sg->nlight_cues, 2);
+    BT_CHECK_EQI(sg->nlight_cues, 3);
     BT_CHECK_EQI(sg->light_cue[0].bar, 1);
     BT_CHECK_EQI(sg->light_cue[0].ch, 1);
-    BT_CHECK(!strcmp(sg->light_cue[0].label, "intro"));
+    BT_CHECK_EQI(sg->light_cue[0].note, 0);
+    BT_CHECK(sg->light_cue[0].kind == BT_LIGHT_LOOK);
+    BT_CHECK(!strcmp(sg->light_cue[0].label, "warm orange verse"));
     BT_CHECK(sg->light_cue[1].kind == BT_LIGHT_HIT);
     BT_CHECK_EQI(sg->light_cue[1].note, 77);
-
-    /* A cue with no channel is on 1, which is where a desk's looks sit and
-     * what somebody typing one cue in by hand will mean. */
+    BT_CHECK(sg->light_cue[2].kind == BT_LIGHT_END);
     bt_setlist_free(sl);
+
+    /* A cue with no channel is on 1, which is what somebody typing a single
+     * cue in by hand will mean. */
     sl = NULL;
     BT_CHECK(load("{\"version\":1,\"name\":\"s\",\"songs\":[{\"title\":\"a\","
                   "\"tempo\":{\"bpm\":120,\"sig\":[4,4]},"
@@ -421,22 +413,28 @@ static void test_looks_and_cues_round_trip(void) {
 }
 
 /* Nonsense is refused rather than sent to a lighting desk. */
-static void test_rejects_impossible_looks(void) {
-    reject("{\"version\":1,\"name\":\"s\",\"lighting\":{\"looks\":["
-           "{\"name\":\"x\",\"ch\":17,\"note\":0}]},\"songs\":[]}",
-           "a look on a channel that does not exist");
-    reject("{\"version\":1,\"name\":\"s\",\"lighting\":{\"looks\":["
-           "{\"name\":\"x\",\"ch\":1,\"note\":200}]},\"songs\":[]}",
-           "a look on a note that does not exist");
-    /* A look with no name could not be chosen from a list. */
-    reject("{\"version\":1,\"name\":\"s\",\"lighting\":{\"looks\":["
-           "{\"ch\":1,\"note\":0}]},\"songs\":[]}",
-           "a look with no name");
+/* Nonsense is refused rather than sent to a lighting desk. */
+static void test_rejects_impossible_cues(void) {
     reject("{\"version\":1,\"name\":\"s\",\"songs\":[{\"title\":\"a\","
            "\"tempo\":{\"bpm\":120,\"sig\":[4,4]},"
            "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}],"
            "\"light_cues\":[{\"bar\":1,\"ch\":0,\"note\":5}]}]}",
            "a cue on channel 0");
+    reject("{\"version\":1,\"name\":\"s\",\"songs\":[{\"title\":\"a\","
+           "\"tempo\":{\"bpm\":120,\"sig\":[4,4]},"
+           "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}],"
+           "\"light_cues\":[{\"bar\":1,\"ch\":17,\"note\":5}]}]}",
+           "a cue on channel 17");
+    reject("{\"version\":1,\"name\":\"s\",\"songs\":[{\"title\":\"a\","
+           "\"tempo\":{\"bpm\":120,\"sig\":[4,4]},"
+           "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}],"
+           "\"light_cues\":[{\"bar\":1,\"ch\":1,\"note\":200}]}]}",
+           "a cue on a note that does not exist");
+    reject("{\"version\":1,\"name\":\"s\",\"songs\":[{\"title\":\"a\","
+           "\"tempo\":{\"bpm\":120,\"sig\":[4,4]},"
+           "\"tracks\":[{\"type\":\"click\",\"bus\":\"inear\"}],"
+           "\"light_cues\":[{\"bar\":0,\"ch\":1,\"note\":5}]}]}",
+           "a cue on bar 0, which does not exist");
 }
 
 int main(void) {
@@ -452,8 +450,8 @@ int main(void) {
     BT_RUN(test_rejects);
     BT_RUN(test_path_containment);
     BT_RUN(test_device_cfg);
-    BT_RUN(test_looks_and_cues_round_trip);
-    BT_RUN(test_rejects_impossible_looks);
+    BT_RUN(test_cues_round_trip);
+    BT_RUN(test_rejects_impossible_cues);
     BT_RUN(test_error_strings);
     BT_REPORT();
 }
