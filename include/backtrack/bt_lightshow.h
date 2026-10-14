@@ -25,22 +25,9 @@ extern "C" {
 
 #define BT_LIGHTSHOW_FORMAT "random-riot-lighting/1"
 
-/* Informational: the sender treats every event alike. The one place it is
- * load bearing is seeking, where a missed look has to be caught up and a
- * missed hit - a strobe, a blast of fog - must not be. */
-typedef enum {
-    BT_LIGHT_LOOK = 0,   /* the stage now looks like this                */
-    BT_LIGHT_HIT,        /* a moment: blinder, fog. Never replayed late. */
-    BT_LIGHT_END         /* the song is over                             */
-} bt_light_kind;
-
-typedef struct {
-    int32_t       bar;     /* 1-based, bar 1 is the downbeat after the count-in */
-    int32_t       ch;      /* 1-16, as bt_midi_* counts                        */
-    int32_t       note;    /* 0-127                                            */
-    bt_light_kind kind;
-    char          label[BT_MAX_CUE];   /* for the screen and the log           */
-} bt_light_event;
+/* bt_light_kind and bt_light_event come from bt_model.h. A cue typed into a
+ * song and a cue generated into this file are the same thing, which is what
+ * keeps there being one piece of code that fires them. */
 
 typedef struct {
     char            title[BT_MAX_NAME];  /* matched against the set list */

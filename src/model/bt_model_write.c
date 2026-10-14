@@ -185,12 +185,17 @@ static void write_song(sb *s, const bt_song *song) {
     if (song->nlight_cues > 0) {
         sb_str(s, ",\n      \"light_cues\": [\n");
         for (int32_t i = 0; i < song->nlight_cues; i++) {
-            const bt_light_cue *c = &song->light_cue[i];
-            sb_fmt(s, "        { \"bar\": %d", c->bar);
-            if (c->note > 0) sb_fmt(s, ", \"note\": %d", c->note);
-            if (c->desc[0]) {
-                sb_str(s, ", \"desc\": ");
-                sb_json_string(s, c->desc);
+            const bt_light_event *c = &song->light_cue[i];
+            /* Same field names the lighting side's cue file uses, so the two
+             * read alike when somebody has both open. */
+            sb_fmt(s, "        { \"bar\": %d, \"ch\": %d, \"note\": %d",
+                   c->bar, c->ch, c->note);
+            if (c->kind != BT_LIGHT_LOOK)
+                sb_fmt(s, ", \"type\": \"%s\"",
+                       c->kind == BT_LIGHT_HIT ? "hit" : "end");
+            if (c->label[0]) {
+                sb_str(s, ", \"label\": ");
+                sb_json_string(s, c->label);
             }
             sb_str(s, " }");
             sb_str(s, i + 1 < song->nlight_cues ? ",\n" : "\n");
@@ -212,18 +217,25 @@ bt_err bt_setlist_to_json(const bt_setlist *sl, char **out, size_t *len) {
     sb_str(&s, "{\n  \"version\": 1,\n  \"name\": ");
     sb_json_string(&s, sl->name);
 
-    /* Omitted when there is no lighting, which keeps every set list written
-     * before this byte-identical when re-saved. */
-    if (sl->light.channel > 0) {
-        sb_fmt(&s, ",\n  \"lighting\": { \"channel\": %d", sl->light.channel);
-        if (sl->light.next_note > 0) sb_fmt(&s, ", \"next_note\": %d", sl->light.next_note);
-        if (sl->light.end_note  > 0) sb_fmt(&s, ", \"end_note\": %d",  sl->light.end_note);
-        if (sl->light.prev_note > 0)
-            sb_fmt(&s, ", \"prev_note\": %d", sl->light.prev_note);
-        if (sl->light.blackout_note > 0)
-            sb_fmt(&s, ", \"blackout_note\": %d", sl->light.blackout_note);
-        if (sl->light.velocity != 127) sb_fmt(&s, ", \"velocity\": %d", sl->light.velocity);
-        sb_str(&s, " }");
+    /* Omitted when a set list has no looks, which keeps every set list
+     * written before this byte-identical when re-saved. */
+    if (sl->light.nlooks > 0) {
+        sb_str(&s, ",\n  \"lighting\": {");
+        if (sl->light.velocity != 127)
+            sb_fmt(&s, " \"velocity\": %d,", sl->light.velocity);
+        sb_str(&s, "\n    \"looks\": [\n");
+        for (int32_t i = 0; i < sl->light.nlooks; i++) {
+            const bt_light_look *lk = &sl->light.look[i];
+            sb_str(&s, "      { \"name\": ");
+            sb_json_string(&s, lk->name);
+            sb_fmt(&s, ", \"ch\": %d, \"note\": %d", lk->ch, lk->note);
+            if (lk->kind != BT_LIGHT_LOOK)
+                sb_fmt(&s, ", \"type\": \"%s\"",
+                       lk->kind == BT_LIGHT_HIT ? "hit" : "end");
+            sb_str(&s, " }");
+            sb_str(&s, i + 1 < sl->light.nlooks ? ",\n" : "\n");
+        }
+        sb_str(&s, "    ]\n  }");
     }
 
     sb_str(&s, ",\n  \"songs\": [\n");

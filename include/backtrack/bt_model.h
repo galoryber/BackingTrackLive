@@ -83,11 +83,40 @@ typedef enum {
  * Cues fire from the UI thread, never from the audio callback: sending MIDI
  * is a syscall. A frame of jitter is around 16 ms, and DMX refreshes at about
  * 44 Hz, so nothing downstream can tell. */
+/* What a cue does when it arrives. The sender treats every event alike; this
+ * matters in one place, which is seeking. A look is a state the stage is in,
+ * so landing mid-song has to restore the most recent one. A hit is a moment -
+ * a blinder, a blast of fog - and a moment that has passed has passed. */
+typedef enum {
+    BT_LIGHT_LOOK = 0,
+    BT_LIGHT_HIT,
+    BT_LIGHT_END
+} bt_light_kind;
+
+/* One note at one bar. Deliberately the same shape as an event in the
+ * lighting side's cue file, so a cue somebody typed here and a cue generated
+ * there are the same thing to everything downstream and there is exactly one
+ * piece of code that fires them. */
 typedef struct {
-    int32_t bar;                  /* 1-based, as everybody counts bars */
-    int32_t note;                 /* 0 = the set list's next-cue note  */
-    char    desc[BT_MAX_CUE];     /* for the person editing, not sent  */
-} bt_light_cue;
+    int32_t       bar;            /* 1-based; bar 1 is the first downbeat */
+    int32_t       ch;             /* 1-16, as bt_midi_* counts           */
+    int32_t       note;           /* 0-127                               */
+    bt_light_kind kind;
+    char          label[BT_MAX_CUE];   /* what it is, for people         */
+} bt_light_event;
+
+/* A named look, so a cue can be chosen by what it is rather than by a number.
+ *
+ * BackingTrackLive has no idea what "Warm Wash" looks like and cannot find
+ * out - that mapping lives in the lighting desk and nowhere else. This is
+ * only somewhere to write it down once, instead of typing a note number into
+ * every cue of every song and finding out it was wrong on stage. */
+typedef struct {
+    char          name[BT_MAX_NAME];
+    int32_t       ch;
+    int32_t       note;
+    bt_light_kind kind;          /* what cues made from it default to */
+} bt_light_look;
 
 typedef struct {
     char         title[BT_MAX_NAME];
@@ -122,34 +151,20 @@ typedef struct {
      * arrow keys would otherwise fire a program change per keypress. */
     int32_t      midi_program;
 
-    bt_light_cue light_cue[BT_MAX_LIGHT_CUES];
+    bt_light_event light_cue[BT_MAX_LIGHT_CUES];
     int32_t      nlight_cues;
 } bt_song;
 
-/* What the lighting desk is listening for, for this show.
+/* The show's own looks, in the set list because they are show design and
+ * travel with it: a set list carried to the backup laptop lights the same.
  *
- * In the set list rather than in device.json, because it is show design and
- * not machine configuration: a set list carried to the backup laptop should
- * drive the lights the same way. Which MIDI *port* to send down is the
- * machine's business and lives in device.json, as the audio interface does. */
+ * The note numbers themselves come from the lighting desk. They can be typed
+ * in, or imported wholesale from a lighting_cues.json that was generated
+ * against that desk, which is the painless way when there is one. */
 typedef struct {
-    int32_t channel;      /* 1-16; 0 means "no lighting", the default      */
-    int32_t next_note;    /* advance the cue list - QLC+ "Next Cue"        */
-    int32_t end_note;     /* the song is over - the between-songs look     */
-    int32_t velocity;     /* 1-127; most desks ignore it                   */
-
-    /* Step the cue list *backwards*. Optional - 0 means the desk has no such
-     * binding, and a rewind is done by reloading the song and replaying.
-     *
-     * Worth having. Scrubbing back four bars while aligning a stem should
-     * send four of these, not reload the cue list and race forward through
-     * every look in the song to catch up. */
-    int32_t prev_note;
-
-    /* An instant blackout, for a song that ends on the chord rather than
-     * fading to the between-songs look. 0 means the desk has no such
-     * binding. A cue selects it by naming this note. */
-    int32_t blackout_note;
+    int32_t       velocity;      /* 1-127; most desks ignore it */
+    bt_light_look look[BT_MAX_LOOKS];
+    int32_t       nlooks;
 } bt_light_cfg;
 
 typedef struct {
@@ -274,37 +289,10 @@ bt_frame bt_song_fade_frames(const bt_song *song, int32_t sample_rate);
  * frame is not held over to the next.
  * ------------------------------------------------------------------------ */
 
-/* Frame at which a cue's bar begins. Bars are 1-based, so bar 1 is beat 0. */
-bt_frame bt_light_cue_frame(const bt_song *song, const bt_light_cue *cue,
-                            int32_t sample_rate);
 
-/* Indices of the cues in (after, upto], in order, into `out`.
- *
- * Returns how many were written, up to `cap`. `after` of less than the song
- * start catches a cue on bar 1: the playhead is negative through the
- * count-in, so the first tick after starting spans from there. */
-int32_t bt_song_cues_between(const bt_song *song, bt_frame after, bt_frame upto,
-                             int32_t sample_rate, int32_t *out, int32_t cap);
 
-/* How many cues lie at or before `at`.
- *
- * This is what makes jumping around safe: a QLC+ cue list has no notion of
- * position, so after a jump the desk is told to reload the song - which puts
- * it back at step zero - and then advanced this many times. */
-int32_t bt_song_cues_before(const bt_song *song, bt_frame at, int32_t sample_rate);
 
-/* How many of those cues actually step the cue list: the ones that send the
- * "next" note, not the ones that name their own.
- *
- * This is the number that says where the desk's cue list is standing, and it
- * is not the same as the number of cues passed. An end-of-song cue sends the
- * between-songs look or a blackout; the desk does that and stays where it
- * was. Counting it would leave everything after it one step out. */
-int32_t bt_song_steps_before(const bt_song *song, const bt_light_cfg *cfg,
-                             bt_frame at, int32_t sample_rate);
 
-/* The note a cue actually sends, resolving 0 to the set list's default. */
-int32_t bt_light_cue_note(const bt_light_cfg *cfg, const bt_light_cue *cue);
 
 bt_err bt_song_move_track(bt_song *song, int32_t from, int32_t to);
 

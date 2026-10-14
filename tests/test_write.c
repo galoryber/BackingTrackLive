@@ -39,8 +39,10 @@ static bool song_eq(const bt_song *a, const bt_song *b) {
     if (a->nlight_cues != b->nlight_cues)   return false;
     for (int32_t i = 0; i < a->nlight_cues; i++) {
         if (a->light_cue[i].bar  != b->light_cue[i].bar)  return false;
+        if (a->light_cue[i].ch   != b->light_cue[i].ch)   return false;
         if (a->light_cue[i].note != b->light_cue[i].note) return false;
-        if (strcmp(a->light_cue[i].desc, b->light_cue[i].desc) != 0) return false;
+        if (a->light_cue[i].kind != b->light_cue[i].kind) return false;
+        if (strcmp(a->light_cue[i].label, b->light_cue[i].label) != 0) return false;
     }
     if (a->count_in_bars != b->count_in_bars) return false;
     if (a->length_bars != b->length_bars)     return false;
@@ -54,6 +56,14 @@ static bool song_eq(const bt_song *a, const bt_song *b) {
 
 static bool setlist_eq(const bt_setlist *a, const bt_setlist *b) {
     if (strcmp(a->name, b->name) != 0) return false;
+    if (a->light.velocity != b->light.velocity) return false;
+    if (a->light.nlooks   != b->light.nlooks)   return false;
+    for (int32_t i = 0; i < a->light.nlooks; i++) {
+        if (strcmp(a->light.look[i].name, b->light.look[i].name) != 0) return false;
+        if (a->light.look[i].ch   != b->light.look[i].ch)   return false;
+        if (a->light.look[i].note != b->light.look[i].note) return false;
+        if (a->light.look[i].kind != b->light.look[i].kind) return false;
+    }
     if (a->nsongs != b->nsongs) return false;
     for (int32_t i = 0; i < a->nsongs; i++)
         if (!song_eq(&a->song[i], &b->song[i])) return false;

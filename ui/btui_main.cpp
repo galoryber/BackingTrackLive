@@ -135,6 +135,7 @@ struct App {
     int32_t       last_ch = -1;      /* what is showing, so a repeat does */
     int32_t       last_note = -1;    /* not toggle it back off            */
     char          cue_label[BT_MAX_CUE] = {0};
+    bt_light_song own_cues = {};     /* a view onto a song's own cue array */
     /* A start that is waiting for the loader rather than blocking on it. */
     bool          pending_start    = false;
     bool          pending_count_in = false;
@@ -437,7 +438,13 @@ void reopen_audio(HWND hwnd);
  * the bar - about 16 ms, inside what the contract asks for.
  */
 
-bool lighting_on(const App &a) { return a.midi && a.show; }
+bool lighting_on(const App &a) {
+    if (!a.midi || !a.sl) return false;
+    if (a.show) return true;
+    for (int32_t i = 0; i < a.sl->nsongs; i++)
+        if (a.sl->song[i].nlight_cues > 0) return true;
+    return false;
+}
 
 void close_midi(App &a) {
     if (a.midi) { bt_midi_close(a.midi); a.midi = nullptr; }
@@ -448,8 +455,8 @@ void close_midi(App &a) {
  * midi_out in device.json overrides that, for a machine whose loopMIDI port
  * is named something else. */
 const char *lighting_port_name(const App &a) {
-    if (a.dev.midi_out[0]) return a.dev.midi_out;
-    if (a.show && a.show->port[0]) return a.show->port;
+    if (a.dev.midi_out[0]) return a.dev.midi_out;      /* this machine says */
+    if (a.show && a.show->port[0]) return a.show->port; /* the cue file says */
     return "";
 }
 
@@ -542,7 +549,8 @@ void lighting_send(App &a, int32_t ch, int32_t note, bool is_look,
     if (!a.midi || ch < 1 || ch > 16 || note < 0 || note > 127) return;
     if (is_look && ch == a.last_ch && note == a.last_note) return;
 
-    int32_t vel = a.show ? a.show->velocity : 127;
+    int32_t vel = a.show ? a.show->velocity
+                : (a.sl ? a.sl->light.velocity : 127);
     if (vel < 1 || vel > 127) vel = 127;
     bt_midi_trigger(a.midi, ch, note, vel);
 
@@ -556,9 +564,30 @@ void lighting_event(App &a, const bt_light_event &ev) {
     lighting_send(a, ev.ch, ev.note, ev.kind == BT_LIGHT_LOOK, ev.label);
 }
 
-const bt_light_song *lighting_song(const App &a, int32_t song_index) {
-    if (!a.show || !a.sl || song_index < 0 || song_index >= a.sl->nsongs) return nullptr;
-    return bt_lightshow_find(a.show, a.sl->song[song_index].title);
+/* Where this song's cues come from. The generated file wins for any song it
+ * names, because that is the show somebody built; a song it does not name -
+ * one just added, or a set list with no cue file at all - uses the cues typed
+ * into it. Same type either way, so nothing downstream knows the difference.
+ *
+ * The returned view points into `a`, and is good until the set list or the
+ * show is reloaded. */
+const bt_light_song *lighting_song(App &a, int32_t song_index) {
+    if (!a.sl || song_index < 0 || song_index >= a.sl->nsongs) return nullptr;
+
+    if (a.show) {
+        const bt_light_song *ls = bt_lightshow_find(a.show, a.sl->song[song_index].title);
+        if (ls) return ls;
+    }
+    const bt_song &sg = a.sl->song[song_index];
+    if (sg.nlight_cues <= 0) return nullptr;
+
+    /* A view onto the song's own array. Held in the app rather than in a
+     * static, so two lookups being live at once could not quietly overwrite
+     * each other. */
+    a.own_cues.ev  = (bt_light_event *)sg.light_cue;
+    a.own_cues.nev = sg.nlight_cues;
+    std::snprintf(a.own_cues.title, sizeof(a.own_cues.title), "%s", sg.title);
+    return &a.own_cues;
 }
 
 /* Starting, or landing anywhere after a jump. One question: what should the
@@ -1521,6 +1550,44 @@ int main(int argc, char **argv) {
             /* The two the contract says a person may press: between songs,
              * and everything off. Sent only because somebody asked - never
              * on stopping, where stale light beats a surprise. */
+            /* Take the looks the cue file names. Adds what is missing and
+             * leaves alone what is already there, so pressing it twice is
+             * harmless and a renamed look is not clobbered. */
+            if (g_edit.want_import_looks && g_app.show && g_app.sl) {
+                g_edit.want_import_looks = false;
+                bt_light_cfg &cfg = g_app.sl->light;
+                int32_t added = 0;
+                for (int32_t i = 0; i < g_app.show->nsongs; i++) {
+                    const bt_light_song &ls = g_app.show->song[i];
+                    for (int32_t k = 0; k < ls.nev; k++) {
+                        const bt_light_event &ev = ls.ev[k];
+                        bool have = false;
+                        for (int32_t j = 0; j < cfg.nlooks; j++)
+                            if (cfg.look[j].ch == ev.ch && cfg.look[j].note == ev.note)
+                                { have = true; break; }
+                        if (have || cfg.nlooks >= BT_MAX_LOOKS) continue;
+                        bt_light_look &lk = cfg.look[cfg.nlooks++];
+                        std::memset(&lk, 0, sizeof(lk));
+                        lk.ch = ev.ch; lk.note = ev.note; lk.kind = ev.kind;
+                        if (ev.label[0])
+                            std::snprintf(lk.name, sizeof(lk.name), "%s", ev.label);
+                        else
+                            std::snprintf(lk.name, sizeof(lk.name), "ch%d note %d",
+                                          ev.ch, ev.note);
+                        added++;
+                    }
+                }
+                if (added > 0) g_edit.dirty = true;
+                std::snprintf(g_edit.status, sizeof(g_edit.status),
+                              added ? "took %d look(s) from the cue file"
+                                    : "nothing new - every look is already here",
+                              added);
+                if (cfg.nlooks >= BT_MAX_LOOKS)
+                    std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                  "stopped at %d looks, which is the most a "
+                                  "set list holds", BT_MAX_LOOKS);
+            }
+
             if (g_edit.want_special != 0 && g_app.midi && g_app.show) {
                 const bt_light_special &sp =
                     g_edit.want_special == 1 ? g_app.show->between_songs

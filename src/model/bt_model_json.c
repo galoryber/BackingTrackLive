@@ -17,6 +17,15 @@
 
 #define BT_SETLIST_VERSION 1
 
+/* Shared with the cue file's reader, and tolerant for the same reason: an
+ * unknown type is a look, which is the one that behaves itself on a seek. */
+static bt_light_kind light_kind(const bt_json *j) {
+    const char *t = bt_json_string(j, "look");
+    if (t && !strcmp(t, "hit")) return BT_LIGHT_HIT;
+    if (t && !strcmp(t, "end")) return BT_LIGHT_END;
+    return BT_LIGHT_LOOK;
+}
+
 static void copy_str(char *dst, size_t cap, const bt_json *j, const char *dflt) {
     const char *s = bt_json_string(j, dflt);
     if (!s) s = "";
@@ -143,13 +152,17 @@ static bt_err bind_song(const bt_json *js, bt_song *s) {
         if (n > BT_MAX_LIGHT_CUES) return BT_ERR_SCHEMA;
         for (size_t k = 0; k < n; k++) {
             const bt_json *c = bt_json_at(cues, k);
-            bt_light_cue *lc = &s->light_cue[s->nlight_cues];
+            bt_light_event *lc = &s->light_cue[s->nlight_cues];
             lc->bar  = (int32_t)bt_json_number(bt_json_get(c, "bar"), 0);
+            lc->ch   = (int32_t)bt_json_number(bt_json_get(c, "ch"), 1);
             lc->note = (int32_t)bt_json_number(bt_json_get(c, "note"), 0);
-            if (lc->bar < 1 || lc->bar > 10000) return BT_ERR_SCHEMA;
-            if (lc->note < 0 || lc->note > 127) return BT_ERR_SCHEMA;
-            snprintf(lc->desc, sizeof(lc->desc), "%s",
-                     bt_json_string(bt_json_get(c, "desc"), ""));
+            if (lc->bar  < 1 || lc->bar  > 10000) return BT_ERR_SCHEMA;
+            if (lc->ch   < 1 || lc->ch   > 16)    return BT_ERR_SCHEMA;
+            if (lc->note < 0 || lc->note > 127)   return BT_ERR_SCHEMA;
+            lc->kind = light_kind(bt_json_get(c, "type"));
+            snprintf(lc->label, sizeof(lc->label), "%s",
+                     bt_json_string(bt_json_get(c, "label"),
+                                    bt_json_string(bt_json_get(c, "desc"), "")));
             s->nlight_cues++;
         }
     }
@@ -209,16 +222,28 @@ bt_err bt_setlist_load_mem(const char *text, size_t len, const char *dir,
         /* Lighting, if this show has any. Channel 0 means none, which is the
          * default and what every set list written before this says. */
         const bt_json *lg = bt_json_get(root, "lighting");
-        sl->light.channel   = (int32_t)bt_json_number(bt_json_get(lg, "channel"), 0);
-        sl->light.next_note = (int32_t)bt_json_number(bt_json_get(lg, "next_note"), 0);
-        sl->light.end_note  = (int32_t)bt_json_number(bt_json_get(lg, "end_note"), 0);
-        sl->light.prev_note     = (int32_t)bt_json_number(bt_json_get(lg, "prev_note"), 0);
-        sl->light.blackout_note = (int32_t)bt_json_number(bt_json_get(lg, "blackout_note"), 0);
-        sl->light.velocity  = (int32_t)bt_json_number(bt_json_get(lg, "velocity"), 127);
-        if (sl->light.channel   < 0 || sl->light.channel   > 16)  return BT_ERR_SCHEMA;
-        if (sl->light.next_note < 0 || sl->light.next_note > 127) return BT_ERR_SCHEMA;
-        if (sl->light.end_note  < 0 || sl->light.end_note  > 127) return BT_ERR_SCHEMA;
-        if (sl->light.velocity  < 1 || sl->light.velocity  > 127) return BT_ERR_SCHEMA;
+        sl->light.velocity = (int32_t)bt_json_number(bt_json_get(lg, "velocity"), 127);
+        if (sl->light.velocity < 1 || sl->light.velocity > 127) return BT_ERR_SCHEMA;
+
+        /* The named looks. A set list written before these existed has none,
+         * and the pre-contract fields that used to live here - channel,
+         * next_note and the rest - are read by nothing now and dropped on
+         * the next save. They drove a cue list this no longer speaks to. */
+        const bt_json *looks = bt_json_get(lg, "looks");
+        const size_t ln = bt_json_len(looks);
+        if (ln > BT_MAX_LOOKS) return BT_ERR_SCHEMA;
+        for (size_t k = 0; k < ln; k++) {
+            const bt_json *lj = bt_json_at(looks, k);
+            bt_light_look *lk = &sl->light.look[sl->light.nlooks];
+            copy_str(lk->name, sizeof(lk->name), bt_json_get(lj, "name"), "");
+            lk->ch   = (int32_t)bt_json_number(bt_json_get(lj, "ch"), 1);
+            lk->note = (int32_t)bt_json_number(bt_json_get(lj, "note"), 0);
+            lk->kind = light_kind(bt_json_get(lj, "type"));
+            if (!lk->name[0]) return BT_ERR_SCHEMA;
+            if (lk->ch   < 1 || lk->ch   > 16)  return BT_ERR_SCHEMA;
+            if (lk->note < 0 || lk->note > 127) return BT_ERR_SCHEMA;
+            sl->light.nlooks++;
+        }
     }
     snprintf(sl->dir, sizeof(sl->dir), "%s", dir ? dir : "");
 
