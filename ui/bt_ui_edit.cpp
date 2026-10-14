@@ -1791,9 +1791,24 @@ void draw_lighting_screen(bt_ui_edit &ed) {
         ImGui::TextColored(COL_AMBER,
             "listening - press the button on the desk for the look you are "
             "adding");
-        if (ed.learned_note >= 0)
+        if (ed.learned_note >= 0) {
             ImGui::TextColored(COL_OK, "heard channel %d note %d",
                                ed.learned_ch, ed.learned_note);
+            ImGui::SameLine();
+            ImGui::BeginDisabled(cfg.nlooks >= BT_MAX_LOOKS);
+            if (ImGui::Button("add it as a look")) {
+                bt_light_look &lk = cfg.look[cfg.nlooks];
+                std::memset(&lk, 0, sizeof(lk));
+                std::snprintf(lk.name, sizeof(lk.name), "look %d", cfg.nlooks + 1);
+                lk.ch = ed.learned_ch;
+                lk.note = ed.learned_note;
+                cfg.nlooks++;
+                ed.dirty = true;
+                ed.learned_note = -1;   /* ready for the next one */
+            }
+            ImGui::EndDisabled();
+            ImGui::TextDisabled("give it a name in the table below");
+        }
         else
             ImGui::TextDisabled("nothing yet. The desk only sends this if it "
                                 "is configured to, which many are not.");

@@ -136,6 +136,11 @@ struct App {
     int32_t       last_note = -1;    /* not toggle it back off            */
     char          cue_label[BT_MAX_CUE] = {0};
     bt_light_song own_cues = {};     /* a view onto a song's own cue array */
+
+    /* Open only while somebody is using "learn" on the lighting screen. The
+     * answer to "what note is this look?" is in the desk, and the quickest
+     * way to get it out is to press the thing and listen. */
+    bt_midi_in   *listen = nullptr;
     /* A start that is waiting for the loader rather than blocking on it. */
     bool          pending_start    = false;
     bool          pending_count_in = false;
@@ -395,6 +400,7 @@ void close_set() {
     g_start.rescan = true;      /* the folder may have changed since last time */
     close_midi(a);
     close_show(a);
+    if (a.listen) { bt_midi_in_close(a.listen); a.listen = nullptr; }
     if (a.device) { bt_device_stop(a.device); bt_device_close(a.device); a.device = nullptr; }
     if (a.player) { bt_player_destroy(a.player); a.player = nullptr; }
     if (a.sl)     { bt_setlist_free(a.sl); a.sl = nullptr; }
@@ -1568,6 +1574,31 @@ int main(int argc, char **argv) {
             /* Take the looks the cue file names. Adds what is missing and
              * leaves alone what is already there, so pressing it twice is
              * harmless and a renamed look is not clobbered. */
+            /* Listening is only open while the screen asks for it, so the
+             * port is free the rest of the time - some drivers allow one
+             * reader. */
+            if (g_edit.want_learn && !g_app.listen) {
+                const char *want = lighting_port_name(g_app);
+                const int32_t in = bt_midi_in_find(want && *want ? want : "");
+                if (in >= 0 && bt_midi_in_open(in, &g_app.listen) != BT_OK)
+                    g_app.listen = nullptr;
+                g_edit.learned_ch = g_edit.learned_note = -1;
+            } else if (!g_edit.want_learn && g_app.listen) {
+                bt_midi_in_close(g_app.listen);
+                g_app.listen = nullptr;
+            }
+            if (g_app.listen) {
+                bt_midi_msg m;
+                /* Drain, so the most recent press wins rather than the first
+                 * one still sitting in the queue. */
+                while (bt_midi_in_poll(g_app.listen, &m) == BT_OK) {
+                    if ((m.status & 0xF0) == 0x90 && m.d2 > 0) {
+                        g_edit.learned_ch   = (m.status & 0x0F) + 1;
+                        g_edit.learned_note = m.d1;
+                    }
+                }
+            }
+
             if (g_edit.want_import_looks && g_app.show && g_app.sl) {
                 g_edit.want_import_looks = false;
                 bt_light_cfg &cfg = g_app.sl->light;
