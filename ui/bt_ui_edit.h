@@ -23,6 +23,9 @@
 
 enum class bt_edit_screen { setlist, song, align, audio, check, lighting };
 
+/* What the set list screen asked for, to be done between loader pauses. */
+enum class bt_edit_pending { none, add, remove, clone, move_up, move_down };
+
 struct bt_ui_edit {
     bt_setlist    *sl = nullptr;          /* mutable, unlike the play view */
     bt_device_cfg *dev = nullptr;         /* for the list of bus names     */
@@ -74,7 +77,16 @@ struct bt_ui_edit {
     bool             want_open_setlist = false;
     uint64_t         last_sig = 0;          /* see render_signature */
     uint64_t         last_load_sig = 0;     /* see load_signature   */
-    bool             want_reload = false;   /* a stem changed       */
+    bool             want_reload = false;
+    /* The song array changed shape: the host has to quiesce the
+     * loader around it, or it decodes into memory that moved. */
+    /* A change to the *shape* of the set list - a song added, removed,
+     * reordered or copied - cannot happen while drawing. The loader decodes
+     * into pointers it took from the song array, so the host has to stop it
+     * first. The button records what was wanted; the host brackets it with
+     * bt_player_structural_begin/end and calls bt_ui_edit_apply_pending. */
+    bt_edit_pending  pending = bt_edit_pending::none;
+    int32_t          pending_arg = -1;
     /* Set when an edit changed the song but not what it sounds like, so the
      * signature moves on without asking the engine to republish. */
     bool             sig_only = false;
@@ -120,6 +132,11 @@ struct bt_ui_edit {
 
 /* Returns true while edit mode should stay open; false when the user leaves. */
 bool bt_ui_edit_draw(bt_ui_edit &ed);
+
+/* Performs `ed.pending` and clears it. The caller must have stopped the
+ * loader first - see bt_player_structural_begin - because this moves the song
+ * array the loader is holding pointers into. */
+void bt_ui_edit_apply_pending(bt_ui_edit &ed);
 
 /* Applied by the host so edit mode does not own the keyboard map. */
 void bt_ui_edit_key(bt_ui_edit &ed, int vk);

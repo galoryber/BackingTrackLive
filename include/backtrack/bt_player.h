@@ -88,6 +88,20 @@ bt_err  bt_player_request(bt_player *p, int32_t song_index);
  * re-read; this is for the ones that have to go back through the loader. */
 bt_err  bt_player_reload(bt_player *p, int32_t song_index);
 
+/* Bracket any change to the *shape* of the set list - adding, removing,
+ * reordering or copying a song - with these.
+ *
+ * The loader borrows the set list's song array and decodes into pointers
+ * taken from it with its lock released. Moving that array under it, which a
+ * realloc or a removal does, leaves it writing megabytes of PCM into freed
+ * memory, or into a different song. Changing one song's fields needs only
+ * bt_player_reload; changing how many songs there are needs these.
+ *
+ * Between begin and end the transport is stopped and nothing is resident.
+ * `end` republishes around `select` and lets loading start again. */
+void bt_player_structural_begin(bt_player *p);
+void bt_player_structural_end(bt_player *p, int32_t select);
+
 bt_err  bt_player_reapply(bt_player *p);
 
 bt_err  bt_player_next(bt_player *p);

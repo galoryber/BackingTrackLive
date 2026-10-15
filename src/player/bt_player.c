@@ -96,6 +96,24 @@ bt_err bt_player_request(bt_player *p, int32_t song_index) {
     return BT_OK;
 }
 
+void bt_player_structural_begin(bt_player *p) {
+    if (!p) return;
+    /* Stop first: the engine points at a song that is about to move, and the
+     * render reads it. */
+    bt_engine_stop(p->eng);
+    bt_engine_set_song(p->eng, NULL, &p->dev);
+    bt_engine_sync(p->eng);
+    p->current = -1;
+    if (p->ld) bt_loader_quiesce(p->ld);
+}
+
+void bt_player_structural_end(bt_player *p, int32_t select) {
+    if (!p) return;
+    if (p->ld) bt_loader_resume(p->ld);
+    if (select < 0 || select >= p->sl->nsongs) select = p->sl->nsongs > 0 ? 0 : -1;
+    if (select >= 0) bt_player_select(p, select);
+}
+
 bt_err bt_player_reload(bt_player *p, int32_t song_index) {
     if (!p) return BT_ERR_RANGE;
     if (song_index < 0 || song_index >= p->sl->nsongs) return BT_ERR_RANGE;

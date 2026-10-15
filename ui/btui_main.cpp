@@ -1571,6 +1571,22 @@ int main(int argc, char **argv) {
                 }
             }
             g_edit.want_special = 0;
+            /* A song added, removed, reordered or copied moves the array
+             * the loader is decoding into, so it is stopped around it. The
+             * cost is that whatever was loaded is dropped and fetched again;
+             * the alternative is PCM written into freed memory, which does
+             * not announce itself. */
+            if (g_edit.pending != bt_edit_pending::none) {
+                if (g_app.player) bt_player_structural_begin(g_app.player);
+                bt_ui_edit_apply_pending(g_edit);
+                if (g_app.player)
+                    bt_player_structural_end(g_app.player, g_edit.song);
+                g_app.selected = g_edit.song;
+                /* The engine was torn down and rebuilt, so nothing is
+                 * playing and the lighting has no idea where it is. */
+                g_app.cue_song = -1;
+            }
+
             if (g_edit.want_reload) {
                 g_edit.want_reload = false;
                 /* A stem was added, removed or re-pointed: the loader holds

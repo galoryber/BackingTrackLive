@@ -20,6 +20,9 @@ struct bt_loader {
     int32_t     lo, hi;      /* desired window; lo > hi means "nothing"     */
     bool       *dirty;       /* edited since loading; free and load again   */
     bool        quit;
+    bool        paused;      /* structural edit in progress; do nothing     */
+    bool        idle;        /* paused and not inside a load or a free      */
+    int32_t     nalloc;      /* songs the arrays below were sized for       */
     uint64_t    generation;
     bt_err      last_err;
     int32_t     last_err_song;
@@ -29,7 +32,8 @@ struct bt_loader {
  * is most likely to need next should not wait behind the one after it. */
 static int32_t pick_load(const bt_loader *l) {
     if (l->lo > l->hi) return -1;
-    for (int32_t i = l->lo; i <= l->hi && i < l->sl->nsongs; i++)
+    const int32_t n = l->nalloc < l->sl->nsongs ? l->nalloc : l->sl->nsongs;
+    for (int32_t i = l->lo; i <= l->hi && i < n; i++)
         if (i >= 0 && !l->resident[i]) return i;
     return -1;
 }
@@ -37,9 +41,10 @@ static int32_t pick_load(const bt_loader *l) {
 static int32_t pick_free(const bt_loader *l) {
     /* Edited songs first, in or out of the window: what is in memory for them
      * is no longer what the set list says. */
-    for (int32_t i = 0; i < l->sl->nsongs; i++)
+    const int32_t n = l->nalloc < l->sl->nsongs ? l->nalloc : l->sl->nsongs;
+    for (int32_t i = 0; i < n; i++)
         if (l->dirty[i]) return i;
-    for (int32_t i = 0; i < l->sl->nsongs; i++)
+    for (int32_t i = 0; i < n; i++)
         if (l->resident[i] && (i < l->lo || i > l->hi)) return i;
     return -1;
 }
@@ -50,6 +55,17 @@ static void loader_main(void *user) {
     bt_mutex_lock(l->mu);
     for (;;) {
         if (l->quit) break;
+
+        /* Paused: the set list's song array is being changed underneath us,
+         * and every index and pointer we hold is about to mean something
+         * else. Announce that nothing is in flight and wait. */
+        if (l->paused) {
+            l->idle = true;
+            bt_cond_broadcast(l->done);
+            bt_cond_wait(l->work, l->mu);
+            continue;
+        }
+        l->idle = false;
 
         int32_t to_free = pick_free(l);
         if (to_free >= 0) {
@@ -123,6 +139,7 @@ bt_err bt_loader_start(bt_setlist *sl, int32_t sample_rate, bt_engine *eng,
         l->resident = (bool *)calloc((size_t)sl->nsongs, sizeof(bool));
         if (!l->resident) { free(l); return BT_ERR_ALLOC; }
         l->dirty = (bool *)calloc((size_t)sl->nsongs, sizeof(bool));
+        l->nalloc = sl->nsongs;
         if (!l->dirty) { free(l->resident); free(l); return BT_ERR_ALLOC; }
         /* A click-only song has nothing to load and is resident already. */
         for (int32_t i = 0; i < sl->nsongs; i++) {
@@ -150,6 +167,65 @@ fail:
     free(l->dirty);
     free(l);
     return e;
+}
+
+/* Blocks until the loader is between jobs and holds it there. Everything it
+ * had loaded is freed first: after a structural change the indices it
+ * believed in point at different songs, and PCM attached to the wrong song is
+ * worse than no PCM. */
+void bt_loader_quiesce(bt_loader *l) {
+    if (!l) return;
+    bt_mutex_lock(l->mu);
+    l->paused = true;
+    bt_cond_broadcast(l->work);
+    while (!l->idle && !l->quit) bt_cond_wait(l->done, l->mu);
+    bt_mutex_unlock(l->mu);
+
+    /* Nothing is in flight now, so the pointers are ours. The engine may
+     * still be rendering from one of them. */
+    if (l->eng) bt_engine_sync(l->eng);
+    for (int32_t i = 0; i < l->sl->nsongs; i++)
+        bt_song_free_audio(&l->sl->song[i]);
+
+    bt_mutex_lock(l->mu);
+    for (int32_t i = 0; i < l->sl->nsongs; i++) {
+        l->resident[i] = false;
+        l->dirty[i]    = false;
+    }
+    l->last_err      = BT_OK;
+    l->last_err_song = -1;
+    bt_mutex_unlock(l->mu);
+}
+
+void bt_loader_resume(bt_loader *l) {
+    if (!l) return;
+    bt_mutex_lock(l->mu);
+
+    /* The set list may have gained songs while we were stopped, and these
+     * are indexed by song. Sized here rather than at the call site because
+     * getting it wrong is an overrun nothing would report. */
+    const int32_t n = l->sl->nsongs;
+    if (n > l->nalloc) {
+        bool *r = (bool *)realloc(l->resident, (size_t)n * sizeof(bool));
+        bool *d = (bool *)realloc(l->dirty,    (size_t)n * sizeof(bool));
+        if (r) l->resident = r;
+        if (d) l->dirty    = d;
+        if (r && d) l->nalloc = n;
+        /* If either failed there is no way to report it from here, so stay
+         * within what is actually allocated: the window is clamped below and
+         * the loader simply does less. */
+    }
+    const int32_t cap = l->nalloc < n ? l->nalloc : n;
+    for (int32_t i = 0; i < cap; i++) { l->resident[i] = false; l->dirty[i] = false; }
+
+    /* The window was expressed in old indices. */
+    if (l->lo >= cap) l->lo = cap > 0 ? cap - 1 : 0;
+    if (l->hi >= cap) l->hi = cap - 1;
+
+    l->paused = false;
+    l->idle   = false;
+    bt_cond_broadcast(l->work);
+    bt_mutex_unlock(l->mu);
 }
 
 void bt_loader_stop(bt_loader *l) {

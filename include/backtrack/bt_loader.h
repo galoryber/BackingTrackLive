@@ -41,6 +41,25 @@ void   bt_loader_stop(bt_loader *l);
  * the work happens on the loader thread. */
 void   bt_loader_set_window(bt_loader *l, int32_t lo, int32_t hi);
 
+/* Quiesce the loader so the set list's song array can be changed underneath
+ * it: added to, removed from, reordered, reallocated.
+ *
+ * This is not paranoia. The loader takes `&sl->song[i]`, releases its lock,
+ * and then spends a long time decoding into that pointer. Anything that moves
+ * the array - a realloc that relocates it, or songs shifted down after a
+ * removal - leaves it writing megabytes of PCM into freed or, worse, into a
+ * different song. Neither shows up as a crash at the time.
+ *
+ * bt_loader_quiesce blocks until the loader is idle and keeps it that way.
+ * Everything it had loaded is freed, because after a structural change the
+ * indices it believed in no longer mean anything. bt_loader_resume lets it
+ * start again against the new array and reload the window.
+ *
+ * Both are called from the thread that owns the set list; nesting is not
+ * supported, and neither is calling anything else on the loader in between. */
+void   bt_loader_quiesce(bt_loader *l);
+void   bt_loader_resume(bt_loader *l);
+
 /* These lock, so they are not const-qualified: pretending otherwise would
  * mean casting the qualifier away inside, which is a lie the compiler is
  * right to reject. */

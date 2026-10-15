@@ -216,8 +216,138 @@ static void test_select_while_rendering_and_loading(void) {
     cleanup_conc_fixture();
 }
 
+#define BIGSR    44100      /* so every load has to resample to SR */
+#define BIGSECS  3
+
+static void big_stem(char *dst, size_t cap, int32_t i) {
+    snprintf(dst, cap, "conc_big_%d.wav", i);
+}
+
+/* Stems that take real time to load. A quarter-second mono file decodes in
+ * microseconds, so a test built on those never catches the loader mid-job and
+ * proves nothing - which is exactly what the first version of this did. */
+static void build_big_fixture(void) {
+    char json[8192];
+    size_t o = 0;
+    o += (size_t)snprintf(json + o, sizeof(json) - o,
+                          "{\"version\":1,\"name\":\"B\",\"songs\":[");
+    for (int32_t i = 0; i < CSONGS; i++) {
+        const bt_frame n = (bt_frame)BIGSR * BIGSECS;
+        float *b = (float *)malloc((size_t)n * sizeof(float));
+        BT_CHECK(b != NULL);
+        for (bt_frame k = 0; k < n; k++) b[k] = 0.05f;
+        char path[64];
+        big_stem(path, sizeof(path), i);
+        const float *pp[1] = { b };
+        BT_CHECK_EQI(bt_wav_write_file(path, pp, 1, BIGSR, n), BT_OK);
+        free(b);
+        o += (size_t)snprintf(json + o, sizeof(json) - o,
+            "%s{\"title\":\"S%d\",\"tempo\":{\"bpm\":120},"
+            "\"count_in_bars\":0,\"on_end\":\"stop\",\"tracks\":["
+            "{\"type\":\"click\",\"bus\":\"inear\"},"
+            "{\"type\":\"audio\",\"bus\":\"foh\",\"file\":\"%s\"}]}",
+            i ? "," : "", i, path);
+    }
+    snprintf(json + o, sizeof(json) - o, "]}");
+    FILE *f = fopen("conc_big.json", "wb");
+    BT_CHECK(f != NULL);
+    fputs(json, f);
+    fclose(f);
+}
+
+static void cleanup_big_fixture(void) {
+    for (int32_t i = 0; i < CSONGS; i++) {
+        char path[64];
+        big_stem(path, sizeof(path), i);
+        remove(path);
+    }
+    remove("conc_big.json");
+}
+
+/* Changing the shape of the set list while the loader is working.
+ *
+ * The loader takes `&sl->song[i]`, releases its lock and then decodes into
+ * that pointer for as long as the file takes. A realloc that relocates the
+ * array, or songs shifted down after a removal, leave it writing PCM into
+ * freed memory or into a different song - neither of which announces itself
+ * at the time. bt_player_structural_begin exists to stop it first, and this
+ * is what proves it: without the quiesce, ASan and TSan both have plenty to
+ * say about this loop.
+ *
+ * Deliberately brutal: reallocate on every pass, while rendering. */
+static void test_resizing_the_set_while_loading(void) {
+    build_big_fixture();
+
+    bt_setlist *sl = NULL;
+    int line = 0;
+    BT_CHECK_EQI(bt_setlist_load_file("conc_big.json", &sl, &line), BT_OK);
+    if (!sl) { cleanup_big_fixture(); return; }
+
+    bt_device_cfg d = mk_dev();
+    bt_player_cfg c = { SR, 4, 256, 1, 10000 };
+    BT_CHECK_EQI(bt_player_create(&c, sl, &d, &g_player), BT_OK);
+    BT_CHECK_EQI(bt_player_select(g_player, 0), BT_OK);
+    bt_player_play(g_player);
+
+    atomic_store_explicit(&g_stop, 0, memory_order_relaxed);
+    pthread_t th;
+    BT_CHECK_EQI(pthread_create(&th, NULL, player_render_thread, NULL), 0);
+
+    const int32_t original = sl->nsongs;
+    for (int pass = 0; pass < 24; pass++) {
+        /* Move the window so the loader starts a job, then pull the rug
+         * while it is still inside it. The stems resample on load, which is
+         * what makes that window wide enough to hit. */
+        bt_player_select(g_player, pass % original);
+        bt_player_play(g_player);
+
+        /* Copy a song: realloc, shift, and a new entry. */
+        bt_player_structural_begin(g_player);
+        {
+            const int32_t n = sl->nsongs;
+            bt_song *grown = (bt_song *)realloc(sl->song, (size_t)(n + 1) * sizeof(bt_song));
+            BT_CHECK(grown != NULL);
+            sl->song = grown;
+            for (int32_t i = n; i > 1; i--) sl->song[i] = sl->song[i - 1];
+            sl->song[1] = sl->song[0];
+            for (int32_t t = 0; t < sl->song[1].ntracks; t++) {
+                sl->song[1].track[t].pcm      = NULL;
+                sl->song[1].track[t].channels = 0;
+                sl->song[1].track[t].frames   = 0;
+            }
+            snprintf(sl->song[1].title, sizeof(sl->song[1].title), "copy %d", pass);
+            sl->nsongs = n + 1;
+            sl->cap    = n + 1;
+        }
+        bt_player_structural_end(g_player, 1);
+        bt_player_play(g_player);
+
+        /* And remove it again, so the set does not grow without bound. */
+        bt_player_structural_begin(g_player);
+        {
+            bt_song_free_audio(&sl->song[1]);
+            for (int32_t i = 1; i + 1 < sl->nsongs; i++) sl->song[i] = sl->song[i + 1];
+            sl->nsongs--;
+        }
+        bt_player_structural_end(g_player, 0);
+        bt_player_play(g_player);
+    }
+
+    atomic_store_explicit(&g_stop, 1, memory_order_relaxed);
+    pthread_join(th, NULL);
+
+    BT_CHECK_EQI(sl->nsongs, original);
+    BT_CHECK_EQI(bt_player_load_error(g_player, NULL), BT_OK);
+
+    bt_player_destroy(g_player);
+    g_player = NULL;
+    bt_setlist_free(sl);
+    cleanup_big_fixture();
+}
+
 int main(void) {
     BT_RUN(test_swap_song_while_rendering);
     BT_RUN(test_select_while_rendering_and_loading);
+    BT_RUN(test_resizing_the_set_while_loading);
     BT_REPORT();
 }

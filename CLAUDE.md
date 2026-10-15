@@ -82,6 +82,16 @@ These are enforced by tests. Do not work around a failing rtsafe test.
    and only after the loader has published that the song is resident. That is
    the whole ownership rule; violating it is a use-after-free on the audio
    thread.
+1a-bis. **Changing how many songs a set list has needs the loader stopped.**
+   The loader takes `&sl->song[i]`, releases its lock, and decodes into that
+   pointer for as long as the file takes. A realloc that moves the array, or
+   songs shifted down by a removal, leave it writing megabytes of PCM into
+   freed memory or into a different song, and neither announces itself.
+   Bracket add/remove/reorder/copy with `bt_player_structural_begin/end`.
+   Editing a song's *fields* is fine without them. `test_concurrency.c`'s
+   `test_resizing_the_set_while_loading` is what proves it, and it only
+   catches the bug because its stems resample on load - with quarter-second
+   stems the loader is never caught mid-job and the test passes either way.
 1b. **Never mutate engine state the audio thread reads.** The engine keeps two
    resolved song slots and publishes the live index with release/acquire;
    `bt_engine_set_song()` writes the other one. Before freeing any PCM a

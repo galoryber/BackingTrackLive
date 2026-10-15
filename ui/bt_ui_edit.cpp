@@ -162,6 +162,62 @@ void add_song(bt_ui_edit &ed) {
     ed.dirty = true;
 }
 
+/* Clone a song, everything about it except the audio it has loaded.
+ *
+ * The tricky part is what is deliberately *not* copied. A bt_song holds
+ * pointers to decoded PCM owned by the loader thread, and a plain struct copy
+ * would hand two songs the same buffers - freed twice the first time either
+ * one is dropped, and read on the audio thread in between. The clone starts
+ * unloaded instead and the loader fills it from the same files, which is both
+ * correct and what somebody expects: it is a different song in the set now.
+ *
+ * Everything else comes along, cues included, which is the point. Copying a
+ * song to reuse its lighting is the shortest way there is. */
+void clone_song(bt_ui_edit &ed, int32_t idx) {
+    if (idx < 0 || idx >= ed.sl->nsongs) return;
+
+    int32_t n = ed.sl->nsongs;
+    bt_song *grown = (bt_song *)realloc(ed.sl->song, (size_t)(n + 1) * sizeof(bt_song));
+    if (!grown) { set_status(ed, "out of memory"); return; }
+    ed.sl->song = grown;
+
+    /* Placed right after the original, where somebody looking for it will
+     * look, rather than at the end of a 36-song set. */
+    const int32_t at = idx + 1;
+    for (int32_t i = n; i > at; i--) ed.sl->song[i] = ed.sl->song[i - 1];
+
+    bt_song &c = ed.sl->song[at];
+    c = ed.sl->song[idx];
+
+    /* Not ours to hand out a second pointer to. */
+    for (int32_t i = 0; i < c.ntracks; i++) {
+        c.track[i].pcm      = NULL;
+        c.track[i].channels = 0;
+        c.track[i].frames   = 0;
+    }
+
+    /* A name that says what it is, and is not a duplicate - two songs with
+     * one title are indistinguishable on stage, and a cue file matches on
+     * title. Numbered up until it is free. */
+    char base[BT_MAX_NAME];
+    std::snprintf(base, sizeof(base), "%s", ed.sl->song[idx].title);
+    for (int32_t k = 2; k < 100; k++) {
+        char want[BT_MAX_NAME];
+        std::snprintf(want, sizeof(want), "%.*s (%d)",
+                      (int)(sizeof(want) - 8), base, k);
+        bool taken = false;
+        for (int32_t i = 0; i < n + 1; i++)
+            if (i != at && !std::strcmp(ed.sl->song[i].title, want)) { taken = true; break; }
+        if (!taken) { std::snprintf(c.title, sizeof(c.title), "%s", want); break; }
+    }
+
+    ed.sl->nsongs = n + 1;
+    ed.sl->cap    = n + 1;
+    ed.song  = at;
+    ed.dirty = true;
+    set_status(ed, "copied - the stems are shared, everything else is its own");
+}
+
 void remove_song(bt_ui_edit &ed, int32_t idx) {
     if (idx < 0 || idx >= ed.sl->nsongs) return;
     bt_song_free_audio(&ed.sl->song[idx]);
@@ -187,7 +243,7 @@ void draw_setlist_screen(bt_ui_edit &ed) {
     ImGui::Separator();
 
     if (ImGui::Button("+ add song")) {
-        add_song(ed);
+        ed.pending = bt_edit_pending::add;
         /* Straight into it. Adding a song and then having to find and press
          * "edit song" is two actions for one intention. */
         ed.screen = bt_edit_screen::song;
@@ -195,11 +251,16 @@ void draw_setlist_screen(bt_ui_edit &ed) {
     }
     ImGui::SameLine();
     ImGui::BeginDisabled(ed.sl->nsongs == 0);
-    if (ImGui::Button("remove")) remove_song(ed, ed.song);
+    if (ImGui::Button("copy")) ed.pending = bt_edit_pending::clone;
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("A copy of the selected song, right after it:\n"
+                          "same stems, same tempo, same lighting cues.");
     ImGui::SameLine();
-    if (ImGui::Button("move up"))   move_song(ed, ed.song, ed.song - 1);
+    if (ImGui::Button("remove")) ed.pending = bt_edit_pending::remove;
     ImGui::SameLine();
-    if (ImGui::Button("move down")) move_song(ed, ed.song, ed.song + 1);
+    if (ImGui::Button("move up"))   ed.pending = bt_edit_pending::move_up;
+    ImGui::SameLine();
+    if (ImGui::Button("move down")) ed.pending = bt_edit_pending::move_down;
     ImGui::SameLine();
     if (ImGui::Button("edit song \xe2\x86\x92")) ed.screen = bt_edit_screen::song;
     ImGui::EndDisabled();
@@ -1219,6 +1280,21 @@ void bt_ui_edit_key(bt_ui_edit &ed, int vk) {
         if (GetKeyState(VK_CONTROL) & 0x8000) do_save(ed);
         break;
     default: break;
+    }
+}
+
+void bt_ui_edit_apply_pending(bt_ui_edit &ed) {
+    if (!ed.sl) { ed.pending = bt_edit_pending::none; return; }
+    const bt_edit_pending what = ed.pending;
+    ed.pending = bt_edit_pending::none;
+
+    switch (what) {
+    case bt_edit_pending::none:      break;
+    case bt_edit_pending::add:       add_song(ed);                        break;
+    case bt_edit_pending::clone:     clone_song(ed, ed.song);             break;
+    case bt_edit_pending::remove:    remove_song(ed, ed.song);            break;
+    case bt_edit_pending::move_up:   move_song(ed, ed.song, ed.song - 1); break;
+    case bt_edit_pending::move_down: move_song(ed, ed.song, ed.song + 1); break;
     }
 }
 
