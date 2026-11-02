@@ -58,6 +58,21 @@ bt_err bt_lightshow_load_mem (const char *text, size_t len,
                               bt_lightshow **out, int *err_line);
 void   bt_lightshow_free(bt_lightshow *show);
 
+/* Which cues govern this song, and how many.
+ *
+ * A song's own cues win over the generated file. The file is the show
+ * somebody designed; the bar a cue lands on is a musical decision about this
+ * band playing this song, and it is what gets adjusted after a rehearsal.
+ * Once a song has its own cues - which happens by copying the file's in and
+ * editing them - those are what the band agreed on, and regenerating the file
+ * must not quietly undo it. Every other song keeps following the file.
+ *
+ * `show` may be NULL, which is a set list with no cue file. Returns 0 and
+ * leaves *out NULL when the song has no lighting at all.
+ */
+int32_t bt_lightshow_cues_for(const bt_lightshow *show, const bt_song *song,
+                              const bt_light_event **out);
+
 /* Matched exactly on title, as the contract says. A song with no match has no
  * lighting, which is not an error - a set list may hold songs the show was
  * never built for. */

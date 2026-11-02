@@ -136,6 +136,21 @@ bt_err bt_lightshow_load_file(const char *path, bt_lightshow **out, int *err_lin
     return e;
 }
 
+int32_t bt_lightshow_cues_for(const bt_lightshow *show, const bt_song *song,
+                              const bt_light_event **out) {
+    if (out) *out = NULL;
+    if (!song) return 0;
+
+    if (song->nlight_cues > 0) {
+        if (out) *out = song->light_cue;
+        return song->nlight_cues;
+    }
+    const bt_light_song *ls = bt_lightshow_find(show, song->title);
+    if (!ls || ls->nev <= 0) return 0;
+    if (out) *out = ls->ev;
+    return ls->nev;
+}
+
 const bt_light_song *bt_lightshow_find(const bt_lightshow *show, const char *title) {
     if (!show || !title || !*title) return NULL;
     for (int32_t i = 0; i < show->nsongs; i++)

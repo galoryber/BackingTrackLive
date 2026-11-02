@@ -265,6 +265,53 @@ static void test_refuses_nonsense_arguments(void) {
     bt_lightshow_free(NULL);
 }
 
+/* Which cues win. The file is the show somebody designed; the bars are what
+ * a band changes after playing it, and that change has to survive the file
+ * being regenerated. */
+static void test_a_songs_own_cues_win(void) {
+    bt_lightshow *sh = NULL;
+    BT_CHECK(bt_lightshow_load_mem(SHOW, strlen(SHOW), &sh, NULL) == BT_OK);
+
+    bt_song s = a_song();   /* titled "Corduroy", which the show names */
+    const bt_light_event *ev = NULL;
+
+    /* With none of its own, the file's five. */
+    BT_CHECK_EQI(bt_lightshow_cues_for(sh, &s, &ev), 5);
+    BT_CHECK(ev != NULL);
+    BT_CHECK_EQI(ev[1].bar, 17);
+
+    /* Give it its own - the same cues with a bar moved, which is exactly
+     * what copying them in and adjusting one does. */
+    s.nlight_cues = 2;
+    s.light_cue[0] = ev[0];
+    s.light_cue[1] = ev[1];
+    s.light_cue[1].bar = 20;
+
+    BT_CHECK_EQI(bt_lightshow_cues_for(sh, &s, &ev), 2);
+    BT_CHECK_EQI(ev[1].bar, 20);
+    /* And they are the song's own array, not the show's. */
+    BT_CHECK(ev == s.light_cue);
+
+    /* Dropping them follows the file again, unchanged. */
+    s.nlight_cues = 0;
+    BT_CHECK_EQI(bt_lightshow_cues_for(sh, &s, &ev), 5);
+    BT_CHECK_EQI(ev[1].bar, 17);
+
+    /* No cue file at all: the song's own are all there is. */
+    s.nlight_cues = 2;
+    BT_CHECK_EQI(bt_lightshow_cues_for(NULL, &s, &ev), 2);
+    BT_CHECK_EQI(ev[1].bar, 20);
+
+    /* And a song with neither has no lighting, which is not an error. */
+    s.nlight_cues = 0;
+    snprintf(s.title, sizeof(s.title), "Not In The Show");
+    BT_CHECK_EQI(bt_lightshow_cues_for(sh, &s, &ev), 0);
+    BT_CHECK(ev == NULL);
+
+    BT_CHECK_EQI(bt_lightshow_cues_for(sh, NULL, &ev), 0);
+    bt_lightshow_free(sh);
+}
+
 int main(void) {
     BT_RUN(test_reads_the_contract);
     BT_RUN(test_a_title_that_contains_another);
@@ -273,6 +320,7 @@ int main(void) {
     BT_RUN(test_what_fires_between_two_playheads);
     BT_RUN(test_seeking_restores_the_look_and_not_the_hits);
     BT_RUN(test_a_bad_row_costs_one_look);
+    BT_RUN(test_a_songs_own_cues_win);
     BT_RUN(test_reading_it_off_disk);
     BT_RUN(test_refuses_nonsense_arguments);
     BT_REPORT();

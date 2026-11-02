@@ -582,28 +582,19 @@ const bt_light_song *lighting_song(App &a, int32_t song_index) {
     if (!a.sl || song_index < 0 || song_index >= a.sl->nsongs) return nullptr;
     const bt_song &sg = a.sl->song[song_index];
 
-    /* A song's own cues win over the generated file.
-     *
-     * The file is the show somebody designed; the bar a cue lands on is a
-     * musical decision about *this* band playing *this* song, and it is the
-     * thing that gets adjusted after a rehearsal. Once a song has been given
-     * its own cues - which only happens by copying the file's in and editing
-     * them - those are what the band agreed on, and a regenerated file must
-     * not quietly overwrite that. Every other song keeps following the file.
-     */
-    if (sg.nlight_cues > 0) {
-        a.own_cues.ev  = (bt_light_event *)sg.light_cue;
-        a.own_cues.nev = sg.nlight_cues;
-        std::snprintf(a.own_cues.title, sizeof(a.own_cues.title), "%s", sg.title);
-        return &a.own_cues;
-    }
+    /* Which cues govern this song is bt_lightshow_cues_for's decision, so
+     * there is one answer and it has a test. This only wraps it in the shape
+     * the firing code wants. */
+    const bt_light_event *ev = nullptr;
+    const int32_t n = bt_lightshow_cues_for(a.show, &sg, &ev);
+    if (n <= 0 || !ev) return nullptr;
 
-    if (a.show) {
-        const bt_light_song *ls = bt_lightshow_find(a.show, sg.title);
-        if (ls) return ls;
-    }
-    return nullptr;
-
+    /* Held in the app rather than in a static, so two lookups being live at
+     * once could not quietly overwrite each other. */
+    a.own_cues.ev  = (bt_light_event *)ev;
+    a.own_cues.nev = n;
+    std::snprintf(a.own_cues.title, sizeof(a.own_cues.title), "%s", sg.title);
+    return &a.own_cues;
 }
 
 /* Starting, or landing anywhere after a jump. One question: what should the
