@@ -75,11 +75,15 @@ Song titles are matched **exactly** between `setlist.json` and
 ones that did not, because a title that drifted by one character is otherwise
 silent.
 
-## Adding cues by hand
+## Editing cues
 
-A set list can carry its own cues, which is what to do when nothing is
-generating them: **Edit mode -> a song**, then `+ cue`. A cue is three numbers
-and a note to self.
+Cues live in `lighting_cues.json` beside the set list, and that is where they
+are edited - the same way a song's tempo lives in `setlist.json` and is edited
+there. One file, one source of truth, nothing to reconcile.
+
+**Edit mode -> a song.** The cues are listed and can be changed; `+ cue` adds
+one. Saving the song saves the cue file too, because they are edited together
+and one without the other is a set that does not light right.
 
 | | |
 |---|---|
@@ -89,10 +93,10 @@ and a note to self.
 | **what it is** | for you, never sent - "warm orange verse" |
 | **on a rewind** | whether dropping into the middle of the song puts this back |
 
-The channel and note are **looked up on the lighting desk**. This program has
-no idea what any note means and no way to find out: that mapping exists only
-in QLC+. Find the number once, type it in, and it goes out at that bar for
-ever after.
+The channel and the note are **looked up on the lighting desk**. This program
+has no idea what any note means and no way to find out: that mapping exists
+only in QLC+. Find the number once, type it in, and it goes out at that bar
+for ever after.
 
 "On a rewind" is the only question beyond the three numbers, and it matters
 just when scrubbing in rehearsal. A lighting state should be put back when you
@@ -100,16 +104,26 @@ drop into the middle of a song; a blast of fog should not go off again.
 
 **Edit mode -> lighting** has a `listen` button which shows any note arriving
 on the port. If the desk reports what it is doing, pressing a look there shows
-its number here and saves the hunt. Many desks do not report unless told to,
-and it says so rather than sitting there looking broken.
+its number and saves the hunt.
 
-### Which wins
+### If the show is generated
 
-A song named in `lighting_cues.json` takes its cues from there - that is a
-show somebody built, and it is regenerated wholesale. A song the file does not
-name uses the cues typed into it. So a song added tonight can have lighting
-without waiting for a regenerated file, and a set list with no cue file at all
-works entirely from the editor.
+The common case is that something else writes `lighting_cues.json` - a script,
+or a session that reads the QLC+ workspace. That still works: it owns what the
+looks are, and BackingTrackLive only ever changes *when* they fire.
+
+The thing to be careful of is the other direction. **Regenerating the file can
+overwrite a bar the band settled on at rehearsal**, because nothing in the file
+says which bars were hand-adjusted. The generator is the side that can fix
+that, by keeping the existing bar for any cue that is still there and taking
+the generated bar only for new ones. `docs/lighting-contract.md` says so in
+§9.
+
+### If there is no cue file yet
+
+Adding a cue creates one. A set list with no lighting at all can be given cues
+entirely from the editor; the port then comes from the audio settings rather
+than from the file.
 
 ## Proving it without a rig
 

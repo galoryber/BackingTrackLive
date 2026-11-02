@@ -24,6 +24,7 @@ decides all of that and bakes it into the cue file.
 | Which looks exist, what they look like, which bar each song section starts on | Lighting (`show_design.json`) |
 | Assigning MIDI channel/note numbers to cues | Lighting (generator) |
 | Producing the cue file `lighting_cues.json` | Lighting (`build_show.ps1`) |
+| **Changing a cue's bar after a rehearsal** | **BackingTrackLive, writing the same file** |
 | Knowing the playhead position in bars (count-in, tempo maps) | BackingTrackLive |
 | Sending the notes at the right moment | BackingTrackLive |
 | Opening/closing the MIDI port, failing gracefully if it's absent | BackingTrackLive |
@@ -129,9 +130,48 @@ triggers the right look in QLC+, so if BTL sends the file's notes at the file's 
 
 ## 9. Changing the show
 
-Adding or editing songs, looks, colors or bars happens only on the lighting side: edit `show_design.json`, run
-`build_show.ps1`, and BTL picks up the regenerated `lighting_cues.json`. **No BTL code change is ever needed for show
-content.** BTL code only changes if this contract's format version changes.
+Adding or editing songs, looks, colours or the design of the show happens only
+on the lighting side: edit `show_design.json`, run `build_show.ps1`, and BTL
+picks up the regenerated `lighting_cues.json`. **No BTL code change is ever
+needed for show content.**
+
+**One exception, added 2026-11-01: BackingTrackLive writes this file too.**
+
+Only to change *when* a cue fires. A band plays the chorus a bar later than the
+show was built for, and the look has to move with it - that is a musical
+decision made at a rehearsal, and routing it back through `show_design.json`
+and a rebuild is the wrong shape for it. So BTL edits bars, adds cues and
+removes them, and saves the file in place beside the set list.
+
+What BTL does **not** do is invent looks. It never changes what a note means,
+never adds a special, and never touches anything but `songs[].events`.
+
+### What this costs, and whose problem it is
+
+**`build_show.ps1` can now overwrite a bar the band agreed on.** That is the
+real hazard, and it belongs to the generator, because BTL cannot tell a
+regenerated file from the original one.
+
+The suggested rule: when regenerating, **keep the existing `bar` for any event
+that is still there** - same song, same `ch` and `note` - and take the
+generated bar only for events that are new. That is a small merge, and it
+means a rebuild can add looks without undoing a rehearsal.
+
+If that is not wanted, the other option is simply to regenerate before a
+rehearsal rather than after one.
+
+### Fidelity
+
+BTL writes the whole file rather than patching it, which is safe because of
+the version tag: anything BTL does not model would arrive as a version it
+refuses to load, rather than one it loads and silently strips. Specials are
+carried by name, including ones BTL has never heard of - there is a test that
+proves a `confetti` special survives the round trip - and a file that nobody
+changed re-saves byte-identically.
+
+**This makes the version tag load-bearing. Any new field added to this format
+must bump it to `random-riot-lighting/2`,** even one that looks harmless to add
+in place. Within version 1, BTL writes back exactly the fields listed in §3.
 
 ## 10. Open questions for the BTL side
 
