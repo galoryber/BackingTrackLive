@@ -580,21 +580,30 @@ void lighting_event(App &a, const bt_light_event &ev) {
  * show is reloaded. */
 const bt_light_song *lighting_song(App &a, int32_t song_index) {
     if (!a.sl || song_index < 0 || song_index >= a.sl->nsongs) return nullptr;
+    const bt_song &sg = a.sl->song[song_index];
+
+    /* A song's own cues win over the generated file.
+     *
+     * The file is the show somebody designed; the bar a cue lands on is a
+     * musical decision about *this* band playing *this* song, and it is the
+     * thing that gets adjusted after a rehearsal. Once a song has been given
+     * its own cues - which only happens by copying the file's in and editing
+     * them - those are what the band agreed on, and a regenerated file must
+     * not quietly overwrite that. Every other song keeps following the file.
+     */
+    if (sg.nlight_cues > 0) {
+        a.own_cues.ev  = (bt_light_event *)sg.light_cue;
+        a.own_cues.nev = sg.nlight_cues;
+        std::snprintf(a.own_cues.title, sizeof(a.own_cues.title), "%s", sg.title);
+        return &a.own_cues;
+    }
 
     if (a.show) {
-        const bt_light_song *ls = bt_lightshow_find(a.show, a.sl->song[song_index].title);
+        const bt_light_song *ls = bt_lightshow_find(a.show, sg.title);
         if (ls) return ls;
     }
-    const bt_song &sg = a.sl->song[song_index];
-    if (sg.nlight_cues <= 0) return nullptr;
+    return nullptr;
 
-    /* A view onto the song's own array. Held in the app rather than in a
-     * static, so two lookups being live at once could not quietly overwrite
-     * each other. */
-    a.own_cues.ev  = (bt_light_event *)sg.light_cue;
-    a.own_cues.nev = sg.nlight_cues;
-    std::snprintf(a.own_cues.title, sizeof(a.own_cues.title), "%s", sg.title);
-    return &a.own_cues;
 }
 
 /* Starting, or landing anywhere after a jump. One question: what should the
@@ -1514,6 +1523,14 @@ int main(int argc, char **argv) {
                                   ? nullptr : g_app.song_lit.data();
             g_edit.show_port      = g_app.show ? g_app.show->port : nullptr;
             g_edit.cue_label      = g_app.cue_label[0] ? g_app.cue_label : nullptr;
+            g_edit.file_cues  = nullptr;
+            g_edit.nfile_cues = 0;
+            if (g_app.show && g_app.sl &&
+                g_edit.song >= 0 && g_edit.song < g_app.sl->nsongs) {
+                const bt_light_song *fs =
+                    bt_lightshow_find(g_app.show, g_app.sl->song[g_edit.song].title);
+                if (fs) { g_edit.file_cues = fs->ev; g_edit.nfile_cues = fs->nev; }
+            }
             if (!g_edit.midi_dirty)
                 std::snprintf(g_edit.midi_port, sizeof(g_edit.midi_port), "%s",
                               g_app.dev.midi_out);
@@ -1556,6 +1573,45 @@ int main(int argc, char **argv) {
             /* The two the contract says a person may press: between songs,
              * and everything off. Sent only because somebody asked - never
              * on stopping, where stale light beats a surprise. */
+            /* Copy the cue file's cues into the song so the bars can be
+             * moved. From here on this song is the band's, not the
+             * generator's - see lighting_song for why that is the way round
+             * it is. */
+            if (g_edit.want_import_cues && g_edit.file_cues && g_app.sl &&
+                g_edit.song >= 0 && g_edit.song < g_app.sl->nsongs) {
+                g_edit.want_import_cues = false;
+                bt_song &sg = g_app.sl->song[g_edit.song];
+                int32_t n = g_edit.nfile_cues;
+                if (n > BT_MAX_LIGHT_CUES) n = BT_MAX_LIGHT_CUES;
+                for (int32_t i = 0; i < n; i++) sg.light_cue[i] = g_edit.file_cues[i];
+                sg.nlight_cues = n;
+                g_edit.dirty = true;
+                if (n < g_edit.nfile_cues)
+                    std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                  "copied the first %d of %d cues - %d is the "
+                                  "most a song holds", n, g_edit.nfile_cues,
+                                  BT_MAX_LIGHT_CUES);
+                else
+                    std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                  "copied %d cue(s) - this song no longer "
+                                  "follows the cue file", n);
+                /* The lights are mid-song on the old list. */
+                g_app.cue_song = -1;
+            }
+
+            /* And back again: drop the song's own and follow the file. */
+            if (g_edit.want_drop_cues && g_app.sl &&
+                g_edit.song >= 0 && g_edit.song < g_app.sl->nsongs) {
+                g_edit.want_drop_cues = false;
+                g_app.sl->song[g_edit.song].nlight_cues = 0;
+                g_edit.dirty = true;
+                std::snprintf(g_edit.status, sizeof(g_edit.status),
+                              g_edit.nfile_cues
+                                ? "this song follows the cue file again"
+                                : "cues removed - this song has no lighting");
+                g_app.cue_song = -1;
+            }
+
             if (g_edit.want_special != 0 && g_app.midi && g_app.show) {
                 const bt_light_special &sp =
                     g_edit.want_special == 1 ? g_app.show->between_songs

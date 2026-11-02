@@ -790,8 +790,9 @@ void draw_song_screen(bt_ui_edit &ed) {
      * means - that lives in the desk - so it does not pretend to, and there
      * is nothing to set up before a cue can be added. */
     {
-        const bool from_file = ed.show_loaded && ed.song_has_light &&
-                               ed.song >= 0 && ed.song_has_light[ed.song];
+        /* The song's own cues win, so the file is only in charge when the
+         * song has none of its own. */
+        const bool from_file = s.nlight_cues == 0 && ed.nfile_cues > 0;
 
         ImGui::Spacing();
         ImGui::Separator();
@@ -799,8 +800,44 @@ void draw_song_screen(bt_ui_edit &ed) {
         ImGui::SameLine();
 
         if (from_file) {
-            ImGui::TextDisabled("this song's cues come from "
-                                "lighting_cues.json - edit them there");
+            /* Shown, not hidden. "This song's cues are elsewhere" told
+             * somebody the cues existed and then refused to say what they
+             * were, which is worse than useless when the question is whether
+             * bar 17 is right.
+             *
+             * Read-only until taken over, because the file is regenerated
+             * wholesale and an edit made here would vanish the next time. */
+            ImGui::TextDisabled("from lighting_cues.json");
+            ImGui::SameLine();
+            if (ImGui::Button("copy these in so I can change them"))
+                ed.want_import_cues = true;
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Moves these cues into the song, where the bars can be\n"
+                    "edited. This song then stops following the cue file, so\n"
+                    "regenerating it will not undo what you change.");
+
+            if (ImGui::BeginTable("filecues", 4,
+                    ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
+                    ImGuiTableFlags_SizingStretchProp)) {
+                ImGui::TableSetupColumn("bar",        ImGuiTableColumnFlags_WidthFixed, 90);
+                ImGui::TableSetupColumn("channel",    ImGuiTableColumnFlags_WidthFixed, 90);
+                ImGui::TableSetupColumn("midi note",  ImGuiTableColumnFlags_WidthFixed, 100);
+                ImGui::TableSetupColumn("what it is", ImGuiTableColumnFlags_WidthStretch, 3);
+                ImGui::TableHeadersRow();
+                for (int32_t i = 0; i < ed.nfile_cues; i++) {
+                    const bt_light_event &c = ed.file_cues[i];
+                    ImGui::TableNextRow();
+                    ImGui::TableNextColumn(); ImGui::TextDisabled("%d", c.bar);
+                    ImGui::TableNextColumn(); ImGui::TextDisabled("%d", c.ch);
+                    ImGui::TableNextColumn(); ImGui::TextDisabled("%d", c.note);
+                    ImGui::TableNextColumn();
+                    ImGui::TextDisabled("%s%s", c.label,
+                                        c.kind == BT_LIGHT_HIT ? "   (a moment)" :
+                                        c.kind == BT_LIGHT_END ? "   (ends the song)" : "");
+                }
+                ImGui::EndTable();
+            }
         } else {
             ImGui::BeginDisabled(s.nlight_cues >= BT_MAX_LIGHT_CUES);
             if (ImGui::Button("+ cue")) {
@@ -825,6 +862,17 @@ void draw_song_screen(bt_ui_edit &ed) {
             ImGui::SameLine();
             ImGui::TextDisabled("bar 1 is the first downbeat, after the "
                                 "count-in");
+
+            if (ed.nfile_cues > 0) {
+                ImGui::SameLine();
+                if (ImGui::Button("go back to the cue file's"))
+                    ed.want_drop_cues = true;
+                if (ImGui::IsItemHovered())
+                    ImGui::SetTooltip("Throws these away and follows\n"
+                                      "lighting_cues.json again.");
+                ImGui::TextColored(COL_AMBER,
+                    "these replace what lighting_cues.json says for this song");
+            }
 
             if (s.nlight_cues == 0) {
                 ImGui::TextDisabled("no cues - this song's lights do not "

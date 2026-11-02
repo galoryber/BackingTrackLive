@@ -120,6 +120,14 @@ struct bt_ui_edit {
     const char      *show_port = nullptr;            /* port it asks for    */
     const char      *show_why = nullptr;             /* why it is not loaded*/
     const char      *cue_label = nullptr;            /* the look showing now*/
+
+    /* What lighting_cues.json says for the song being edited, so the editor
+     * can show it even when it is not the song's own. Points into the host's
+     * loaded show and is good for this frame. */
+    const bt_light_event *file_cues = nullptr;
+    int32_t          nfile_cues = 0;
+    bool             want_import_cues = false;   /* copy them into the song */
+    bool             want_drop_cues = false;     /* and go back to the file */
     int32_t          want_special = 0;               /* 1 between, 2 all off*/
     bool             want_learn = false;             /* listen for a note   */
     int32_t          learned_ch = -1, learned_note = -1;
