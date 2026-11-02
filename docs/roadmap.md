@@ -70,6 +70,62 @@ Not worth the money while the audience is one band. Worth revisiting if this
 is ever handed to people who did not build it, because "click past the warning"
 is not something to ask a stranger to do.
 
+## Click voice
+
+The engine already synthesises the click from four parameters - `accent_hz`,
+`beat_hz`, `decay_ms` and `gain` - and `bt_engine_set_click_voice()` sets them.
+They are **hardcoded defaults with nothing reachable from outside**: not in the
+UI, not in `setlist.json`, not a `btplay` flag. `bt_click_voice_defaults()` is
+called once from `bt_engine_create()` and never again.
+
+**The defaults stay exactly as they are.** 1600 Hz on the downbeat, 900 Hz on
+the other beats, 28 ms decay, 0.7 gain. The band likes them and is unlikely to
+change them; this is about having the option, not about a better default.
+
+### Why it is worth having
+
+A click is the worst-behaved signal in the mix, and the numbers say so. At 120
+bpm the default click peaks at **-3 dBFS** and its long-term level is about
+**-28 dBFS** - a crest factor of **~25 dB**, because the ear integrates
+loudness over 100-200 ms and the burst is gone in 28. A loud backing-track
+stem sits around 8-10 dB. So the click's peaks have to run roughly 15 dB
+hotter than the tracks' to sound level with them in the ears, which makes it
+the first thing to trip any ceiling downstream: a preamp, a desk compressor,
+or - most often, because it is invisible from the desk - the limiter in an
+in-ear belt pack.
+
+None of that is fixable from a fader. Crest factor is the same at every gain
+setting. The only two levers are the sound itself and removing the limiting
+downstream, and only one of those is ours: **trading peak for duration and
+moving the pitch up.** Doubling the decay while halving the gain is the same
+perceived loudness about 6 dB lower in peak; moving the beats toward 2-3 kHz,
+where the ear is most sensitive and a loud band is not, buys several dB more.
+
+### What it would take
+
+The UI is the easy half: four numbers on the audio screen with an audition
+button, since judging a click by reading its parameters is hopeless.
+
+Two things carry the actual risk.
+
+**`bt_engine_set_click_voice()` is not safe to call while playing.** It frees
+`click_accent` and `click_beat` and installs new buffers, and `render_click()`
+walks exactly those pointers - with no `bt_engine_sync()` in between. It is
+safe today only because it is called once, before any stream exists. Live
+editing makes it a use-after-free on the audio thread, so it needs the same
+sync-before-free discipline as swapping song PCM (rule 1b). The honest
+alternative is to apply a changed voice only while stopped, which is less code
+and no worse to use.
+
+**The default has to round-trip byte-identical.** Whatever this adds to
+`setlist.json` must be absent when the voice is the default, so that every set
+list written before it re-saves unchanged - the same rule the lighting channel
+followed.
+
+Where it belongs: the set list, not the song. The click sound is a property of
+how a band hears itself, not of one arrangement, and nobody wants to set it 41
+times.
+
 ## Spoken count-in cues
 
 A band records a short spoken lead-in and plays it to the in-ears over the
