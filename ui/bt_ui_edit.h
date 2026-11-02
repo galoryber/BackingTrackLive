@@ -18,6 +18,7 @@
 #define BT_UI_EDIT_H
 
 #include "backtrack/bt_model.h"
+#include "backtrack/bt_lightshow.h"
 #include "backtrack/bt_validate.h"
 #include "backtrack/bt_peaks.h"
 
@@ -121,6 +122,19 @@ struct bt_ui_edit {
     const char      *show_why = nullptr;             /* why it is not loaded*/
     const char      *cue_label = nullptr;            /* the look showing now*/
     int32_t          want_special = 0;               /* 1 between, 2 all off*/
+
+    /* This song's cues, in the cue file, edited in place. Points into the
+     * host's loaded show and is good for this frame. Cues live in that file
+     * and nowhere else, the same way a song's tempo lives in setlist.json -
+     * so editing a cue means editing it, and there is nothing to reconcile. */
+    bt_light_event  *cues = nullptr;
+    int32_t          ncues = 0;
+    bool             cues_dirty = false; /* the cue file needs saving      */
+    bool             want_add_cue = false;
+    bool             want_save_cues = false;   /* set by a save */
+    int32_t          want_remove_cue = -1;
+    bool             can_edit_cues = false;
+    const char      *cue_file_name = nullptr;
     bool             want_learn = false;             /* listen for a note   */
     int32_t          learned_ch = -1, learned_note = -1;
     const char      *song_has_light = nullptr;       /* per set list song  */

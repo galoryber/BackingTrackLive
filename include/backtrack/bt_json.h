@@ -37,6 +37,15 @@ bt_json_type bt_json_typeof(const bt_json *j);
 /* Object access. Returns NULL when absent or when `j` is not an object. */
 const bt_json *bt_json_get(const bt_json *j, const char *key);
 
+/* Object iteration, in the order the keys appeared in the text.
+ *
+ * Needed to carry a file's contents back out again without knowing every key
+ * in it: a writer that only knows the keys it was taught silently drops the
+ * rest. Returns 0 / NULL when `j` is not an object or `i` is past the end. */
+size_t         bt_json_keys(const bt_json *j);
+const char    *bt_json_key_at(const bt_json *j, size_t i);
+const bt_json *bt_json_value_at(const bt_json *j, size_t i);
+
 /* Array access. */
 size_t         bt_json_len(const bt_json *j);
 const bt_json *bt_json_at(const bt_json *j, size_t i);

@@ -120,6 +120,18 @@ static void work_lightshow(void) {
         bt_lightshow_free(sh);
 }
 
+/* Writing it back out: a builder that grows several times, with a partly
+ * built string to discard on the way out of any of them. */
+static void work_lightshow_write(void) {
+    bt_lightshow *sh = NULL;
+    if (bt_lightshow_load_mem(LIGHT_JSON, strlen(LIGHT_JSON), &sh, NULL) != BT_OK)
+        return;
+    char *text = NULL;
+    size_t len = 0;
+    if (bt_lightshow_to_json(sh, &text, &len) == BT_OK) free(text);
+    bt_lightshow_free(sh);
+}
+
 static void work_setlist(void) {
     bt_setlist *sl = NULL;
     int line = 0;
@@ -291,6 +303,7 @@ static void test_every_allocation_failure(void) {
     sweep(work_setlist,        "bt_setlist_load_mem");
     sweep(work_setlist_write,  "bt_setlist_to_json");
     sweep(work_lightshow,      "bt_lightshow_load_mem");
+    sweep(work_lightshow_write, "bt_lightshow_to_json");
     sweep(work_wav_decode,     "bt_wav_decode");
     sweep(work_resample,       "bt_resample_planar");
     sweep(work_peaks,          "bt_peaks_build");

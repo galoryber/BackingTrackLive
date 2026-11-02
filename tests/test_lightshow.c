@@ -52,14 +52,16 @@ static void test_reads_the_contract(void) {
     BT_CHECK(!strcmp(sh->port, "BackTrackQLC"));
     BT_CHECK_EQI(sh->velocity, 127);
     BT_CHECK_EQI(sh->nsongs, 1);
-    BT_CHECK_EQI(sh->between_songs.ch, 16);
-    BT_CHECK_EQI(sh->between_songs.note, 37);
-    BT_CHECK_EQI(sh->stop_all.note, 39);
-    BT_CHECK_EQI(sh->fog_dual.note, 77);
+    const bt_light_special *bs = bt_lightshow_special(sh, "between_songs");
+    BT_CHECK(bs != NULL);
+    BT_CHECK_EQI(bs->ch, 16);
+    BT_CHECK_EQI(bs->note, 37);
+    BT_CHECK_EQI(bt_lightshow_special(sh, "stop_all")->note, 39);
+    BT_CHECK_EQI(bt_lightshow_special(sh, "fog_dual")->note, 77);
 
     /* A special the file does not mention is absent, not note 0 - sending
      * note 0 to channel 0 because a key was missing would be a real bug. */
-    BT_CHECK_EQI(sh->fog_left.note, -1);
+    BT_CHECK(bt_lightshow_special(sh, "fog_left") == NULL);
 
     const bt_light_song *ls = bt_lightshow_find(sh, "Corduroy");
     BT_CHECK(ls != NULL);
@@ -265,6 +267,172 @@ static void test_refuses_nonsense_arguments(void) {
     bt_lightshow_free(NULL);
 }
 
+/* The cue file is edited in place now, so this program is one of its two
+ * authors. Everything it reads it must be able to write back unchanged -
+ * including a special it has never heard of, which is the part a writer that
+ * only knows its own fields gets wrong. */
+static void test_writing_it_back_loses_nothing(void) {
+    const char *with_odd_special =
+        "{\n"
+        "  \"format\": \"random-riot-lighting/1\",\n"
+        "  \"midi_port\": \"BackTrackQLC\",\n"
+        "  \"velocity\": 110,\n"
+        "  \"specials\": {\n"
+        "    \"between_songs\": { \"ch\": 16, \"note\": 37 },\n"
+        "    \"stop_all\":      { \"ch\": 16, \"note\": 39 },\n"
+        "    \"confetti\":      { \"ch\": 16, \"note\": 90 }\n"
+        "  },\n"
+        "  \"songs\": [\n"
+        "    { \"title\": \"Corduroy\", \"events\": [\n"
+        "      { \"bar\": 1,  \"ch\": 1,  \"note\": 0, \"type\": \"look\", \"label\": \"Intro\" },\n"
+        "      { \"bar\": 33, \"ch\": 16, \"note\": 72, \"type\": \"hit\" },\n"
+        "      { \"bar\": 65, \"ch\": 16, \"note\": 37, \"type\": \"end\", \"label\": \"Between\" }\n"
+        "    ] },\n"
+        "    { \"title\": \"Low Rider\", \"events\": [\n"
+        "      { \"bar\": 1, \"ch\": 1, \"note\": 4, \"type\": \"look\" }\n"
+        "    ] }\n"
+        "  ]\n"
+        "}\n";
+
+    bt_lightshow *a = NULL;
+    BT_CHECK(bt_lightshow_load_mem(with_odd_special, strlen(with_odd_special),
+                                   &a, NULL) == BT_OK);
+    char *text = NULL; size_t len = 0;
+    BT_CHECK(bt_lightshow_to_json(a, &text, &len) == BT_OK);
+    BT_CHECK(text != NULL);
+
+    bt_lightshow *b = NULL;
+    BT_CHECK(bt_lightshow_load_mem(text, len, &b, NULL) == BT_OK);
+
+    BT_CHECK(!strcmp(a->port, b->port));
+    BT_CHECK_EQI(a->velocity, b->velocity);
+    BT_CHECK_EQI(a->nsongs, b->nsongs);
+
+    /* "confetti" is not a special this program knows by name, and it has to
+     * come back anyway. */
+    BT_CHECK_EQI(a->nspecials, b->nspecials);
+    for (int32_t i = 0; i < a->nspecials; i++) {
+        const bt_light_special *x = &a->special[i];
+        const bt_light_special *y = bt_lightshow_special(b, x->name);
+        BT_CHECK(y != NULL);
+        BT_CHECK_EQI(x->ch, y->ch);
+        BT_CHECK_EQI(x->note, y->note);
+    }
+    BT_CHECK(bt_lightshow_special(b, "confetti") != NULL);
+    BT_CHECK_EQI(bt_lightshow_special(b, "confetti")->note, 90);
+
+    for (int32_t i = 0; i < a->nsongs; i++) {
+        BT_CHECK(!strcmp(a->song[i].title, b->song[i].title));
+        BT_CHECK_EQI(a->song[i].nev, b->song[i].nev);
+        for (int32_t k = 0; k < a->song[i].nev; k++) {
+            const bt_light_event *x = &a->song[i].ev[k];
+            const bt_light_event *y = &b->song[i].ev[k];
+            BT_CHECK_EQI(x->bar, y->bar);
+            BT_CHECK_EQI(x->ch, y->ch);
+            BT_CHECK_EQI(x->note, y->note);
+            BT_CHECK(x->kind == y->kind);
+            BT_CHECK(!strcmp(x->label, y->label));
+        }
+    }
+
+    /* And writing what we just read gives the identical bytes, so saving a
+     * file nobody changed does not show up as a change. */
+    char *again = NULL; size_t alen = 0;
+    BT_CHECK(bt_lightshow_to_json(b, &again, &alen) == BT_OK);
+    BT_CHECK_EQI((int)alen, (int)len);
+    BT_CHECK(!memcmp(text, again, len));
+
+    free(again);
+    free(text);
+    bt_lightshow_free(a);
+    bt_lightshow_free(b);
+}
+
+/* Saving goes through a temporary and a rename, so an interrupted save
+ * cannot leave a half-written show where a working one was. */
+static void test_saving_to_disk(void) {
+    const char *path = "lightshow_save_test.json";
+    bt_lightshow *sh = NULL;
+    BT_CHECK(bt_lightshow_load_mem(SHOW, strlen(SHOW), &sh, NULL) == BT_OK);
+
+    /* Move a bar, which is the whole reason this program writes the file. */
+    bt_light_song *ls = bt_lightshow_song(sh, "Corduroy");
+    BT_CHECK(ls != NULL);
+    ls->ev[1].bar = 20;
+
+    BT_CHECK(bt_lightshow_save_file(sh, path) == BT_OK);
+    bt_lightshow_free(sh);
+
+    bt_lightshow *back = NULL;
+    BT_CHECK(bt_lightshow_load_file(path, &back, NULL) == BT_OK);
+    BT_CHECK_EQI(bt_lightshow_find(back, "Corduroy")->ev[1].bar, 20);
+    bt_lightshow_free(back);
+
+    remove(path);
+    char tmp[256];
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    BT_CHECK(fopen(tmp, "rb") == NULL);   /* nothing left behind */
+}
+
+/* Adding a cue to a song the show has never heard of, which is how a set
+ * list that started with no cue file gets one. */
+static void test_adding_and_removing_cues(void) {
+    bt_lightshow *sh = NULL;
+    const char *empty = "{\"format\":\"random-riot-lighting/1\",\"songs\":[]}";
+    BT_CHECK(bt_lightshow_load_mem(empty, strlen(empty), &sh, NULL) == BT_OK);
+    BT_CHECK_EQI(sh->nsongs, 0);
+
+    bt_light_event *c = NULL;
+    BT_CHECK(bt_lightshow_add_cue(sh, "Corduroy", &c) == BT_OK);
+    BT_CHECK(c != NULL);
+    BT_CHECK_EQI(sh->nsongs, 1);
+    /* The first cue of a song starts at the top on channel 1. */
+    BT_CHECK_EQI(c->bar, 1);
+    BT_CHECK_EQI(c->ch, 1);
+    BT_CHECK_EQI(c->note, 0);
+
+    /* The next carries the channel over and steps the note, because
+     * consecutive looks on a desk are usually neighbours. */
+    BT_CHECK(bt_lightshow_add_cue(sh, "Corduroy", &c) == BT_OK);
+    BT_CHECK_EQI(c->bar, 9);
+    BT_CHECK_EQI(c->ch, 1);
+    BT_CHECK_EQI(c->note, 1);
+
+    bt_light_song *ls = bt_lightshow_song(sh, "Corduroy");
+    BT_CHECK(ls != NULL);
+    BT_CHECK_EQI(ls->nev, 2);
+
+    /* A second song does not disturb the first. */
+    BT_CHECK(bt_lightshow_add_cue(sh, "Low Rider", NULL) == BT_OK);
+    BT_CHECK_EQI(sh->nsongs, 2);
+    BT_CHECK_EQI(bt_lightshow_song(sh, "Corduroy")->nev, 2);
+
+    /* Removing shifts the rest down. */
+    ls = bt_lightshow_song(sh, "Corduroy");
+    ls->ev[0].bar = 5;
+    ls->ev[1].bar = 17;
+    BT_CHECK(bt_lightshow_remove_cue(sh, "Corduroy", 0) == BT_OK);
+    BT_CHECK_EQI(bt_lightshow_song(sh, "Corduroy")->nev, 1);
+    BT_CHECK_EQI(bt_lightshow_song(sh, "Corduroy")->ev[0].bar, 17);
+
+    /* Out of range is refused rather than corrupting anything. */
+    BT_CHECK(bt_lightshow_remove_cue(sh, "Corduroy", 9) == BT_ERR_RANGE);
+    BT_CHECK(bt_lightshow_remove_cue(sh, "Nope", 0) == BT_ERR_RANGE);
+    BT_CHECK(bt_lightshow_add_cue(sh, "", NULL) == BT_ERR_RANGE);
+    BT_CHECK(bt_lightshow_add_cue(NULL, "x", NULL) == BT_ERR_RANGE);
+
+    /* And what was added survives being written out and read back. */
+    char *text = NULL; size_t len = 0;
+    BT_CHECK(bt_lightshow_to_json(sh, &text, &len) == BT_OK);
+    bt_lightshow *back = NULL;
+    BT_CHECK(bt_lightshow_load_mem(text, len, &back, NULL) == BT_OK);
+    BT_CHECK_EQI(back->nsongs, 2);
+    BT_CHECK_EQI(bt_lightshow_song(back, "Corduroy")->ev[0].bar, 17);
+    free(text);
+    bt_lightshow_free(back);
+    bt_lightshow_free(sh);
+}
+
 int main(void) {
     BT_RUN(test_reads_the_contract);
     BT_RUN(test_a_title_that_contains_another);
@@ -273,6 +441,9 @@ int main(void) {
     BT_RUN(test_what_fires_between_two_playheads);
     BT_RUN(test_seeking_restores_the_look_and_not_the_hits);
     BT_RUN(test_a_bad_row_costs_one_look);
+    BT_RUN(test_adding_and_removing_cues);
+    BT_RUN(test_writing_it_back_loses_nothing);
+    BT_RUN(test_saving_to_disk);
     BT_RUN(test_reading_it_off_disk);
     BT_RUN(test_refuses_nonsense_arguments);
     BT_REPORT();

@@ -785,64 +785,47 @@ void draw_song_screen(bt_ui_edit &ed) {
 
     /* ---- lighting cues ----------------------------------------------
      *
-     * A bar, a channel and a note: what somebody reads off their lighting
-     * desk and types in. BackingTrackLive never needs to know what the note
-     * means - that lives in the desk - so it does not pretend to, and there
-     * is nothing to set up before a cue can be added. */
+     * These live in lighting_cues.json and are edited there, the same way a
+     * song's tempo lives in setlist.json and is edited there. One file, one
+     * source of truth, and nothing to reconcile.
+     *
+     * A bar, a channel and a MIDI note: what somebody reads off their
+     * lighting desk. This program never needs to know what a note means. */
     {
-        const bool from_file = ed.show_loaded && ed.song_has_light &&
-                               ed.song >= 0 && ed.song_has_light[ed.song];
-
         ImGui::Spacing();
         ImGui::Separator();
         ImGui::TextUnformatted("LIGHTING");
         ImGui::SameLine();
 
-        if (from_file) {
-            ImGui::TextDisabled("this song's cues come from "
-                                "lighting_cues.json - edit them there");
+        if (!ed.can_edit_cues) {
+            ImGui::TextColored(COL_WARN, "%s",
+                ed.show_why ? ed.show_why
+                            : "the cue file could not be read, so cues cannot "
+                              "be changed without risking what is in it");
         } else {
-            ImGui::BeginDisabled(s.nlight_cues >= BT_MAX_LIGHT_CUES);
-            if (ImGui::Button("+ cue")) {
-                bt_light_event &c = s.light_cue[s.nlight_cues];
-                std::memset(&c, 0, sizeof(c));
-                /* After the last one: cues are read down a column and the
-                 * next is always later than the last. The channel and note
-                 * carry over too, since consecutive cues on a desk are
-                 * usually neighbours. */
-                if (s.nlight_cues > 0) {
-                    const bt_light_event &prev = s.light_cue[s.nlight_cues - 1];
-                    c.bar  = prev.bar + 8;
-                    c.ch   = prev.ch;
-                    c.note = prev.note + 1 <= 127 ? prev.note + 1 : prev.note;
-                } else {
-                    c.bar = 1; c.ch = 1; c.note = 0;
-                }
-                s.nlight_cues++;
-                ed.dirty = true;
-            }
-            ImGui::EndDisabled();
+            if (ImGui::Button("+ cue")) ed.want_add_cue = true;
             ImGui::SameLine();
             ImGui::TextDisabled("bar 1 is the first downbeat, after the "
-                                "count-in");
+                                "count-in  \xc2\xb7  saved to %s",
+                                ed.cue_file_name ? ed.cue_file_name
+                                                 : "lighting_cues.json");
 
-            if (s.nlight_cues == 0) {
+            if (ed.ncues == 0) {
                 ImGui::TextDisabled("no cues - this song's lights do not "
                                     "change");
             } else if (ImGui::BeginTable("cues", 6,
                        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
                        ImGuiTableFlags_SizingStretchProp)) {
-                ImGui::TableSetupColumn("bar",       ImGuiTableColumnFlags_WidthFixed, 90);
-                ImGui::TableSetupColumn("channel",   ImGuiTableColumnFlags_WidthFixed, 90);
-                ImGui::TableSetupColumn("midi note", ImGuiTableColumnFlags_WidthFixed, 100);
+                ImGui::TableSetupColumn("bar",        ImGuiTableColumnFlags_WidthFixed, 90);
+                ImGui::TableSetupColumn("channel",    ImGuiTableColumnFlags_WidthFixed, 90);
+                ImGui::TableSetupColumn("midi note",  ImGuiTableColumnFlags_WidthFixed, 100);
                 ImGui::TableSetupColumn("what it is", ImGuiTableColumnFlags_WidthStretch, 3);
                 ImGui::TableSetupColumn("on a rewind", ImGuiTableColumnFlags_WidthFixed, 150);
-                ImGui::TableSetupColumn("",          ImGuiTableColumnFlags_WidthFixed, 40);
+                ImGui::TableSetupColumn("",           ImGuiTableColumnFlags_WidthFixed, 40);
                 ImGui::TableHeadersRow();
 
-                int32_t remove_at = -1;
-                for (int32_t i = 0; i < s.nlight_cues; i++) {
-                    bt_light_event &c = s.light_cue[i];
+                for (int32_t i = 0; i < ed.ncues; i++) {
+                    bt_light_event &c = ed.cues[i];
                     ImGui::PushID(3000 + i);
                     ImGui::TableNextRow();
 
@@ -850,35 +833,35 @@ void draw_song_screen(bt_ui_edit &ed) {
                     ImGui::SetNextItemWidth(-1);
                     int bar = c.bar;
                     if (ImGui::InputInt("##bar", &bar, 0, 0))
-                        if (bar >= 1 && bar <= 10000) { c.bar = bar; ed.dirty = true; }
+                        if (bar >= 1 && bar <= 10000) { c.bar = bar; ed.cues_dirty = true; }
 
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     int ch = c.ch;
                     if (ImGui::InputInt("##ch", &ch, 0, 0))
-                        if (ch >= 1 && ch <= 16) { c.ch = ch; ed.dirty = true; }
+                        if (ch >= 1 && ch <= 16) { c.ch = ch; ed.cues_dirty = true; }
 
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     int note = c.note;
                     if (ImGui::InputInt("##note", &note, 0, 0))
-                        if (note >= 0 && note <= 127) { c.note = note; ed.dirty = true; }
+                        if (note >= 0 && note <= 127) { c.note = note; ed.cues_dirty = true; }
 
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     if (ImGui::InputText("##what", c.label, sizeof(c.label)))
-                        ed.dirty = true;
+                        ed.cues_dirty = true;
 
-                    /* The one thing worth asking beyond the three numbers,
-                     * and only because scrubbing in rehearsal would otherwise
-                     * set off the fog again. */
+                    /* The one question beyond the three numbers, and only
+                     * because scrubbing in rehearsal would otherwise set the
+                     * fog off again. */
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     const char *kinds[] = { "put it back", "skip it", "ends the song" };
                     int kind = (int)c.kind;
                     if (ImGui::Combo("##kind", &kind, kinds, 3)) {
                         c.kind = (bt_light_kind)kind;
-                        ed.dirty = true;
+                        ed.cues_dirty = true;
                     }
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip(
@@ -891,23 +874,16 @@ void draw_song_screen(bt_ui_edit &ed) {
                             "ends the song  - the between-songs look.");
 
                     ImGui::TableNextColumn();
-                    if (ImGui::SmallButton("x")) remove_at = i;
+                    if (ImGui::SmallButton("x")) ed.want_remove_cue = i;
                     ImGui::PopID();
                 }
                 ImGui::EndTable();
 
-                if (remove_at >= 0) {
-                    for (int32_t i = remove_at; i + 1 < s.nlight_cues; i++)
-                        s.light_cue[i] = s.light_cue[i + 1];
-                    s.nlight_cues--;
-                    ed.dirty = true;
-                }
-
                 /* Out of order is not wrong - every cue is absolute - but it
                  * is almost certainly a typo, and it makes the column
                  * unreadable. */
-                for (int32_t i = 1; i < s.nlight_cues; i++)
-                    if (s.light_cue[i].bar < s.light_cue[i - 1].bar) {
+                for (int32_t i = 1; i < ed.ncues; i++)
+                    if (ed.cues[i].bar < ed.cues[i - 1].bar) {
                         ImGui::TextColored(COL_AMBER,
                             "cue %d is earlier than cue %d - probably a typo",
                             i + 1, i);
@@ -1357,8 +1333,12 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
      * to, is how an edit survives into the running app and then vanishes on
      * restart. */
     ImGui::BeginDisabled(!ed.can_save);
-    if (ImGui::Button(ed.dirty ? "save *" : "save")) {
+    if (ImGui::Button((ed.dirty || ed.cues_dirty) ? "save *" : "save")) {
         do_save(ed);
+        /* The cue file is saved with the set list: they are edited
+         * together, and one without the other is a set that does not
+         * light right. */
+        if (ed.cues_dirty) ed.want_save_cues = true;
         /* Stop the audition too. Leaving a song playing while the screen goes
          * back to the set list leaves you hunting for where the sound is
          * coming from. */

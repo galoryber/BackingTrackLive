@@ -123,7 +123,10 @@ struct App {
     char          midi_why[160] = {0};
 
     bt_lightshow *show = nullptr;    /* the lighting side's cue file      */
+    char          show_path[1024] = {0};
     char          show_why[200] = {0};
+    bool          show_broken = false;  /* present but unreadable: do not
+                                         * write over what is in it       */
     int32_t       show_matched = 0;  /* set list songs the show knows     */
     /* Which of them, for the screen. char rather than bool because
      * std::vector<bool> is a bitfield and has no array to hand out. */
@@ -444,13 +447,7 @@ void reopen_audio(HWND hwnd);
  * the bar - about 16 ms, inside what the contract asks for.
  */
 
-bool lighting_on(const App &a) {
-    if (!a.midi || !a.sl) return false;
-    if (a.show) return true;
-    for (int32_t i = 0; i < a.sl->nsongs; i++)
-        if (a.sl->song[i].nlight_cues > 0) return true;
-    return false;
-}
+bool lighting_on(const App &a) { return a.midi && a.show; }
 
 void close_midi(App &a) {
     if (a.midi) { bt_midi_close(a.midi); a.midi = nullptr; }
@@ -496,6 +493,8 @@ void reopen_midi(App &a) {
 void close_show(App &a) {
     if (a.show) { bt_lightshow_free(a.show); a.show = nullptr; }
     a.show_why[0] = '\0';
+    a.show_path[0] = '\0';
+    a.show_broken = false;
     a.show_matched = 0;
     a.song_lit.clear();
     a.cue_label[0] = '\0';
@@ -517,14 +516,27 @@ void reopen_show(App &a, const char *setlist_path) {
     if (slash) slash[1] = '\0'; else path[0] = '\0';
     std::strncat(path, "lighting_cues.json", sizeof(path) - std::strlen(path) - 1);
 
+    std::snprintf(a.show_path, sizeof(a.show_path), "%s", path);
+
     FILE *probe = std::fopen(path, "rb");
-    if (!probe) return;        /* no lighting here, which is fine */
+    if (!probe) {
+        /* No cue file. Lighting still works: adding a cue creates one. */
+        bt_lightshow *fresh = nullptr;
+        static const char *empty =
+            "{\"format\":\"" BT_LIGHTSHOW_FORMAT "\",\"songs\":[]}";
+        if (bt_lightshow_load_mem(empty, std::strlen(empty), &fresh, nullptr) == BT_OK)
+            a.show = fresh;
+        return;
+    }
     std::fclose(probe);
 
     int line = 0;
     bt_err e = bt_lightshow_load_file(path, &a.show, &line);
     if (e != BT_OK) {
         a.show = nullptr;
+        /* There is a file and we could not read it. Editing would mean
+         * writing over a show somebody built, so the editor stays shut. */
+        a.show_broken = true;
         if (e == BT_ERR_SCHEMA)
             std::snprintf(a.show_why, sizeof(a.show_why),
                           "lighting_cues.json is not format %s - ignoring it",
@@ -534,6 +546,29 @@ void reopen_show(App &a, const char *setlist_path) {
                           "lighting_cues.json line %d: %s", line, bt_strerror(e));
         return;
     }
+    /* Cues used to be able to live in setlist.json. They have one home now,
+     * so anything found there moves across rather than being dropped on the
+     * next save. One way, once: after this they are the cue file's. */
+    if (a.sl) {
+        int32_t moved = 0;
+        for (int32_t i = 0; i < a.sl->nsongs; i++) {
+            bt_song &sg = a.sl->song[i];
+            if (sg.nlight_cues <= 0) continue;
+            for (int32_t k = 0; k < sg.nlight_cues; k++) {
+                bt_light_event *dst = nullptr;
+                if (bt_lightshow_add_cue(a.show, sg.title, &dst) != BT_OK) break;
+                *dst = sg.light_cue[k];
+                moved++;
+            }
+            sg.nlight_cues = 0;
+        }
+        if (moved > 0)
+            std::snprintf(a.show_why, sizeof(a.show_why),
+                          "%d cue(s) moved from the set list into "
+                          "lighting_cues.json - save to keep them there",
+                          moved);
+    }
+
     /* How many of the set list's songs the show knows about. A title that
      * drifted between the two files shows up here and nowhere else. */
     if (a.sl) {
@@ -579,22 +614,11 @@ void lighting_event(App &a, const bt_light_event &ev) {
  * The returned view points into `a`, and is good until the set list or the
  * show is reloaded. */
 const bt_light_song *lighting_song(App &a, int32_t song_index) {
-    if (!a.sl || song_index < 0 || song_index >= a.sl->nsongs) return nullptr;
-
-    if (a.show) {
-        const bt_light_song *ls = bt_lightshow_find(a.show, a.sl->song[song_index].title);
-        if (ls) return ls;
-    }
-    const bt_song &sg = a.sl->song[song_index];
-    if (sg.nlight_cues <= 0) return nullptr;
-
-    /* A view onto the song's own array. Held in the app rather than in a
-     * static, so two lookups being live at once could not quietly overwrite
-     * each other. */
-    a.own_cues.ev  = (bt_light_event *)sg.light_cue;
-    a.own_cues.nev = sg.nlight_cues;
-    std::snprintf(a.own_cues.title, sizeof(a.own_cues.title), "%s", sg.title);
-    return &a.own_cues;
+    if (!a.show || !a.sl || song_index < 0 || song_index >= a.sl->nsongs)
+        return nullptr;
+    /* One source. Cues live in the cue file, the way a song's tempo lives in
+     * setlist.json, so there is nothing to reconcile and no rule to explain. */
+    return bt_lightshow_find(a.show, a.sl->song[song_index].title);
 }
 
 /* Starting, or landing anywhere after a jump. One question: what should the
@@ -1514,6 +1538,23 @@ int main(int argc, char **argv) {
                                   ? nullptr : g_app.song_lit.data();
             g_edit.show_port      = g_app.show ? g_app.show->port : nullptr;
             g_edit.cue_label      = g_app.cue_label[0] ? g_app.cue_label : nullptr;
+
+            /* Point the editor at this song's cues inside the loaded show.
+             * The file is the only place they live, so this is the thing
+             * being edited, not a copy of it. */
+            g_edit.cues        = nullptr;
+            g_edit.ncues       = 0;
+            g_edit.can_edit_cues = (g_app.show != nullptr) && !g_app.show_broken;
+            g_edit.cue_file_name = "lighting_cues.json";
+            if (g_app.show && g_app.sl &&
+                g_edit.song >= 0 && g_edit.song < g_app.sl->nsongs) {
+                bt_light_song *ls =
+                    bt_lightshow_song(g_app.show, g_app.sl->song[g_edit.song].title);
+                if (ls) {
+                    g_edit.cues    = ls->ev;
+                    g_edit.ncues   = ls->nev;
+                }
+            }
             if (!g_edit.midi_dirty)
                 std::snprintf(g_edit.midi_port, sizeof(g_edit.midi_port), "%s",
                               g_app.dev.midi_out);
@@ -1556,6 +1597,44 @@ int main(int argc, char **argv) {
             /* The two the contract says a person may press: between songs,
              * and everything off. Sent only because somebody asked - never
              * on stopping, where stale light beats a surprise. */
+            /* Adding and removing change the length of the array the
+             * editor is pointing into, so they happen here rather than
+             * while drawing. */
+            if (g_edit.want_add_cue && g_app.show && g_app.sl &&
+                g_edit.song >= 0 && g_edit.song < g_app.sl->nsongs) {
+                g_edit.want_add_cue = false;
+                const char *title = g_app.sl->song[g_edit.song].title;
+                bt_err ae = bt_lightshow_add_cue(g_app.show, title, nullptr);
+                if (ae == BT_OK) g_edit.cues_dirty = true;
+                else std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                   "could not add a cue: %s", bt_strerror(ae));
+            }
+            if (g_edit.want_remove_cue >= 0 && g_app.show && g_app.sl &&
+                g_edit.song >= 0 && g_edit.song < g_app.sl->nsongs) {
+                const int32_t at = g_edit.want_remove_cue;
+                g_edit.want_remove_cue = -1;
+                if (bt_lightshow_remove_cue(
+                        g_app.show, g_app.sl->song[g_edit.song].title, at) == BT_OK)
+                    g_edit.cues_dirty = true;
+            }
+
+            /* Saved with the set list, because they are edited together and
+             * one without the other is a set that does not light right. */
+            if (g_edit.cues_dirty && g_app.show && g_app.show_path[0] &&
+                !g_app.show_broken && g_edit.want_save_cues) {
+                bt_err se = bt_lightshow_save_file(g_app.show, g_app.show_path);
+                g_edit.want_save_cues = false;
+                if (se == BT_OK) {
+                    g_edit.cues_dirty = false;
+                } else {
+                    std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                  "could not save the cue file: %s",
+                                  bt_strerror(se));
+                }
+                /* The lights are mid-song on a cue list that just changed. */
+                g_app.cue_song = -1;
+            }
+
             if (g_edit.want_special != 0 && g_app.midi && g_app.show) {
                 const bt_light_special &sp =
                     g_edit.want_special == 1 ? g_app.show->between_songs

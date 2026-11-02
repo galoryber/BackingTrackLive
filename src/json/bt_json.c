@@ -373,6 +373,20 @@ const bt_json *bt_json_get(const bt_json *j, const char *key) {
     return NULL;
 }
 
+size_t bt_json_keys(const bt_json *j) {
+    return (j && j->type == BT_JSON_OBJECT) ? j->u.obj.n : 0;
+}
+
+const char *bt_json_key_at(const bt_json *j, size_t i) {
+    if (!j || j->type != BT_JSON_OBJECT || i >= j->u.obj.n) return NULL;
+    return j->u.obj.keys[i];
+}
+
+const bt_json *bt_json_value_at(const bt_json *j, size_t i) {
+    if (!j || j->type != BT_JSON_OBJECT || i >= j->u.obj.n) return NULL;
+    return j->u.obj.vals[i];
+}
+
 size_t bt_json_len(const bt_json *j) {
     if (!j) return 0;
     if (j->type == BT_JSON_ARRAY)  return j->u.arr.n;

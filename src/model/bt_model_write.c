@@ -18,13 +18,8 @@
 #include <stdio.h>
 #include <stdarg.h>
 
-/* ------------------------------------------------------- string builder */
+#include "bt_write_util.h"
 
-typedef struct {
-    char  *buf;
-    size_t len, cap;
-    bool   failed;
-} sb;
 
 static void sb_reserve(sb *s, size_t extra) {
     if (s->failed) return;
@@ -37,7 +32,7 @@ static void sb_reserve(sb *s, size_t extra) {
     s->cap = cap;
 }
 
-static void sb_raw(sb *s, const char *text, size_t n) {
+void bt__sb_raw(sb *s, const char *text, size_t n) {
     sb_reserve(s, n);
     if (s->failed) return;
     memcpy(s->buf + s->len, text, n);
@@ -45,9 +40,9 @@ static void sb_raw(sb *s, const char *text, size_t n) {
     s->buf[s->len] = '\0';
 }
 
-static void sb_str(sb *s, const char *text) { sb_raw(s, text, strlen(text)); }
+void bt__sb_str(sb *s, const char *text) { bt__sb_raw(s, text, strlen(text)); }
 
-static void sb_fmt(sb *s, const char *fmt, ...) {
+void bt__sb_fmt(sb *s, const char *fmt, ...) {
 #ifdef _MSC_VER
     __pragma(warning(push))
 #endif
@@ -58,7 +53,7 @@ static void sb_fmt(sb *s, const char *fmt, ...) {
     va_end(ap);
     if (n < 0) { s->failed = true; return; }
     if ((size_t)n >= sizeof(tmp)) { s->failed = true; return; }
-    sb_raw(s, tmp, (size_t)n);
+    bt__sb_raw(s, tmp, (size_t)n);
 #ifdef _MSC_VER
     __pragma(warning(pop))
 #endif
@@ -66,24 +61,24 @@ static void sb_fmt(sb *s, const char *fmt, ...) {
 
 /* JSON string escaping. Control characters must be escaped or the file we
  * write is not parseable by the parser we wrote. */
-static void sb_json_string(sb *s, const char *v) {
-    sb_str(s, "\"");
+void bt__sb_json_string(sb *s, const char *v) {
+    bt__sb_str(s, "\"");
     for (const unsigned char *p = (const unsigned char *)v; *p; p++) {
         switch (*p) {
-        case '"':  sb_str(s, "\\\""); break;
-        case '\\': sb_str(s, "\\\\"); break;
-        case '\b': sb_str(s, "\\b");  break;
-        case '\f': sb_str(s, "\\f");  break;
-        case '\n': sb_str(s, "\\n");  break;
-        case '\r': sb_str(s, "\\r");  break;
-        case '\t': sb_str(s, "\\t");  break;
+        case '"':  bt__sb_str(s, "\\\""); break;
+        case '\\': bt__sb_str(s, "\\\\"); break;
+        case '\b': bt__sb_str(s, "\\b");  break;
+        case '\f': bt__sb_str(s, "\\f");  break;
+        case '\n': bt__sb_str(s, "\\n");  break;
+        case '\r': bt__sb_str(s, "\\r");  break;
+        case '\t': bt__sb_str(s, "\\t");  break;
         default:
-            if (*p < 0x20) sb_fmt(s, "\\u%04x", (unsigned)*p);
-            else           sb_raw(s, (const char *)p, 1);
+            if (*p < 0x20) bt__sb_fmt(s, "\\u%04x", (unsigned)*p);
+            else           bt__sb_raw(s, (const char *)p, 1);
             break;
         }
     }
-    sb_str(s, "\"");
+    bt__sb_str(s, "\"");
 }
 
 /* Shortest representation that parses back to the identical double. %.17g
@@ -96,114 +91,114 @@ static void sb_number(sb *s, double v) {
      * if one appears, write a zero rather than an unparseable file. */
     if (strstr(tmp, "inf") || strstr(tmp, "nan") || strstr(tmp, "INF")
         || strstr(tmp, "NAN")) {
-        sb_str(s, "0");
+        bt__sb_str(s, "0");
         return;
     }
-    sb_str(s, tmp);
+    bt__sb_str(s, tmp);
 }
 
 /* ------------------------------------------------------------- set list */
 
 static void write_tempo(sb *s, const bt_tempo_map *tm) {
-    sb_str(s, "\"tempo\": { ");
+    bt__sb_str(s, "\"tempo\": { ");
     if (tm->nseg > 1) {
-        sb_str(s, "\"map\": [");
+        bt__sb_str(s, "\"map\": [");
         for (int32_t i = 0; i < tm->nseg; i++) {
-            sb_str(s, i ? ", " : " ");
-            sb_str(s, "{ \"beat\": ");
-            sb_fmt(s, "%lld", (long long)tm->seg[i].start_beat);
-            sb_str(s, ", \"bpm\": ");
+            bt__sb_str(s, i ? ", " : " ");
+            bt__sb_str(s, "{ \"beat\": ");
+            bt__sb_fmt(s, "%lld", (long long)tm->seg[i].start_beat);
+            bt__sb_str(s, ", \"bpm\": ");
             sb_number(s, tm->seg[i].bpm);
-            sb_str(s, " }");
+            bt__sb_str(s, " }");
         }
-        sb_str(s, " ]");
+        bt__sb_str(s, " ]");
     } else {
-        sb_str(s, "\"bpm\": ");
+        bt__sb_str(s, "\"bpm\": ");
         sb_number(s, tm->nseg ? tm->seg[0].bpm : 120.0);
     }
-    sb_fmt(s, ", \"sig\": [%d, %d]", tm->sig_num, tm->sig_den);
-    sb_str(s, ", \"downbeat_ms\": ");
+    bt__sb_fmt(s, ", \"sig\": [%d, %d]", tm->sig_num, tm->sig_den);
+    bt__sb_str(s, ", \"downbeat_ms\": ");
     sb_number(s, tm->downbeat_ms);
-    sb_str(s, " }");
+    bt__sb_str(s, " }");
 }
 
 static void write_track(sb *s, const bt_track *t) {
-    sb_str(s, "        { \"name\": ");
-    sb_json_string(s, t->name);
-    sb_str(s, ", \"type\": ");
-    sb_json_string(s, t->type == BT_TRACK_CLICK ? "click" : "audio");
-    sb_str(s, ", \"bus\": ");
-    sb_json_string(s, t->bus);
+    bt__sb_str(s, "        { \"name\": ");
+    bt__sb_json_string(s, t->name);
+    bt__sb_str(s, ", \"type\": ");
+    bt__sb_json_string(s, t->type == BT_TRACK_CLICK ? "click" : "audio");
+    bt__sb_str(s, ", \"bus\": ");
+    bt__sb_json_string(s, t->bus);
     if (t->type == BT_TRACK_AUDIO) {
-        sb_str(s, ",\n          \"file\": ");
-        sb_json_string(s, t->file);
+        bt__sb_str(s, ",\n          \"file\": ");
+        bt__sb_json_string(s, t->file);
     }
-    sb_str(s, ", \"gain_db\": ");
+    bt__sb_str(s, ", \"gain_db\": ");
     sb_number(s, t->gain_db);
-    sb_fmt(s, ", \"offset_ms\": %d", t->offset_ms);
-    sb_fmt(s, ", \"muted\": %s", t->muted ? "true" : "false");
-    sb_str(s, " }");
+    bt__sb_fmt(s, ", \"offset_ms\": %d", t->offset_ms);
+    bt__sb_fmt(s, ", \"muted\": %s", t->muted ? "true" : "false");
+    bt__sb_str(s, " }");
 }
 
 static void write_song(sb *s, const bt_song *song) {
-    sb_str(s, "    {\n      \"title\": ");
-    sb_json_string(s, song->title);
-    sb_str(s, ", \"artist\": ");
-    sb_json_string(s, song->artist);
-    sb_str(s, ",\n      ");
+    bt__sb_str(s, "    {\n      \"title\": ");
+    bt__sb_json_string(s, song->title);
+    bt__sb_str(s, ", \"artist\": ");
+    bt__sb_json_string(s, song->artist);
+    bt__sb_str(s, ",\n      ");
     write_tempo(s, &song->tempo);
     /* Omitted when empty, so a set list written before this existed re-saves
      * byte-identically. */
     if (song->tuning[0]) {
-        sb_fmt(s, ",\n      \"tuning\": ");
-        sb_json_string(s, song->tuning);
+        bt__sb_fmt(s, ",\n      \"tuning\": ");
+        bt__sb_json_string(s, song->tuning);
     }
     if (song->cue[0]) {
-        sb_fmt(s, ",\n      \"cue\": ");
-        sb_json_string(s, song->cue);
+        bt__sb_fmt(s, ",\n      \"cue\": ");
+        bt__sb_json_string(s, song->cue);
     }
     if (song->midi_program >= 0)
-        sb_fmt(s, ",\n      \"midi_program\": %d", song->midi_program);
-    sb_fmt(s, ",\n      \"count_in_bars\": %d", song->count_in_bars);
+        bt__sb_fmt(s, ",\n      \"midi_program\": %d", song->midi_program);
+    bt__sb_fmt(s, ",\n      \"count_in_bars\": %d", song->count_in_bars);
     /* Omitted when zero: it is the normal case, and writing it would add a
      * line to every song in every set list written before this existed. */
     if (song->length_bars > 0)
-        sb_fmt(s, ", \"length_bars\": %d", song->length_bars);
-    sb_fmt(s, ", \"on_end\": ");
-    sb_json_string(s, song->on_end == BT_ON_END_NEXT ? "next" : "stop");
-    sb_str(s, ",\n      \"tracks\": [\n");
+        bt__sb_fmt(s, ", \"length_bars\": %d", song->length_bars);
+    bt__sb_fmt(s, ", \"on_end\": ");
+    bt__sb_json_string(s, song->on_end == BT_ON_END_NEXT ? "next" : "stop");
+    bt__sb_str(s, ",\n      \"tracks\": [\n");
     for (int32_t i = 0; i < song->ntracks; i++) {
         write_track(s, &song->track[i]);
-        sb_str(s, i + 1 < song->ntracks ? ",\n" : "\n");
+        bt__sb_str(s, i + 1 < song->ntracks ? ",\n" : "\n");
     }
-    sb_str(s, "      ]");
+    bt__sb_str(s, "      ]");
 
     /* Cues last, because they are the part somebody reads down a column of
      * when checking them against the lighting desk. Omitted entirely when a
      * song has none, which is every song in every set list written before
      * this existed. */
     if (song->nlight_cues > 0) {
-        sb_str(s, ",\n      \"light_cues\": [\n");
+        bt__sb_str(s, ",\n      \"light_cues\": [\n");
         for (int32_t i = 0; i < song->nlight_cues; i++) {
             const bt_light_event *c = &song->light_cue[i];
             /* Same field names the lighting side's cue file uses, so the two
              * read alike when somebody has both open. */
-            sb_fmt(s, "        { \"bar\": %d, \"ch\": %d, \"note\": %d",
+            bt__sb_fmt(s, "        { \"bar\": %d, \"ch\": %d, \"note\": %d",
                    c->bar, c->ch, c->note);
             if (c->kind != BT_LIGHT_LOOK)
-                sb_fmt(s, ", \"type\": \"%s\"",
+                bt__sb_fmt(s, ", \"type\": \"%s\"",
                        c->kind == BT_LIGHT_HIT ? "hit" : "end");
             if (c->label[0]) {
-                sb_str(s, ", \"label\": ");
-                sb_json_string(s, c->label);
+                bt__sb_str(s, ", \"label\": ");
+                bt__sb_json_string(s, c->label);
             }
-            sb_str(s, " }");
-            sb_str(s, i + 1 < song->nlight_cues ? ",\n" : "\n");
+            bt__sb_str(s, " }");
+            bt__sb_str(s, i + 1 < song->nlight_cues ? ",\n" : "\n");
         }
-        sb_str(s, "      ]");
+        bt__sb_str(s, "      ]");
     }
 
-    sb_str(s, "\n    }");
+    bt__sb_str(s, "\n    }");
 }
 
 bt_err bt_setlist_to_json(const bt_setlist *sl, char **out, size_t *len) {
@@ -214,16 +209,16 @@ bt_err bt_setlist_to_json(const bt_setlist *sl, char **out, size_t *len) {
     sb s;
     memset(&s, 0, sizeof(s));
 
-    sb_str(&s, "{\n  \"version\": 1,\n  \"name\": ");
-    sb_json_string(&s, sl->name);
+    bt__sb_str(&s, "{\n  \"version\": 1,\n  \"name\": ");
+    bt__sb_json_string(&s, sl->name);
 
 
-    sb_str(&s, ",\n  \"songs\": [\n");
+    bt__sb_str(&s, ",\n  \"songs\": [\n");
     for (int32_t i = 0; i < sl->nsongs; i++) {
         write_song(&s, &sl->song[i]);
-        sb_str(&s, i + 1 < sl->nsongs ? ",\n" : "\n");
+        bt__sb_str(&s, i + 1 < sl->nsongs ? ",\n" : "\n");
     }
-    sb_str(&s, "  ]\n}\n");
+    bt__sb_str(&s, "  ]\n}\n");
 
     if (s.failed) { free(s.buf); return BT_ERR_ALLOC; }
     *out = s.buf;
@@ -241,29 +236,29 @@ bt_err bt_device_cfg_to_json(const bt_device_cfg *cfg, char **out, size_t *len) 
     sb s;
     memset(&s, 0, sizeof(s));
 
-    sb_str(&s, "{\n  \"device\": ");
-    sb_json_string(&s, cfg->device);
-    sb_str(&s, ",\n  \"api\": ");
-    sb_json_string(&s, cfg->api);
+    bt__sb_str(&s, "{\n  \"device\": ");
+    bt__sb_json_string(&s, cfg->device);
+    bt__sb_str(&s, ",\n  \"api\": ");
+    bt__sb_json_string(&s, cfg->api);
     /* Omitted when there is no lighting, so a device.json written before this
      * re-saves byte-identically. */
     if (cfg->midi_out[0]) {
-        sb_str(&s, ",\n  \"midi_out\": ");
-        sb_json_string(&s, cfg->midi_out);
+        bt__sb_str(&s, ",\n  \"midi_out\": ");
+        bt__sb_json_string(&s, cfg->midi_out);
     }
-    sb_fmt(&s, ",\n  \"sample_rate\": %d,\n  \"buffer_frames\": %d,\n",
+    bt__sb_fmt(&s, ",\n  \"sample_rate\": %d,\n  \"buffer_frames\": %d,\n",
            cfg->sample_rate, cfg->buffer_frames);
-    sb_str(&s, "  \"buses\": [\n");
+    bt__sb_str(&s, "  \"buses\": [\n");
     for (int32_t i = 0; i < cfg->nbuses; i++) {
-        sb_str(&s, "    { \"name\": ");
-        sb_json_string(&s, cfg->bus[i].name);
-        sb_str(&s, ", \"channels\": [");
+        bt__sb_str(&s, "    { \"name\": ");
+        bt__sb_json_string(&s, cfg->bus[i].name);
+        bt__sb_str(&s, ", \"channels\": [");
         for (int32_t k = 0; k < cfg->bus[i].nch; k++)
-            sb_fmt(&s, "%s%d", k ? ", " : "", cfg->bus[i].ch[k]);
-        sb_str(&s, "] }");
-        sb_str(&s, i + 1 < cfg->nbuses ? ",\n" : "\n");
+            bt__sb_fmt(&s, "%s%d", k ? ", " : "", cfg->bus[i].ch[k]);
+        bt__sb_str(&s, "] }");
+        bt__sb_str(&s, i + 1 < cfg->nbuses ? ",\n" : "\n");
     }
-    sb_str(&s, "  ]\n}\n");
+    bt__sb_str(&s, "  ]\n}\n");
 
     if (s.failed) { free(s.buf); return BT_ERR_ALLOC; }
     *out = s.buf;
@@ -277,7 +272,7 @@ bt_err bt_device_cfg_to_json(const bt_device_cfg *cfg, char **out, size_t *len) 
  * interrupted save must not leave a half-written set list where a working one
  * used to be - the failure mode being avoided is losing a set an hour before
  * a gig. */
-static bt_err write_atomic(const char *path, const char *data, size_t len) {
+bt_err bt__write_atomic(const char *path, const char *data, size_t len) {
     char tmp[BT_MAX_PATH * 2];
     int n = snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     if (n < 0 || (size_t)n >= sizeof(tmp)) return BT_ERR_RANGE;
@@ -301,7 +296,7 @@ bt_err bt_setlist_save_file(const bt_setlist *sl, const char *path) {
     size_t len  = 0;
     bt_err e = bt_setlist_to_json(sl, &json, &len);
     if (e != BT_OK) return e;
-    e = write_atomic(path, json, len);
+    e = bt__write_atomic(path, json, len);
     free(json);
     return e;
 }
@@ -312,7 +307,7 @@ bt_err bt_device_cfg_save_file(const bt_device_cfg *cfg, const char *path) {
     size_t len  = 0;
     bt_err e = bt_device_cfg_to_json(cfg, &json, &len);
     if (e != BT_OK) return e;
-    e = write_atomic(path, json, len);
+    e = bt__write_atomic(path, json, len);
     free(json);
     return e;
 }
