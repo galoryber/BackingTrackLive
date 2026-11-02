@@ -1636,17 +1636,17 @@ int main(int argc, char **argv) {
             }
 
             if (g_edit.want_special != 0 && g_app.midi && g_app.show) {
-                const bt_light_special &sp =
-                    g_edit.want_special == 1 ? g_app.show->between_songs
-                                             : g_app.show->stop_all;
+                const char *which = g_edit.want_special == 1 ? "between_songs"
+                                                             : "stop_all";
                 g_edit.want_special = 0;
-                if (sp.note >= 0) {
-                    lighting_send(g_app, sp.ch, sp.note, false, nullptr);
+                const bt_light_special *sp = bt_lightshow_special(g_app.show, which);
+                if (sp && sp->note >= 0) {
+                    lighting_send(g_app, sp->ch, sp->note, false, nullptr);
                     std::snprintf(g_edit.status, sizeof(g_edit.status),
-                                  "sent note %d on channel %d", sp.note, sp.ch);
+                                  "sent note %d on channel %d", sp->note, sp->ch);
                 } else {
                     std::snprintf(g_edit.status, sizeof(g_edit.status),
-                                  "the cue file does not define that one");
+                                  "the cue file does not define \"%s\"", which);
                 }
             }
             g_edit.want_special = 0;
