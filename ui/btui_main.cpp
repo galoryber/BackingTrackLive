@@ -1099,19 +1099,50 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                            !std::strcmp(state, "editaudio") ||
                            !std::strcmp(state, "editalign") ||
                            !std::strcmp(state, "editlight") ||
+                           !std::strcmp(state, "editcuefile") ||
                            !std::strcmp(state, "check");
     if (edit_shot) {
         ed.sl  = sl;
         ed.dev = &shot_dev;
         ed.song = song;
         ed.track = 1;
-        ed.screen = !std::strcmp(state, "editlight") ? bt_edit_screen::lighting
+        ed.screen = !std::strcmp(state, "editcuefile") ? bt_edit_screen::song
+                  : !std::strcmp(state, "editlight") ? bt_edit_screen::lighting
                   : !std::strcmp(state, "editalign") ? bt_edit_screen::align
                   : !std::strcmp(state, "editsong")  ? bt_edit_screen::song
                   : !std::strcmp(state, "editaudio") ? bt_edit_screen::audio
                                                      : bt_edit_screen::setlist;
+        /* Pretend a lighting_cues.json was loaded and names this song: the
+         * case that showed nothing at all. */
+        if (!std::strcmp(state, "editcuefile")) {
+            static bt_light_event fev[7];
+            static bt_light_song  fsong;
+            const struct { int32_t bar, ch, note; bt_light_kind k; const char *what; } f[] = {
+                {   1,  1,  0, BT_LIGHT_LOOK, "Intro Guitar Riff" },
+                {  17,  1,  1, BT_LIGHT_LOOK, "Verse 1"           },
+                {  33,  1,  2, BT_LIGHT_LOOK, "Chorus"            },
+                {  49, 16, 72, BT_LIGHT_HIT,  "Blinder"           },
+                {  57,  1,  3, BT_LIGHT_LOOK, "Solo"              },
+                {  81,  1,  2, BT_LIGHT_LOOK, "Chorus"            },
+                { 114, 16, 37, BT_LIGHT_END,  "Between Songs"     },
+            };
+            for (size_t k = 0; k < sizeof(f) / sizeof(f[0]); k++) {
+                std::memset(&fev[k], 0, sizeof(fev[k]));
+                fev[k].bar = f[k].bar; fev[k].ch = f[k].ch;
+                fev[k].note = f[k].note; fev[k].kind = f[k].k;
+                std::snprintf(fev[k].label, sizeof(fev[k].label), "%s", f[k].what);
+            }
+            fsong.ev = fev; fsong.nev = 7;
+            ed.file_cues  = fev;
+            ed.nfile_cues = 7;
+            ed.show_loaded = true;
+            ed.show_songs = 41;
+            ed.show_matched = 41;
+            ed.screen = bt_edit_screen::song;
+        }
+
         if (ed.screen == bt_edit_screen::lighting ||
-            ed.screen == bt_edit_screen::song) {
+            (ed.screen == bt_edit_screen::song && ed.nfile_cues == 0)) {
             bt_song &lg = sl->song[ed.song >= 0 && ed.song < sl->nsongs ? ed.song : 0];
             if (lg.nlight_cues == 0) {
                 struct { int32_t bar, ch, note; bt_light_kind k; const char *what; } cues[] = {
