@@ -15,8 +15,9 @@ the playhead reaches a bar listed in the cue file it should send the note the
 file gives for that bar. It does not know what any look is, what colours
 exist, how many fixtures there are, or anything about QLC+.
 
-That is why adding songs, changing colours or moving a cue needs no change
-here at all: it is a rebuild on the lighting side and a new `lighting_cues.json`.
+That is why adding songs or changing colours needs no change here at all: it
+is a rebuild on the lighting side and a new `lighting_cues.json`. Moving a cue
+to a different bar is the one thing this program does edit - see below.
 
 ## What goes down the wire
 

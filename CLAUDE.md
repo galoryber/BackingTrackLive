@@ -131,9 +131,11 @@ src/player/          set list player + loader thread: selection, on_end,
                      and the only code that loads or frees stems
 src/device/          PortAudio backend. A SEPARATE library: libbacktrack has
                      no device dependency, and nothing in tests/ links this.
-src/midi/            MIDI output through winmm, for driving QLC+ over a
-                     loopMIDI port. A SEPARATE library, Windows only, output
-                     only. Never called from the audio callback: sending MIDI
+src/midi/            MIDI through winmm, for driving QLC+ over a loopMIDI
+                     port. A SEPARATE library, Windows only. Output drives the
+                     lights; input exists too, so far only for the lighting
+                     screen's note monitor. Never called from the audio
+                     callback: sending MIDI
                      is a syscall. Cues fire from the UI thread, where a
                      frame of jitter is far below what a lighting rig can
                      express.
@@ -191,15 +193,18 @@ letting future work live only in a conversation.
         a few bars to confirm by ear. `bt_peaks` is in place for it.
       - tempo maps and track reordering, which the format supports and the
         editor does not yet expose.
-- [ ] Phase 4 — MIDI in (footswitch)
+- [~] Phase 4 — MIDI in. The input layer is built and used by the lighting
+      screen's note monitor; nothing yet binds a note to the transport, which
+      is the footswitch.
 - [~] Phase 5 — lighting cues. Built and verified on the wire: MIDI out
       (`src/midi`, `btmidi`), the cue file reader (`src/model/bt_lightshow.c`)
       and the firing. The show itself belongs to a separate lighting project
       which generates `lighting_cues.json`; the agreement between the two is
       `docs/lighting-contract.md` (`random-riot-lighting/1`) and **neither
-      side changes it alone**. Nothing about show content is edited here, so
-      adding songs or moving a cue needs no change in this repo. Untested
-      against physical fixtures.
+      side changes it alone**. What a look *is* is never decided here; the
+      cue file is the one source of truth and BTL both reads and writes it,
+      so moving a cue's bar is an edit in this program. Untested against
+      physical fixtures.
 
 ## Shipping
 

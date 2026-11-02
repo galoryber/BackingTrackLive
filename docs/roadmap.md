@@ -153,11 +153,11 @@ phone already covers.
 
 ## Lighting cues over MIDI
 
-The band runs QLC+ on the same laptop, driving a USB DMX adapter. The plan is
-for a song to carry cues at bar positions, and for the player to send MIDI at
-those bars; QLC+ owns the fixtures, the scenes and the DMX.
+The band runs QLC+ on the same laptop, driving a USB DMX adapter. A song
+carries cues at bar positions, the player sends MIDI at those bars, and QLC+
+owns the fixtures, the scenes and the DMX.
 
-**This replaces the Art-Net / sACN plan.** Speaking DMX ourselves would mean
+**This replaced the Art-Net / sACN plan.** Speaking DMX ourselves would mean
 owning fixture definitions, patching and a 44 Hz output loop, to end up with a
 worse version of a tool that already exists and that the band is already
 learning. Sending MIDI to QLC+ is a few hundred lines; the rest is somebody
@@ -171,105 +171,85 @@ refreshes around 44 Hz, and QLC+ adds its own latency. So firing cues is
 ordinary UI-thread work and never touches the rules that govern the audio
 callback.
 
-The split follows the one that already works for audio: the cue list and the
+The split follows the one that already works for audio: the cue data and the
 "which cues fall between the last playhead and this one" question live in
 `libbacktrack`, testable headless on Linux to the sample. Talking to a MIDI
 port lives in a separate platform library, as the PortAudio backend does.
 
 ### The decision, made
 
-**A cue list, with a program change per song.** Every cue sends the same
-"next cue" note and QLC+ advances its own list; each song also carries a MIDI
-program change, sent when the song starts, telling QLC+ which song's cue list
-to load.
+**Absolute events, not a cue list.** Every event says "show look number N" -
+a bar, a MIDI channel, a note, and whether it is a look, a hit or an end.
+Nothing sends "next".
 
-That program change is what makes the cue-list approach safe. The worry with a
-shared note was that jumping to bar 80 leaves the desk several cues behind with
-no way to know. It does - but resending the program change puts QLC+ back at
-step zero, and `bt_song_cues_before()` says how many times to then advance. So
-a jump resyncs exactly, which is the property a note-per-cue scheme was going
-to buy.
+An earlier design here was a shared "go" note plus a program change per song,
+with QLC+ advancing its own list. It is worth recording why that went, because
+the reasoning is the useful part: a cue list has a *position*, and a position
+can be wrong. Skipping a song, restarting one, or scrubbing while aligning a
+stem all leave the desk some number of steps out, and the fix - resend the
+program change, then count forward from the top - is a resync path that has to
+be correct for every way the transport can move. Absolute events delete the
+position, and with it the whole class of bug. Step counting, program changes
+and `bt_song_cues_before()` all went with it.
 
-The band's mapping, which the data model follows:
+The rules that follow from absoluteness are in `docs/lighting.md`: seeking
+sends the most recent *look* and never replays hits, a look already showing is
+not re-sent (tracked as a channel and note together, because QLC+'s buttons
+toggle), and stopping sends nothing at all.
 
-- **Program change 0-35**, one per song, sent on starting
-- **Note 38** - go, at bars like 1, 17, 33, 41, 57, 73, 81, 97
-- **Note 37** - the between-songs look, at the end of a song
-- **Note 39** - blackout, for a song that ends on the chord
-- **Note 36** - step the cue list back, for a rehearsal rewind
+### Where things live
 
-All on channel 16.
+Which **MIDI port** to open can come from the cue file, which names the port
+the show was built against; failing that it comes from the audio settings.
 
-A cue may override the note, which is how the end cue differs; `note: 0` means
-"use the set list's next-cue note", which is what almost every cue says.
+**The cue file is the single source of truth.** `lighting_cues.json` sits
+beside `setlist.json`, is read from there, and is *written* there when a bar is
+edited - the same relationship a song's tempo has with `setlist.json`. There is
+no second copy of the cues and no precedence rule between two sources, both of
+which an earlier version had and neither of which survived contact with a real
+file.
 
-### Where the settings live
-
-Which **MIDI port** to open is machine-local and belongs in `device.json`,
-like the audio interface.
-
-The **channel and note numbers** are show design and live in `setlist.json`,
-so a set list carried to the backup laptop drives the lights the same way.
-Channel 0 means a set list has no lighting, which is the default and keeps
-every set list written before this byte-identical when re-saved.
-
-### What follows
-
-- **Seeking.** Whichever is fewer messages: step back with note 36, or resend
-  the program change and step forward from the top. A small rewind - the
-  common one, scrubbing while aligning a stem - costs a note or two and the
-  lights simply step back, rather than reloading and racing forward through
-  every look in the song.
-- **Segue.** The next song's program change fires as it starts, so the desk
-  follows without anyone touching it.
-- **Count-in.** The program change goes at the start of the count-in, so the
-  desk has loaded the song before bar 1 arrives.
-- **Stop.** Sends nothing. Blackout on stop would kill the lights while the
-  singer is talking.
+The format is a contract with the lighting project:
+`docs/lighting-contract.md`, `random-riot-lighting/1`, and **neither side
+changes it alone.** BTL round-trips keys it does not model, so a file carrying
+something new comes back unharmed; anything that genuinely changes the meaning
+of the file has to bump the version, where it is refused outright rather than
+half-understood.
 
 ### Status
 
-**Built**, and verified on a real virtual MIDI port with a monitor on the
+**Built, and used.** Verified on a real virtual MIDI port with a monitor on the
 other end rather than from the shape of the code: the output layer
-(`src/midi`, `btmidi`), the cue file reader, the firing, and a cue editor.
-
-Cues can come from either side. The lighting project generates
-`lighting_cues.json` and that wins for any song it names. A song it does not
-name - or a set list with no cue file at all - uses cues typed in on the song
-screen: a bar, a channel, a MIDI note and a description. Both are the same
-type internally, so one piece of code fires them.
-
-The numbers are looked up on the desk. An earlier attempt put a palette of
-named looks in between, and it was wrong: it did not remove the lookup, it
-only moved it, and it made somebody define a look before they could use one.
-Three numbers typed where they are needed is the whole feature.
+(`src/midi`, `btmidi`), the cue file reader and writer
+(`src/model/bt_lightshow.c`), the firing, and cue editing on the song screen.
 
 **Not yet proven against a real rig.** Everything above has been checked by
-reading the bytes on the wire, and QLC+ will advance a cue list with no
-fixtures patched, which covers the program changes selecting the right list
-and the bars landing where they should. What is untested is the last hop:
-fixtures, the DMX adapter, and whether the cue bars are musically right when
-there is light in the room. That needs the rig at the practice space.
+reading the bytes on the wire, and QLC+ will run a show with no fixtures
+patched, which covers the notes going out at the right bars. What is untested
+is the last hop: fixtures, the DMX adapter, and whether the cue bars are
+musically right when there is light in the room. That needs the rig at the
+practice space.
 
-Open once that happens:
-
-- Whether a **program change should also fire on merely selecting a song**, so
-  the rig changes while browsing between songs. It does not today, because
-  arrow-keying through the set would send a program change per keypress. But
-  between songs, with the band waiting, having the next look up early may
-  matter more. A one-line change either way; it depends on how the set is run.
-- Whether **stop should send anything**. It sends nothing today, deliberately -
-  a blackout while the singer is talking would be worse than stale light.
+The one open item belongs to the other side: **regenerating
+`lighting_cues.json` can overwrite a bar the band settled on at rehearsal**,
+because nothing in the file marks which bars were hand-adjusted. Only the
+generator can fix that, by keeping an existing bar for any cue that is still
+there and taking the generated bar only for new ones. §9 of the contract says
+so.
 
 ## Other product gaps, not CLI-shaped
 
 - **Hands-free control.** A set cannot currently be run without touching the
-  laptop. MIDI in for a footswitch is Phase 4 and is the difference between
-  usable and comfortable on stage.
+  laptop, and that is the difference between usable and comfortable on stage.
+  Less remains than Phase 4 suggests: MIDI *input* already ships - open, poll
+  and `bt_midi_in_find` - because the lighting screen's `listen` button needed
+  it. What is missing is binding an incoming note to play, stop or next, and a
+  screen to set that binding on.
 - **Align view.** Waveform against a click grid, drag to nudge, audition a few
   bars against the click. `bt_peaks` is built and tested for it.
-- **Remembering things.** Window size, last set list opened, last device. None
-  of it persists.
+- **Window size.** Not remembered between runs. The last set list, the last
+  device and six recents are, in `settings.json` beside the other machine
+  config - window geometry is the one piece that is not.
 - **ASIO.** Not blocking — the UMC404HD exposes a four-channel endpoint under
   WASAPI — but worth having for exclusive device access and lower latency.
 - **A backup-laptop story.** The set list folder is deliberately copyable, but

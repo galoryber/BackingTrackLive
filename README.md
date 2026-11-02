@@ -116,7 +116,8 @@ cannot go wrong on stage.
   See [docs/asio.md](docs/asio.md).
 - **A song that changes tempo partway through** has to have its tempo map
   written into `setlist.json` by hand. See [docs/roadmap.md](docs/roadmap.md).
-- **No MIDI**, so no footswitch yet.
+- **No footswitch yet.** MIDI goes out to the lights; nothing comes back in
+  to run the transport hands-free.
 
 ## Documentation
 
