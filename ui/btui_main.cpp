@@ -279,11 +279,17 @@ int32_t transport_current(const App &a) {
     return a.live ? bt_player_current(a.player) : a.selected;
 }
 
+/* Above fill_state because fill_state reads it. The window state the screens
+ * are told about belongs with the window, but C++ only knows what it has
+ * already seen, and this file is one translation unit read top to bottom. */
+bool g_fullscreen = false;
+
 void fill_state(bt_ui_state &st, App &a) {
     std::memset(&st, 0, sizeof(st));
     st.setlist     = a.sl;
     st.selected    = a.selected;
     st.show_clock  = a.show_clock;
+    st.fullscreen  = g_fullscreen;
     st.sample_rate = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
     st.playing     = transport_playing(a);
     st.armed       = a.armed && !st.playing;
@@ -374,12 +380,15 @@ void drop_rtv() { if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; } }
 bt_ui_edit g_edit;
 bool g_editing = false;
 bool g_quit = false;
-bool g_fullscreen = false;
 
 void toggle_fullscreen(HWND hwnd) {
     static RECT saved{};
     static DWORD saved_style = 0;
+    static bool saved_maximized = false;
     if (!g_fullscreen) {
+        /* Asked before the style changes, because once it is WS_POPUP there
+         * is nothing left to ask. */
+        saved_maximized = IsZoomed(hwnd) != FALSE;
         GetWindowRect(hwnd, &saved);
         saved_style = (DWORD)GetWindowLongPtr(hwnd, GWL_STYLE);
         MONITORINFO mi = { sizeof(mi) };
@@ -391,9 +400,24 @@ void toggle_fullscreen(HWND hwnd) {
         g_fullscreen = true;
     } else {
         SetWindowLongPtr(hwnd, GWL_STYLE, saved_style);
-        SetWindowPos(hwnd, HWND_TOP, saved.left, saved.top,
-                     saved.right - saved.left, saved.bottom - saved.top,
-                     SWP_FRAMECHANGED);
+        if (saved_maximized) {
+            /* Hand it back to Windows rather than placing it by hand.
+             *
+             * The program now starts maximized, so this is the common path,
+             * not the exotic one. Restoring WS_MAXIMIZE together with an
+             * explicit position and size asks for a window that claims to be
+             * maximized at coordinates somebody wrote down - and what you get
+             * then is up to Windows. ShowWindow does not need the rect and
+             * cannot disagree with itself, so there is no edge case left to
+             * depend on. */
+            SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+            ShowWindow(hwnd, SW_MAXIMIZE);
+        } else {
+            SetWindowPos(hwnd, HWND_TOP, saved.left, saved.top,
+                         saved.right - saved.left, saved.bottom - saved.top,
+                         SWP_FRAMECHANGED);
+        }
         g_fullscreen = false;
     }
 }
@@ -1125,28 +1149,6 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                   : !std::strcmp(state, "editsong")  ? bt_edit_screen::song
                   : !std::strcmp(state, "editaudio") ? bt_edit_screen::audio
                                                      : bt_edit_screen::setlist;
-        if (ed.screen == bt_edit_screen::lighting ||
-            ed.screen == bt_edit_screen::song) {
-            bt_song &lg = sl->song[ed.song >= 0 && ed.song < sl->nsongs ? ed.song : 0];
-            if (lg.nlight_cues == 0) {
-                struct { int32_t bar, ch, note; bt_light_kind k; const char *what; } cues[] = {
-                    {   1,  1,  0, BT_LIGHT_LOOK, "warm orange verse" },
-                    {  17,  1,  1, BT_LIGHT_LOOK, "blue, drums in"    },
-                    {  33,  1,  2, BT_LIGHT_LOOK, "chorus - full"     },
-                    {  49, 16, 77, BT_LIGHT_HIT,  "fog"               },
-                    {  57,  1,  3, BT_LIGHT_LOOK, "solo chase"        },
-                    { 138, 16, 37, BT_LIGHT_END,  "between songs"     },
-                };
-                for (size_t k = 0; k < sizeof(cues) / sizeof(cues[0]); k++) {
-                    bt_light_event &c = lg.light_cue[lg.nlight_cues++];
-                    std::memset(&c, 0, sizeof(c));
-                    c.bar = cues[k].bar; c.ch = cues[k].ch;
-                    c.note = cues[k].note; c.kind = cues[k].k;
-                    std::snprintf(c.label, sizeof(c.label), "%s", cues[k].what);
-                }
-            }
-        }
-
         if (ed.screen == bt_edit_screen::align) {
             /* A stem that begins 380 ms after the downbeat: what a purchased
              * backing track with a lead-in actually looks like. */
@@ -1191,6 +1193,24 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                 }
             }
         }
+        /* Lighting. The shot builds no show, so without this the song screen
+         * reports that cues cannot be edited - true of a demo set, and a poor
+         * advertisement for the feature. Set through ed.cues, which is what
+         * the screen actually draws; the old version of this filled
+         * bt_song::light_cue, the migration-only array the editor stopped
+         * reading when the cue file became the source of truth. */
+        static bt_light_event shot_cues[] = {
+            {   1,  1,  0, BT_LIGHT_LOOK, "warm orange verse" },
+            {  17,  1,  1, BT_LIGHT_LOOK, "blue, drums in"    },
+            {  33,  1,  2, BT_LIGHT_LOOK, "chorus - full"     },
+            {  49, 16, 77, BT_LIGHT_HIT,  "fog"               },
+            {  57,  1,  3, BT_LIGHT_LOOK, "solo chase"        },
+            { 138, 16, 37, BT_LIGHT_END,  "between songs"     },
+        };
+        ed.cues          = shot_cues;
+        ed.ncues         = (int32_t)(sizeof(shot_cues) / sizeof(shot_cues[0]));
+        ed.can_edit_cues = true;
+
         /* Give the shot something to show: the demo songs carry no stems. */
         if (ed.song >= 0 && ed.song < sl->nsongs) {
             bt_song &ss = sl->song[ed.song];
@@ -1247,7 +1267,7 @@ int usage() {
         "\n"
         "       btui --shot <out.raw> [--w N] [--h N]\n"
         "            [--state start|firstrun|stopped|playing|countin|disconnected|\n"
-"                     edit|editsong|editaudio|check]\n"
+"                     edit|editsong|editalign|editaudio|editlight|check]\n"
         "            [--song N] [--bar N]\n");
     return 2;
 }
@@ -1303,7 +1323,10 @@ int main(int argc, char **argv) {
         return 1;
     }
     make_rtv();
-    ShowWindow(hwnd, SW_SHOWDEFAULT);
+    /* Maximized, not SW_SHOWDEFAULT. This gets launched when the band is
+     * about to play, so the useful size is the whole screen every time, and
+     * a window that opens at 1280x760 is one more thing to do first. */
+    ShowWindow(hwnd, SW_MAXIMIZE);
     UpdateWindow(hwnd);
 
     IMGUI_CHECKVERSION();
@@ -1772,6 +1795,9 @@ int main(int argc, char **argv) {
                     g_app.selected = r.song;
                     if (!transport_playing(g_app)) transport_start(g_app, true);
                 }
+                break;
+            case bt_ui_click::fullscreen:
+                toggle_fullscreen(hwnd);
                 break;
             default: break;
             }

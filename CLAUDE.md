@@ -185,13 +185,13 @@ letting future work live only in a conversation.
       hot-unplug need the band laptop and its UMC404HD — see
       `docs/gig-laptop.md`.
 - [~] Phase 3 — stage UI. Play mode done and reviewed on a real screen. Edit
-      mode has the set list, song, audio and check screens, and the start
-      screen opens or creates set lists, so nothing needs a terminal any
-      more — see the parity table in `docs/roadmap.md`. Still to do:
-      - the align view: waveform against a click grid, drag to nudge, audition
-        a few bars to confirm by ear. `bt_peaks` is in place for it.
-      - tempo maps and track reordering, which the format supports and the
-        editor does not yet expose.
+      mode has the set list, song, align, audio, check and lighting screens,
+      and the start screen opens or creates set lists, so nothing needs a
+      terminal any more — see the parity table in `docs/roadmap.md`. The
+      align view is built: waveform against the beat grid, nudge, BPM, first
+      downbeat, and "start on the count-in" — `docs/images/editalign.png` is
+      rendered from it. Still to do: tempo maps and track reordering, which
+      the format supports and the editor does not yet expose.
 - [~] Phase 4 — MIDI in. The input layer is built and used by the lighting
       screen's note monitor; nothing yet binds a note to the transport, which
       is the footswitch.

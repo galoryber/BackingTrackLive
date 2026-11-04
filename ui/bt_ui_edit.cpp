@@ -264,14 +264,39 @@ void draw_setlist_screen(bt_ui_edit &ed) {
     ImGui::SameLine();
     if (ImGui::Button("edit song \xe2\x86\x92")) ed.screen = bt_edit_screen::song;
     ImGui::EndDisabled();
-    ImGui::SameLine(0, 28);
-    if (ImGui::Button("audio \xe2\x80\xa6")) ed.screen = bt_edit_screen::audio;
+
+    /* The one-time configuration, pushed to the right edge.
+     *
+     * These four get pressed while something is being set up and never once
+     * during a rehearsal, and sitting mid-row they competed for the eye with
+     * the buttons that order a set - which is what this screen is for. The
+     * gap does the sorting: day-to-day on the left, config on the right. */
+    static const char *const cfg[] = {
+        "audio \xe2\x80\xa6", "check \xe2\x80\xa6", "lighting \xe2\x80\xa6",
+        "open another set list \xe2\x80\xa6",
+    };
+    const ImGuiStyle &sty = ImGui::GetStyle();
+    float cfg_w = sty.ItemSpacing.x * 2.0f + 28.0f;   /* three gaps */
+    for (size_t i = 0; i < sizeof(cfg) / sizeof(cfg[0]); i++)
+        cfg_w += ImGui::CalcTextSize(cfg[i]).x + sty.FramePadding.x * 2.0f;
+
     ImGui::SameLine();
-    if (ImGui::Button("check \xe2\x80\xa6")) ed.screen = bt_edit_screen::check;
+    /* Local to the window, which is what SameLine takes. Clamped so a window
+     * too narrow for both groups runs them together rather than stacking the
+     * config on top of "edit song". */
+    const float row_min   = ImGui::GetCursorPosX();
+    const float row_right = row_min + ImGui::GetContentRegionAvail().x;
+    float cfg_x = row_right - cfg_w;
+    if (cfg_x < row_min) cfg_x = row_min;
+    ImGui::SameLine(cfg_x);
+
+    if (ImGui::Button(cfg[0])) ed.screen = bt_edit_screen::audio;
     ImGui::SameLine();
-    if (ImGui::Button("lighting \xe2\x80\xa6")) ed.screen = bt_edit_screen::lighting;
+    if (ImGui::Button(cfg[1])) ed.screen = bt_edit_screen::check;
+    ImGui::SameLine();
+    if (ImGui::Button(cfg[2])) ed.screen = bt_edit_screen::lighting;
     ImGui::SameLine(0, 28);
-    if (ImGui::Button("open another set list \xe2\x80\xa6")) ed.want_open_setlist = true;
+    if (ImGui::Button(cfg[3])) ed.want_open_setlist = true;
 
     ImGui::Spacing();
 
@@ -354,7 +379,28 @@ void draw_transport(bt_ui_edit &ed, const char *id) {
                   (int)(total / 60.0),       total       - 60.0 * (int)(total / 60.0));
 
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(-220);
+    /* Reserve exactly what comes after the slider, rather than guessing it.
+     *
+     * This was a hardcoded -220, and "drag to skip" plus the two buttons
+     * need about 256 - so the row ran roughly 36px past the content edge and
+     * ImGui, reasonably, let you scroll sideways to find it. That was the few
+     * pixels of horizontal scroll on the song screen: not a stray widget, a
+     * reservation that was too small for what it was reserving for.
+     *
+     * Measured from the labels, so it stays right if the font, the DPI or the
+     * wording changes - any of which would have broken the number again. */
+    const ImGuiStyle &tsty = ImGui::GetStyle();
+    const char *scrub_hint = "drag to skip";
+    float tail = ImGui::CalcTextSize(scrub_hint).x
+               + ImGui::CalcTextSize("start").x    + tsty.FramePadding.x * 2.0f
+               + ImGui::CalcTextSize("last 20s").x + tsty.FramePadding.x * 2.0f
+               + tsty.ItemSpacing.x * 3.0f;
+    /* A window too narrow for all of it keeps a usable slider; the tail is
+     * what gives, which is the same thing the old number did badly. */
+    const float scrub_avail = ImGui::GetContentRegionAvail().x;
+    if (tail > scrub_avail - 120.0f) tail = scrub_avail - 120.0f;
+    if (tail < 0.0f) tail = 0.0f;
+    ImGui::SetNextItemWidth(-tail);
     float at = (float)ed.play_sec;
     if (ImGui::SliderFloat("##scrub", &at, 0.0f, (float)(total > 0.0 ? total : 1.0),
                            pos, ImGuiSliderFlags_NoRoundToFormat)) {
@@ -362,7 +408,7 @@ void draw_transport(bt_ui_edit &ed, const char *id) {
         ed.seek_sec  = at;
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("drag to skip");
+    ImGui::TextDisabled("%s", scrub_hint);
 
     /* The ends of a song are where the answers are, so make them one press. */
     ImGui::SameLine();
@@ -709,14 +755,14 @@ void draw_song_screen(bt_ui_edit &ed) {
         if (den >= 1 && den <= 64) { s.tempo.sig_den = den; ed.dirty = true; }
     }
 
-    ImGui::SetNextItemWidth(190);
-    double db_ms = s.tempo.downbeat_ms;
-    if (ImGui::InputDouble("first downbeat (ms)", &db_ms, 1.0, 10.0, "%.1f")) {
-        s.tempo.downbeat_ms = db_ms;
-        ed.dirty = true;
-    }
-    ImGui::SameLine();
-    ImGui::TextColored(COL_DIM, "where beat 1 lands in the stems");
+    /* "first downbeat (ms)" used to sit here. It is an alignment control -
+     * it moves the beat grid rather than describing the song - and it lives
+     * on the align screen now, next to BPM and nudge, where the waveform is
+     * there to judge it against. Nobody who aligns by ear with the nudge
+     * steppers ever needs it, which is most people, so on the screen you
+     * open for every song it was clutter. Deleted outright it would have
+     * been worse: the format keeps the field, so a set list carrying a real
+     * downbeat would have had no way to show or fix it. */
 
     ImGui::SetNextItemWidth(150);
     int ci = s.count_in_bars;
@@ -798,10 +844,14 @@ void draw_song_screen(bt_ui_edit &ed) {
         ImGui::SameLine();
 
         if (!ed.can_edit_cues) {
+            /* Only say a file could not be read when there was one. With no
+             * set list file there is no cue file either and nothing failed -
+             * reporting a read error for a thing never read sends somebody
+             * looking for a corrupt file that does not exist. */
             ImGui::TextColored(COL_WARN, "%s",
                 ed.show_why ? ed.show_why
-                            : "the cue file could not be read, so cues cannot "
-                              "be changed without risking what is in it");
+                            : "cues are kept beside the set list, so they need "
+                              "a set list saved to a file");
         } else {
             if (ImGui::Button("+ cue")) ed.want_add_cue = true;
             ImGui::SameLine();
@@ -1061,6 +1111,22 @@ void draw_align_screen(bt_ui_edit &ed) {
     if (ImGui::InputInt("nudge (ms)", &off, 1, 10)) {
         if (off > -600000 && off < 600000) { t.offset_ms = off; ed.dirty = true; }
     }
+    /* Moves the whole grid, where nudge moves one stem. Both land a stem on
+     * the beat; which you want depends on whether the stems agree with each
+     * other and disagree with bar 1, or one of them is simply late.
+     *
+     * On its own line, not beside BPM and nudge: on that row it cost about
+     * 368px and pushed this screen into a sideways scroll on a 1280-wide
+     * window - the same fault being fixed on the song screen. */
+    ImGui::SetNextItemWidth(170);
+    double db_ms = s.tempo.downbeat_ms;
+    if (ImGui::InputDouble("first downbeat (ms)", &db_ms, 1.0, 10.0, "%.1f")) {
+        s.tempo.downbeat_ms = db_ms;
+        ed.dirty = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(COL_DIM, "where beat 1 lands in the stems");
+
     /* A spoken cue - "starts on beat three, here we go" - is a stem that
      * plays over the count-in. The engine needs nothing for it: the playhead
      * is negative there and a track's offset is subtracted from it. What it
@@ -1096,7 +1162,17 @@ void draw_align_screen(bt_ui_edit &ed) {
      * transient sits on the line or beside it, which is the entire job. */
     float avail_h = ImGui::GetContentRegionAvail().y - 90.0f;
     if (avail_h < 180.0f) avail_h = 180.0f;
-    const ImVec2 size(ImGui::GetContentRegionAvail().x, avail_h);
+    /* Minus the scrollbar, always.
+     *
+     * Claiming the whole available width is what makes the vertical scrollbar
+     * appear; the scrollbar then takes its width back, and the waveform is
+     * left hanging that far over the edge - which ImGui offers to scroll you
+     * sideways to see. Reserving it unconditionally breaks the loop, and the
+     * cost when there is no scrollbar is fourteen unused pixels nobody can
+     * see on a waveform. */
+    float wave_w = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
+    if (wave_w < 240.0f) wave_w = 240.0f;
+    const ImVec2 size(wave_w, avail_h);
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("wave", size);
     const bool hovered = ImGui::IsItemHovered();
@@ -1299,7 +1375,17 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     /* Content in a child that stops short of the footer, so the footer is
      * always visible rather than pushed off the bottom by a long table. */
     const float footer_h = ui_px * 2.6f;
-    ImGui::BeginChild("content", ImVec2(0, -footer_h), false);
+    /* The scrollbar is always there, even when there is nothing to scroll.
+     *
+     * Not cosmetic: a row sized from GetContentRegionAvail() is laid out
+     * before ImGui knows whether a vertical scrollbar is needed. When one
+     * then appears it takes its width back, and every such row is left
+     * hanging exactly ScrollbarSize over the edge - which is offered to you
+     * as a sideways scroll. Reserving it unconditionally makes the content
+     * width the same on every frame and every screen, which is the only way
+     * this stops being a bug that comes back. */
+    ImGui::BeginChild("content", ImVec2(0, -footer_h), false,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
     switch (ed.screen) {
     case bt_edit_screen::setlist: draw_setlist_screen(ed); break;
     case bt_edit_screen::song:    draw_song_screen(ed);    break;

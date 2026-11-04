@@ -239,20 +239,22 @@ so.
 
 ## Starting maximized, and a fullscreen button
 
-Both asked for on 2026-11-03, for the same reason: by the time this gets
-launched the band is about to play, so the useful size is all of the screen,
-and getting there should not need a function key.
+**Both built on 2026-11-03.** It starts maximized, and the set list carries a
+fullscreen button in its top-right corner.
 
-**Start maximized** is one line - `ShowWindow(hwnd, SW_SHOWDEFAULT)` in
-`btui_main.cpp` becomes `SW_MAXIMIZE`.
+The hazard this entry was written to flag turned out to be unverifiable here
+rather than absent: `toggle_fullscreen()` saved the window rect and style on
+the way in and put them back on the way out, and starting maximized means the
+saved style carries `WS_MAXIMIZE` with a monitor-sized rect - a window
+claiming to be maximized at coordinates somebody wrote down. Testing it needs
+an interactive desktop, and the test VM is reached over SSH in session 0,
+where the program exits rather than opening a window at all.
 
-What to check rather than assume is the interaction with fullscreen.
-`toggle_fullscreen()` saves the window rect and style on the way in and puts
-them back on the way out. Starting maximized means the saved style carries
-`WS_MAXIMIZE` and the saved rect is already the monitor, and restoring a
-maximized style together with an explicit `SetWindowPos` is one of the places
-Windows is awkward. Maximize, F11, F11, and confirm it comes back maximized
-rather than to a restored-size window sitting at maximized coordinates.
+So the dependency was removed instead of tested: exiting fullscreen from a
+maximized window now hands the job to `ShowWindow(SW_MAXIMIZE)` rather than
+replaying a saved rect, which has no edge case to get wrong. **The F11 round
+trip is still unconfirmed on real hardware** - it wants ten seconds at the gig
+laptop.
 
 **The fullscreen button needs no new machinery**, which was the open question
 in asking for it. Play mode is already mouse-aware: the set list hit-tests
@@ -284,8 +286,11 @@ segue arrow (U+2193) renders at all.
   and `bt_midi_in_find` - because the lighting screen's `listen` button needed
   it. What is missing is binding an incoming note to play, stop or next, and a
   screen to set that binding on.
-- **Align view.** Waveform against a click grid, drag to nudge, audition a few
-  bars against the click. `bt_peaks` is built and tested for it.
+- **Narrow windows.** Below about 1280px wide, rows laid out at fixed widths
+  run past the edge: measured at 1024x700, align overruns by 316px, audio by
+  150, the song screen's cue row by 63 and the set list by 20. Harmless on the
+  gig laptop, which runs maximized on a large screen, and a reflow of four
+  screens to fix - so it is written down rather than half-done.
 - **Window size.** Not remembered between runs. The last set list, the last
   device and six recents are, in `settings.json` beside the other machine
   config - window geometry is the one piece that is not. Starting maximized
