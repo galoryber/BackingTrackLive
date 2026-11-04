@@ -1113,6 +1113,10 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
     st.device_live = true;
     st.device_name = "OUT 1-4 (BEHRINGER UMC 404HD)  \xc2\xb7  Windows WASAPI";
     st.xruns       = 0;
+    /* A band with lights, which is what the screenshots are of. Left false
+     * the footer hides B, which is right for a laptop with no cue file and
+     * wrong for a picture meant to show what the program does. */
+    st.between_songs_ready = true;
     /* The state worth having a picture of: the interface has gone. */
     if (!std::strcmp(state, "disconnected")) {
         st.device_live = false;
