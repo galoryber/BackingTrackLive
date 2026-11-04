@@ -1401,7 +1401,17 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
     /* Content in a child that stops short of the footer, so the footer is
      * always visible rather than pushed off the bottom by a long table. */
     const float footer_h = ui_px * 2.6f;
-    ImGui::BeginChild("content", ImVec2(0, -footer_h), false);
+    /* The scrollbar is always there, even when there is nothing to scroll.
+     *
+     * Not cosmetic: a row sized from GetContentRegionAvail() is laid out
+     * before ImGui knows whether a vertical scrollbar is needed. When one
+     * then appears it takes its width back, and every such row is left
+     * hanging exactly ScrollbarSize over the edge - which is offered to you
+     * as a sideways scroll. Reserving it unconditionally makes the content
+     * width the same on every frame and every screen, which is the only way
+     * this stops being a bug that comes back. */
+    ImGui::BeginChild("content", ImVec2(0, -footer_h), false,
+                      ImGuiWindowFlags_AlwaysVerticalScrollbar);
     switch (ed.screen) {
     case bt_edit_screen::setlist: draw_setlist_screen(ed); break;
     case bt_edit_screen::song:    draw_song_screen(ed);    break;
