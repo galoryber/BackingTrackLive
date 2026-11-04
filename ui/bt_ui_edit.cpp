@@ -649,6 +649,18 @@ uint64_t render_signature(const bt_song &s) {
     return h;
 }
 
+/* TEMPORARY probe - removed before this branch merges. Records which widget
+ * reaches furthest right, so the sideways overflow is measured, not guessed. */
+float g_probe_max = 0.0f;
+char  g_probe_who[64] = {0};
+void probe(const char *who) {
+    const float x = ImGui::GetItemRectMax().x;
+    if (x > g_probe_max) {
+        g_probe_max = x;
+        std::snprintf(g_probe_who, sizeof(g_probe_who), "%s", who);
+    }
+}
+
 void draw_song_screen(bt_ui_edit &ed) {
     if (ed.song < 0 || ed.song >= ed.sl->nsongs) {
         ed.screen = bt_edit_screen::setlist;
@@ -669,6 +681,7 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::BeginDisabled(ed.song + 1 >= ed.sl->nsongs);
     if (ImGui::Button("next >")) ed.song++;
     ImGui::EndDisabled();
+    probe("nav row");
 
     ImGui::Separator();
 
@@ -684,6 +697,7 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::SameLine(0, 26);
     ImGui::SetNextItemWidth(110);
     if (ImGui::InputText("tuning", s.tuning, sizeof(s.tuning))) ed.dirty = true;
+    probe("title/artist/tuning");
 
     ImGui::SetNextItemWidth(620);
     if (ImGui::InputText("cue", s.cue, sizeof(s.cue))) ed.dirty = true;
@@ -693,6 +707,7 @@ void draw_song_screen(bt_ui_edit &ed) {
     if (ImGui::IsItemHovered())
         ImGui::SetTooltip("Shown on stage, exactly as typed.\n"
                           "Blank shows nothing.");
+    probe("cue row");
 
     /* Tempo is metadata, not analysis: it has to match what is already in the
      * stems. Saying so here is cheaper than anyone discovering it. */
@@ -799,6 +814,7 @@ void draw_song_screen(bt_ui_edit &ed) {
         ImGui::SameLine();
         ImGui::TextColored(COL_WARN, "last song - it will stop anyway");
     }
+    probe("length / on-end row");
 
     ImGui::Spacing();
     ImGui::Separator();
@@ -807,6 +823,7 @@ void draw_song_screen(bt_ui_edit &ed) {
     draw_transport(ed, "song");
     ImGui::TextDisabled("nudge while it plays - you will hear it from where you are, "
                         "not from the top");
+    probe("transport + hint");
 
     /* ---- lighting cues ----------------------------------------------
      *
@@ -955,6 +972,7 @@ void draw_song_screen(bt_ui_edit &ed) {
 
     ImGui::SameLine(0, 18);
     ImGui::BeginDisabled(!have_sel || s.track[ed.track].type == BT_TRACK_CLICK);
+    probe("before align button");
     if (ImGui::Button("align \xe2\x86\x92")) ed.screen = bt_edit_screen::align;
     ImGui::EndDisabled();
     if (!have_sel && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
@@ -1370,10 +1388,11 @@ bool bt_ui_edit_draw(bt_ui_edit &ed) {
             if (fp) {
                 std::fprintf(fp,
                     "screen=%d scrollmaxx=%.2f scrollx=%.2f scrollbar=%.2f "
-                    "availx=%.2f cursorx=%.2f\n",
+                    "availx=%.2f cursorx=%.2f widest=%.2f who=%s\n",
                     (int)ed.screen, ImGui::GetScrollMaxX(), ImGui::GetScrollX(),
                     ImGui::GetStyle().ScrollbarSize,
-                    ImGui::GetContentRegionAvail().x, ImGui::GetCursorPosX());
+                    ImGui::GetContentRegionAvail().x, ImGui::GetCursorPosX(),
+                    g_probe_max, g_probe_who);
                 std::fclose(fp);
             }
         }
