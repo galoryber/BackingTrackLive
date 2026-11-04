@@ -237,6 +237,45 @@ generator can fix that, by keeping an existing bar for any cue that is still
 there and taking the generated bar only for new ones. §9 of the contract says
 so.
 
+## Starting maximized, and a fullscreen button
+
+Both asked for on 2026-11-03, for the same reason: by the time this gets
+launched the band is about to play, so the useful size is all of the screen,
+and getting there should not need a function key.
+
+**Start maximized** is one line - `ShowWindow(hwnd, SW_SHOWDEFAULT)` in
+`btui_main.cpp` becomes `SW_MAXIMIZE`.
+
+What to check rather than assume is the interaction with fullscreen.
+`toggle_fullscreen()` saves the window rect and style on the way in and puts
+them back on the way out. Starting maximized means the saved style carries
+`WS_MAXIMIZE` and the saved rect is already the monitor, and restoring a
+maximized style together with an explicit `SetWindowPos` is one of the places
+Windows is awkward. Maximize, F11, F11, and confirm it comes back maximized
+rather than to a restored-size window sitting at maximized coordinates.
+
+**The fullscreen button needs no new machinery**, which was the open question
+in asking for it. Play mode is already mouse-aware: the set list hit-tests
+rows against `ImGui::GetIO().MousePos` and reports the click back to the host
+through `bt_ui_result::click`. So the button is a fourth value on
+`bt_ui_click`, a rect to hit-test, and the host calling
+`toggle_fullscreen(hwnd)` - which already exists and already takes the HWND.
+
+Two details it does need:
+
+- **The screen has to know which state it is in**, so the icon can mean
+  "leave" while fullscreen and "enter" while not. That is a `bool fullscreen`
+  on `bt_ui_state`, set by the host from `g_fullscreen`.
+- **Not in the footer.** The hints and the interface badge already compete for
+  that line, and the hints drop one at a time until what is left fits beside
+  the badge. A third claimant makes a tight line tighter, and the top corner
+  is empty.
+
+The icon can be a glyph rather than drawn geometry: ImGui is pinned at
+v1.92.9b, whose font system rasterises glyphs on demand, so the atlas is not
+confined to the Latin range that `load_font()` asks for. That is also why the
+segue arrow (U+2193) renders at all.
+
 ## Other product gaps, not CLI-shaped
 
 - **Hands-free control.** A set cannot currently be run without touching the
@@ -249,7 +288,9 @@ so.
   bars against the click. `bt_peaks` is built and tested for it.
 - **Window size.** Not remembered between runs. The last set list, the last
   device and six recents are, in `settings.json` beside the other machine
-  config - window geometry is the one piece that is not.
+  config - window geometry is the one piece that is not. Starting maximized
+  (above) makes most of this moot, since the size nobody wants to re-set is
+  the full screen.
 - **ASIO.** Not blocking — the UMC404HD exposes a four-channel endpoint under
   WASAPI — but worth having for exclusive device access and lower latency.
 - **A backup-laptop story.** The set list folder is deliberately copyable, but
