@@ -1149,28 +1149,6 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                   : !std::strcmp(state, "editsong")  ? bt_edit_screen::song
                   : !std::strcmp(state, "editaudio") ? bt_edit_screen::audio
                                                      : bt_edit_screen::setlist;
-        if (ed.screen == bt_edit_screen::lighting ||
-            ed.screen == bt_edit_screen::song) {
-            bt_song &lg = sl->song[ed.song >= 0 && ed.song < sl->nsongs ? ed.song : 0];
-            if (lg.nlight_cues == 0) {
-                struct { int32_t bar, ch, note; bt_light_kind k; const char *what; } cues[] = {
-                    {   1,  1,  0, BT_LIGHT_LOOK, "warm orange verse" },
-                    {  17,  1,  1, BT_LIGHT_LOOK, "blue, drums in"    },
-                    {  33,  1,  2, BT_LIGHT_LOOK, "chorus - full"     },
-                    {  49, 16, 77, BT_LIGHT_HIT,  "fog"               },
-                    {  57,  1,  3, BT_LIGHT_LOOK, "solo chase"        },
-                    { 138, 16, 37, BT_LIGHT_END,  "between songs"     },
-                };
-                for (size_t k = 0; k < sizeof(cues) / sizeof(cues[0]); k++) {
-                    bt_light_event &c = lg.light_cue[lg.nlight_cues++];
-                    std::memset(&c, 0, sizeof(c));
-                    c.bar = cues[k].bar; c.ch = cues[k].ch;
-                    c.note = cues[k].note; c.kind = cues[k].k;
-                    std::snprintf(c.label, sizeof(c.label), "%s", cues[k].what);
-                }
-            }
-        }
-
         if (ed.screen == bt_edit_screen::align) {
             /* A stem that begins 380 ms after the downbeat: what a purchased
              * backing track with a lead-in actually looks like. */
@@ -1215,6 +1193,24 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
                 }
             }
         }
+        /* Lighting. The shot builds no show, so without this the song screen
+         * reports that cues cannot be edited - true of a demo set, and a poor
+         * advertisement for the feature. Set through ed.cues, which is what
+         * the screen actually draws; the old version of this filled
+         * bt_song::light_cue, the migration-only array the editor stopped
+         * reading when the cue file became the source of truth. */
+        static bt_light_event shot_cues[] = {
+            {   1,  1,  0, BT_LIGHT_LOOK, "warm orange verse" },
+            {  17,  1,  1, BT_LIGHT_LOOK, "blue, drums in"    },
+            {  33,  1,  2, BT_LIGHT_LOOK, "chorus - full"     },
+            {  49, 16, 77, BT_LIGHT_HIT,  "fog"               },
+            {  57,  1,  3, BT_LIGHT_LOOK, "solo chase"        },
+            { 138, 16, 37, BT_LIGHT_END,  "between songs"     },
+        };
+        ed.cues          = shot_cues;
+        ed.ncues         = (int32_t)(sizeof(shot_cues) / sizeof(shot_cues[0]));
+        ed.can_edit_cues = true;
+
         /* Give the shot something to show: the demo songs carry no stems. */
         if (ed.song >= 0 && ed.song < sl->nsongs) {
             bt_song &ss = sl->song[ed.song];

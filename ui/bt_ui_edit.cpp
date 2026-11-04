@@ -844,10 +844,14 @@ void draw_song_screen(bt_ui_edit &ed) {
         ImGui::SameLine();
 
         if (!ed.can_edit_cues) {
+            /* Only say a file could not be read when there was one. With no
+             * set list file there is no cue file either and nothing failed -
+             * reporting a read error for a thing never read sends somebody
+             * looking for a corrupt file that does not exist. */
             ImGui::TextColored(COL_WARN, "%s",
                 ed.show_why ? ed.show_why
-                            : "the cue file could not be read, so cues cannot "
-                              "be changed without risking what is in it");
+                            : "cues are kept beside the set list, so they need "
+                              "a set list saved to a file");
         } else {
             if (ImGui::Button("+ cue")) ed.want_add_cue = true;
             ImGui::SameLine();
