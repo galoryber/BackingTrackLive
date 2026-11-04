@@ -6,9 +6,16 @@
 # conclusion is the only thing worth trusting. Takes a ref (default: the
 # current HEAD).
 #
-# Exit codes: 0 green, 1 a job failed, 2 still running. Those are distinct on
-# purpose - treating "in progress" as a failure is the same class of mistake
-# as treating a failure as success, just in the other direction.
+# Exit codes: 0 green, 1 a job failed, 2 still running, 3 no check runs yet
+# for this ref, 4 the API could not be reached. Those are distinct on purpose
+# - treating "in progress" as a failure is the same class of mistake as
+# treating a failure as success, just in the other direction.
+#
+# 4 is separate from 2 for the same reason. An expired token and a run still
+# in progress are both "no answer yet", but one resolves by waiting and the
+# other never does: a poll loop that cannot tell them apart waits for ever on
+# a broken token. An expired PAT is what prompted this - it had read as
+# "still running" until somebody looked.
 set -eu
 
 REPO=${REPO:-galoryber/BackingTrackLive}
@@ -49,7 +56,7 @@ try:
     d = api(f"https://api.github.com/repos/{repo}/commits/{ref}/check-runs")
 except Exception as e:
     print("could not reach the API:", e)
-    sys.exit(2)
+    sys.exit(4)
 
 runs = d.get("check_runs", [])
 if not runs:
