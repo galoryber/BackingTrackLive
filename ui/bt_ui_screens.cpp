@@ -325,14 +325,32 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
         "SPACE  play      E  edit",
         "",
     };
+    /* With lighting running, B is the one key somebody needs under pressure
+     * and is least likely to have memorised, so it survives further down the
+     * list than "next song" does. Offered only when the cue file defines the
+     * look, because a key that does nothing is worse than no key. */
+    static const char *const hints_lit[] = {
+        "CLICK  choose      DOUBLE-CLICK or SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose"
+        "      N  next song      B  between songs      E  edit",
+        "CLICK  choose      SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose"
+        "      B  between songs      E  edit",
+        "SPACE  play      \xe2\x86\x91 \xe2\x86\x93  choose      B  between songs      E  edit",
+        "SPACE  play      B  between songs      E  edit",
+        "B  between songs      E  edit",
+        "",
+    };
+    const char *const *use = st.between_songs_ready ? hints_lit : hints;
+    const size_t nuse = st.between_songs_ready
+                      ? sizeof(hints_lit) / sizeof(hints_lit[0])
+                      : sizeof(hints) / sizeof(hints[0]);
     /* A gap, not merely an absence of overlap: text that ends exactly
      * where the badge starts reads as one run-on line. */
     const float room = sz.x - pad * 2.0f - device_badge_w(f, st, sz) - pad;
-    for (size_t i = 0; i < sizeof(hints) / sizeof(hints[0]); i++) {
-        if (!*hints[i] || text_w(f, key_sz, hints[i]) <= room) {
-            if (*hints[i])
+    for (size_t i = 0; i < nuse; i++) {
+        if (!*use[i] || text_w(f, key_sz, use[i]) <= room) {
+            if (*use[i])
                 text_at(dl, f, key_sz, ImVec2(pad, fy + foot_h * 0.32f),
-                        COL_TEXT, hints[i]);
+                        COL_TEXT, use[i]);
             break;
         }
     }

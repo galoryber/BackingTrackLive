@@ -290,6 +290,10 @@ void fill_state(bt_ui_state &st, App &a) {
     st.selected    = a.selected;
     st.show_clock  = a.show_clock;
     st.fullscreen  = g_fullscreen;
+    /* Spelled out rather than calling lighting_on(), which is defined below
+     * this and would not be visible here. */
+    st.between_songs_ready =
+        a.midi && a.show && bt_lightshow_special(a.show, "between_songs") != nullptr;
     st.sample_rate = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
     st.playing     = transport_playing(a);
     st.armed       = a.armed && !st.playing;
@@ -624,6 +628,26 @@ void lighting_send(App &a, int32_t ch, int32_t note, bool is_look,
     a.last_note = note;
     a.cues_fired++;
     if (label && *label) std::snprintf(a.cue_label, sizeof(a.cue_label), "%s", label);
+}
+
+/* An explicit press, not a cue - §6 of the contract, where the note lives in
+ * the cue file's `specials` because this program has no idea what one means.
+ *
+ * Never suppressed. This gets pressed when the lights are somewhere wrong,
+ * and "that look is already showing" is exactly the case where QLC+'s toggle
+ * does the useful thing: it switches the look off, which is the blackout the
+ * hand was reaching for. What is showing has to follow that - if the note we
+ * just sent is the note that was already up, nothing is up now, and claiming
+ * otherwise would suppress the next cue that tried to restore it. */
+bool lighting_special(App &a, const char *which) {
+    if (!a.midi || !a.show) return false;
+    const bt_light_special *sp = bt_lightshow_special(a.show, which);
+    if (!sp || sp->note < 0) return false;
+
+    const bool was_showing = (sp->ch == a.last_ch && sp->note == a.last_note);
+    lighting_send(a, sp->ch, sp->note, false, which);
+    if (was_showing) { a.last_ch = -1; a.last_note = -1; }
+    return true;
 }
 
 void lighting_event(App &a, const bt_light_event &ev) {
@@ -982,6 +1006,18 @@ void on_key(HWND hwnd, WPARAM key) {
             a.selected++;
             if (transport_playing(a)) transport_start(a, false);
         }
+        break;
+    case 'B':
+        /* The bail-out, and the reason it exists: the band is out of sync
+         * with the click, somebody presses space, and the lights stay on
+         * whatever the song left up - deliberately, because the room has no
+         * idea anything happened. This is how they get back to the
+         * between-songs look in one press, without the laptop.
+         *
+         * Allowed while playing too. The next cue takes over at its bar,
+         * which is right: a song that is still running should still light
+         * itself. */
+        lighting_special(a, "between_songs");
         break;
     case 'C':
         a.show_clock = !a.show_clock;
@@ -1663,8 +1699,7 @@ int main(int argc, char **argv) {
                                                              : "stop_all";
                 g_edit.want_special = 0;
                 const bt_light_special *sp = bt_lightshow_special(g_app.show, which);
-                if (sp && sp->note >= 0) {
-                    lighting_send(g_app, sp->ch, sp->note, false, nullptr);
+                if (lighting_special(g_app, which)) {
                     std::snprintf(g_edit.status, sizeof(g_edit.status),
                                   "sent note %d on channel %d", sp->note, sp->ch);
                 } else {
