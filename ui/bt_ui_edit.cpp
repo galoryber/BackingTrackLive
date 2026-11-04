@@ -1,6 +1,7 @@
 /* Copyright 2026 Gary Lobermier. Licensed under the Apache License, Version 2.0. */
 #include "bt_ui_edit.h"
 #include "imgui.h"
+#include "imgui_internal.h"   /* TEMPORARY, for the layout probe */
 
 #include <windows.h>
 #include <commdlg.h>
@@ -654,7 +655,11 @@ uint64_t render_signature(const bt_song &s) {
 float g_probe_max = 0.0f;
 char  g_probe_who[64] = {0};
 void probe(const char *who) {
-    const float x = ImGui::GetItemRectMax().x;
+    /* CursorMaxPos is the running furthest-right ImGui has placed anything in
+     * this window, which is what ContentSize - and so the sideways scroll -
+     * is computed from. GetItemRectMax only sees the last item, which is how
+     * a wide table ending in a narrow cell walked straight past the probe. */
+    const float x = ImGui::GetCurrentWindow()->DC.CursorMaxPos.x;
     if (x > g_probe_max) {
         g_probe_max = x;
         std::snprintf(g_probe_who, sizeof(g_probe_who), "%s", who);
@@ -920,6 +925,7 @@ void draw_song_screen(bt_ui_edit &ed) {
                     ImGui::PopID();
                 }
                 ImGui::EndTable();
+                probe("cues table");
 
                 /* Out of order is not wrong - every cue is absolute - but it
                  * is almost certainly a typo, and it makes the column
@@ -935,14 +941,17 @@ void draw_song_screen(bt_ui_edit &ed) {
                 ImGui::TextDisabled("the channel and note are whatever your "
                                     "lighting desk is listening for - look "
                                     "them up there once and type them here");
+                probe("cues hint");
             }
         }
     }
 
+    probe("after lighting block");
     ImGui::Spacing();
     ImGui::TextUnformatted("TRACKS");
     ImGui::SameLine();
     if (ImGui::Button("+ add stem")) add_track(ed, s);
+    probe("tracks header");
 
     const bool have_sel = ed.track >= 0 && ed.track < s.ntracks;
 
@@ -980,6 +989,7 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::Spacing();
 
     draw_tracks(ed, s);
+    probe("tracks table");
 }
 
 /* --------------------------------------------------------- align screen */
