@@ -118,6 +118,8 @@ for ever after.
 just when scrubbing in rehearsal. A lighting state should be put back when you
 drop into the middle of a song; a blast of fog should not go off again.
 
+![The lighting screen](images/editlight.png)
+
 **Edit mode -> lighting** has a `listen` button which shows any note arriving
 on the port. If the desk reports what it is doing, pressing a look there shows
 its number and saves the hunt.
