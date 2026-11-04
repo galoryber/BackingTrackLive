@@ -380,7 +380,28 @@ void draw_transport(bt_ui_edit &ed, const char *id) {
                   (int)(total / 60.0),       total       - 60.0 * (int)(total / 60.0));
 
     ImGui::SameLine();
-    ImGui::SetNextItemWidth(-220);
+    /* Reserve exactly what comes after the slider, rather than guessing it.
+     *
+     * This was a hardcoded -220, and "drag to skip" plus the two buttons
+     * need about 256 - so the row ran roughly 36px past the content edge and
+     * ImGui, reasonably, let you scroll sideways to find it. That was the few
+     * pixels of horizontal scroll on the song screen: not a stray widget, a
+     * reservation that was too small for what it was reserving for.
+     *
+     * Measured from the labels, so it stays right if the font, the DPI or the
+     * wording changes - any of which would have broken the number again. */
+    const ImGuiStyle &tsty = ImGui::GetStyle();
+    const char *scrub_hint = "drag to skip";
+    float tail = ImGui::CalcTextSize(scrub_hint).x
+               + ImGui::CalcTextSize("start").x    + tsty.FramePadding.x * 2.0f
+               + ImGui::CalcTextSize("last 20s").x + tsty.FramePadding.x * 2.0f
+               + tsty.ItemSpacing.x * 3.0f;
+    /* A window too narrow for all of it keeps a usable slider; the tail is
+     * what gives, which is the same thing the old number did badly. */
+    const float scrub_avail = ImGui::GetContentRegionAvail().x;
+    if (tail > scrub_avail - 120.0f) tail = scrub_avail - 120.0f;
+    if (tail < 0.0f) tail = 0.0f;
+    ImGui::SetNextItemWidth(-tail);
     float at = (float)ed.play_sec;
     if (ImGui::SliderFloat("##scrub", &at, 0.0f, (float)(total > 0.0 ? total : 1.0),
                            pos, ImGuiSliderFlags_NoRoundToFormat)) {
@@ -388,7 +409,7 @@ void draw_transport(bt_ui_edit &ed, const char *id) {
         ed.seek_sec  = at;
     }
     ImGui::SameLine();
-    ImGui::TextDisabled("drag to skip");
+    ImGui::TextDisabled("%s", scrub_hint);
 
     /* The ends of a song are where the answers are, so make them one press. */
     ImGui::SameLine();
