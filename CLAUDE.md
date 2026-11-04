@@ -132,13 +132,12 @@ src/player/          set list player + loader thread: selection, on_end,
 src/device/          PortAudio backend. A SEPARATE library: libbacktrack has
                      no device dependency, and nothing in tests/ links this.
 src/midi/            MIDI through winmm, for driving QLC+ over a loopMIDI
-                     port. A SEPARATE library, Windows only. Output drives the
-                     lights; input exists too, so far only for the lighting
-                     screen's note monitor. Never called from the audio
-                     callback: sending MIDI
-                     is a syscall. Cues fire from the UI thread, where a
-                     frame of jitter is far below what a lighting rig can
-                     express.
+                     port. A SEPARATE library, Windows only. Output drives
+                     the lights; input exists too, so far only for the
+                     lighting screen's note monitor. Never called from the
+                     audio callback: sending MIDI is a syscall. Cues fire
+                     from the UI thread, where a frame of jitter is far
+                     below what a lighting rig can express.
 tools/btplay.c       CLI: plays a set list through a real device
 src/util/            error strings, portable thread/mutex/condvar shim
 tools/btrender.c     CLI: setlist.json -> rendered WAV (offline, deterministic)
