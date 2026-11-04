@@ -70,6 +70,134 @@ Not worth the money while the audience is one band. Worth revisiting if this
 is ever handed to people who did not build it, because "click past the warning"
 is not something to ask a stranger to do.
 
+## Licensing, if this is ever sold
+
+Nothing here is planned. It is written down because the shape of the problem
+is not obvious and the constraints are unusual, and because the four rules at
+the bottom are the ones most likely to be forgotten by anyone reaching for an
+off-the-shelf licensing SDK.
+
+**Every released tag stays Apache-2.0 for ever.** That grant is perpetual and
+irrevocable per copy, so anyone can fork `v0.1.29` and build it, and no
+licensing system changes that. What is still open is future versions: there is
+a single copyright holder and no outside contributors, so there is nobody to
+ask. Three honest models:
+
+- **Closed from here.** Leave the Apache tags up, make the next version
+  proprietary. The public repository stops being the product.
+- **Open core.** `libbacktrack` stays Apache - engine, model, JSON,
+  resampler, the parts that are pure computation - and the UI, lighting and
+  device layers go commercial. The tree is already split along that line.
+- **Open source, paid binaries.** Source stays open; what is sold is the
+  built, signed, ASIO-capable Windows package. This is the Ardour model, and
+  it sells to the same people. Nobody who would pay for this is going to set
+  up MSVC, Ninja and the Steinberg SDK to avoid it.
+
+The third needs the least new machinery and fits what is already here.
+
+### Three separate jobs, usually sold as one box
+
+- **Money** - checkout, refunds, and sales tax in dozens of jurisdictions.
+  A *merchant of record* (Paddle, Lemon Squeezy, roughly 5% + 50c) becomes
+  the legal seller and owes that tax instead of you. Stripe does not: it is
+  a processor, and the VAT and state-nexus filings stay yours. For a side
+  project that is the worst job to own and the cheapest to hand away.
+- **Entitlements** - issuing keys, counting seats, revoking, spotting abuse.
+  Keygen, Cryptlex, LicenseSpring.
+- **Enforcement** - the code here that decides whether to run. Always ours.
+
+### The architecture, which is a pattern and not a standard
+
+There is no agreed protocol - no OAuth of licensing - but everyone has
+converged on the same four steps, and they happen to be exactly what this
+program needs:
+
+1. A purchase issues a **license key**, which is only an opaque identifier.
+2. The app activates **once, online**, sending the key and a machine
+   fingerprint.
+3. The server checks the seat count and returns a **signed license file**:
+   license id, product, seats, expiry or perpetual, issued-at, fingerprint,
+   signed with Ed25519.
+4. The app holds the public key and **verifies that file locally, for ever,
+   with no network.**
+
+Step 4 is the whole answer to a laptop that never sees wifi at a venue.
+Verification is a signature check over a few hundred bytes - no socket, no
+wall clock, one file read - which is the same shape as everything in
+`libbacktrack` and would be tested the same way, against golden vectors.
+
+Keygen and Cryptlex both implement this; Keygen documents carrying its license
+files to air-gapped machines on a USB stick, and defaults those files to a
+30-day TTL, which a perpetual license would have to override. Cryptlex's
+`LexActivator` has a dependency-free C SDK, which matters here more than it
+does to most of their customers. Rolling it instead is a real option: vendor
+an Ed25519 implementation the way `third_party/` already vendors single-file
+public-domain code, and the client side is a couple of hundred lines with no
+vendor who can go out of business and brick every laptop in the field.
+
+### Trials, seats, and the fingerprint trap
+
+A trial should be a real signed license with an expiry in it, issued for an
+email address, rather than an anonymous local timestamp. It costs the user one
+field, and in exchange a band that asks can be extended by hand and everyone
+can be told about a release. Clock-setback is answered by storing the highest
+timestamp ever seen and refusing to believe time ran backwards; that is where
+the effort should stop.
+
+**A trial has to survive a gig.** The only test a band cares about is a real
+show, so expiry blocks *starting a session*, never a running one, and the
+warning appears at launch with the days remaining. A trial that runs out at
+9:40pm on a Saturday is a story told to other bands for years.
+
+**More than one laptop is a requirement, not a loophole.** There is a backup
+machine, and often a rehearsal machine. Five activations with self-service
+deactivation costs nothing and avoids a support mail every time somebody
+replaces a laptop.
+
+What to fingerprint is where this goes wrong. On Windows, `MachineGuid` dies
+on a reimage, the volume serial dies on a reformat, and the MAC address
+changes with a dock, a USB ethernet adapter or a VPN - and this audience
+plugs things in constantly. Generate a UUID on first run instead and keep it
+in `%APPDATA%\BackingTrackLive\`: it survives docks and dies on a reimage,
+which is the right way round. A mismatch should prompt a re-activation and
+never a lockout.
+
+That file belongs beside `device.json` by rule 6 - machine config is
+invisible, user content is visible - which also keeps it **out of the set list
+folder**, so handing a USB stick to the backup laptop keeps working exactly as
+it does now.
+
+### The threat model is key sharing, not cracking
+
+With public source a check is one revert away, and even a closed native binary
+falls to one patched conditional jump. Obfuscators and packers buy hours
+against anyone determined, cost real engineering, and introduce crash modes on
+users' machines that cannot be debugged from here - a bad trade for any
+program, and an absurd one for a program running a show.
+
+The realistic failure is one person buying a key and passing it to four other
+bands, and that is a detection problem the entitlement layer already solves:
+forty activations on one key is visible in a dashboard and can be revoked or
+upsold. No obfuscation would have helped. Sign the license, verify it
+properly, count seats, watch for outliers, accept the rest - this is a small,
+chatty, word-of-mouth audience where a reputation for hostile DRM costs more
+than the leakage.
+
+### Rules this program would have to keep
+
+1. **A show never fails because of licensing.** The check runs once at
+   launch, on the UI thread. Nothing license-related goes anywhere near the
+   audio callback; rule 1 forbids syscalls in render, and a network call there
+   is unthinkable.
+2. **No periodic phone-home.** The laptop has no wifi at a venue. A perpetual
+   license verifies offline indefinitely, and anything subscription-shaped
+   re-checks opportunistically with a grace period measured in months.
+3. **Lapsed means read-only, not dead.** The set list still plays. Edits and
+   updates are what stop.
+4. **Degrade, never block.** A corrupt license file, a missing one, an
+   unreadable `%APPDATA%` - the failure mode is a warning on screen, not a
+   program that will not start an hour before doors.
+
 ## Click voice
 
 The engine already synthesises the click from four parameters - `accent_hz`,
