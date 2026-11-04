@@ -384,7 +384,11 @@ bool g_quit = false;
 void toggle_fullscreen(HWND hwnd) {
     static RECT saved{};
     static DWORD saved_style = 0;
+    static bool saved_maximized = false;
     if (!g_fullscreen) {
+        /* Asked before the style changes, because once it is WS_POPUP there
+         * is nothing left to ask. */
+        saved_maximized = IsZoomed(hwnd) != FALSE;
         GetWindowRect(hwnd, &saved);
         saved_style = (DWORD)GetWindowLongPtr(hwnd, GWL_STYLE);
         MONITORINFO mi = { sizeof(mi) };
@@ -396,9 +400,24 @@ void toggle_fullscreen(HWND hwnd) {
         g_fullscreen = true;
     } else {
         SetWindowLongPtr(hwnd, GWL_STYLE, saved_style);
-        SetWindowPos(hwnd, HWND_TOP, saved.left, saved.top,
-                     saved.right - saved.left, saved.bottom - saved.top,
-                     SWP_FRAMECHANGED);
+        if (saved_maximized) {
+            /* Hand it back to Windows rather than placing it by hand.
+             *
+             * The program now starts maximized, so this is the common path,
+             * not the exotic one. Restoring WS_MAXIMIZE together with an
+             * explicit position and size asks for a window that claims to be
+             * maximized at coordinates somebody wrote down - and what you get
+             * then is up to Windows. ShowWindow does not need the rect and
+             * cannot disagree with itself, so there is no edge case left to
+             * depend on. */
+            SetWindowPos(hwnd, HWND_TOP, 0, 0, 0, 0,
+                         SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+            ShowWindow(hwnd, SW_MAXIMIZE);
+        } else {
+            SetWindowPos(hwnd, HWND_TOP, saved.left, saved.top,
+                         saved.right - saved.left, saved.bottom - saved.top,
+                         SWP_FRAMECHANGED);
+        }
         g_fullscreen = false;
     }
 }
