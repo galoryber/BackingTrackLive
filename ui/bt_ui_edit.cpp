@@ -1075,6 +1075,7 @@ void draw_align_screen(bt_ui_edit &ed) {
     ImGui::Text("%s", t.name);
     ImGui::Spacing();
     draw_transport(ed, "align");
+    probe("align: transport");
 
     /* The stem has to be in memory to be drawn, and only the loader puts it
      * there - so ask the host to make this song the live one. */
@@ -1129,23 +1130,29 @@ void draw_align_screen(bt_ui_edit &ed) {
                            "segment only");
     }
 
-    /* Moves the whole grid, where nudge moves one stem. Both land a stem on
-     * the beat; which one you want depends on whether the stems agree with
-     * each other and disagree with bar 1, or one of them is simply late. */
-    ImGui::SameLine(0, 24);
-    ImGui::SetNextItemWidth(170);
-    double db_ms = s.tempo.downbeat_ms;
-    if (ImGui::InputDouble("first downbeat (ms)", &db_ms, 1.0, 10.0, "%.1f")) {
-        s.tempo.downbeat_ms = db_ms;
-        ed.dirty = true;
-    }
-
     ImGui::SameLine(0, 24);
     ImGui::SetNextItemWidth(130);
     int off = t.offset_ms;
     if (ImGui::InputInt("nudge (ms)", &off, 1, 10)) {
         if (off > -600000 && off < 600000) { t.offset_ms = off; ed.dirty = true; }
     }
+    /* Moves the whole grid, where nudge moves one stem. Both land a stem on
+     * the beat; which you want depends on whether the stems agree with each
+     * other and disagree with bar 1, or one of them is simply late.
+     *
+     * On its own line, not beside BPM and nudge: on that row it cost about
+     * 368px and pushed this screen into a sideways scroll on a 1280-wide
+     * window - the same fault being fixed on the song screen. */
+    ImGui::SetNextItemWidth(170);
+    double db_ms = s.tempo.downbeat_ms;
+    if (ImGui::InputDouble("first downbeat (ms)", &db_ms, 1.0, 10.0, "%.1f")) {
+        s.tempo.downbeat_ms = db_ms;
+        ed.dirty = true;
+    }
+    ImGui::SameLine();
+    ImGui::TextColored(COL_DIM, "where beat 1 lands in the stems");
+    probe("align: controls");
+
     /* A spoken cue - "starts on beat three, here we go" - is a stem that
      * plays over the count-in. The engine needs nothing for it: the playhead
      * is negative there and a track's offset is subtracted from it. What it
@@ -1181,7 +1188,17 @@ void draw_align_screen(bt_ui_edit &ed) {
      * transient sits on the line or beside it, which is the entire job. */
     float avail_h = ImGui::GetContentRegionAvail().y - 90.0f;
     if (avail_h < 180.0f) avail_h = 180.0f;
-    const ImVec2 size(ImGui::GetContentRegionAvail().x, avail_h);
+    /* Minus the scrollbar, always.
+     *
+     * Claiming the whole available width is what makes the vertical scrollbar
+     * appear; the scrollbar then takes its width back, and the waveform is
+     * left hanging that far over the edge - which ImGui offers to scroll you
+     * sideways to see. Reserving it unconditionally breaks the loop, and the
+     * cost when there is no scrollbar is fourteen unused pixels nobody can
+     * see on a waveform. */
+    float wave_w = ImGui::GetContentRegionAvail().x - ImGui::GetStyle().ScrollbarSize;
+    if (wave_w < 240.0f) wave_w = 240.0f;
+    const ImVec2 size(wave_w, avail_h);
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     ImGui::InvisibleButton("wave", size);
     const bool hovered = ImGui::IsItemHovered();
