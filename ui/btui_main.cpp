@@ -279,6 +279,11 @@ int32_t transport_current(const App &a) {
     return a.live ? bt_player_current(a.player) : a.selected;
 }
 
+/* Above fill_state because fill_state reads it. The window state the screens
+ * are told about belongs with the window, but C++ only knows what it has
+ * already seen, and this file is one translation unit read top to bottom. */
+bool g_fullscreen = false;
+
 void fill_state(bt_ui_state &st, App &a) {
     std::memset(&st, 0, sizeof(st));
     st.setlist     = a.sl;
@@ -375,7 +380,6 @@ void drop_rtv() { if (g_rtv) { g_rtv->Release(); g_rtv = nullptr; } }
 bt_ui_edit g_edit;
 bool g_editing = false;
 bool g_quit = false;
-bool g_fullscreen = false;
 
 void toggle_fullscreen(HWND hwnd) {
     static RECT saved{};
