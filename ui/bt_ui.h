@@ -70,6 +70,12 @@ struct bt_ui_state {
 
     bool     show_clock;     /* off by default: a number that invites you to
                               * read it and then tells you nothing you need */
+
+    /* Whether the window is fullscreen right now.
+     *
+     * The host owns the window; this is only what it tells the screen, so
+     * the corner button can offer the move you do not already have. */
+    bool     fullscreen;
 };
 
 /* What the mouse asked for this frame.
@@ -78,7 +84,7 @@ struct bt_ui_state {
  * meant a new user clicking a song got nothing at all - the set list looked
  * like a list of buttons and behaved like a wall. Pointing at a song is the
  * most obvious thing anyone will try. */
-enum class bt_ui_click { none, select, play };
+enum class bt_ui_click { none, select, play, fullscreen };
 
 struct bt_ui_result {
     bt_ui_click click = bt_ui_click::none;

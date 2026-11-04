@@ -284,6 +284,7 @@ void fill_state(bt_ui_state &st, App &a) {
     st.setlist     = a.sl;
     st.selected    = a.selected;
     st.show_clock  = a.show_clock;
+    st.fullscreen  = g_fullscreen;
     st.sample_rate = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
     st.playing     = transport_playing(a);
     st.armed       = a.armed && !st.playing;
@@ -1303,7 +1304,10 @@ int main(int argc, char **argv) {
         return 1;
     }
     make_rtv();
-    ShowWindow(hwnd, SW_SHOWDEFAULT);
+    /* Maximized, not SW_SHOWDEFAULT. This gets launched when the band is
+     * about to play, so the useful size is the whole screen every time, and
+     * a window that opens at 1280x760 is one more thing to do first. */
+    ShowWindow(hwnd, SW_MAXIMIZE);
     UpdateWindow(hwnd);
 
     IMGUI_CHECKVERSION();
@@ -1772,6 +1776,9 @@ int main(int argc, char **argv) {
                     g_app.selected = r.song;
                     if (!transport_playing(g_app)) transport_start(g_app, true);
                 }
+                break;
+            case bt_ui_click::fullscreen:
+                toggle_fullscreen(hwnd);
                 break;
             default: break;
             }

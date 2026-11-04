@@ -101,6 +101,49 @@ void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
 
 /* ------------------------------------------------------------- stopped */
 
+/* The fullscreen corner.
+ *
+ * F11 does this and keeps doing it, but a key you have to already know about
+ * is not a control: somebody setting up ten minutes before a show should be
+ * able to see the way to a full screen. Drawn as geometry rather than a
+ * glyph, so it cannot depend on what a font happens to carry.
+ *
+ * On the set list only, never while a song plays. A click target in the
+ * corner of a screen the band is reading mid-song is a way to lose the
+ * lights to a stray hand, and F11 is still there for anyone wanting out in
+ * a hurry. */
+void draw_fullscreen_button(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
+                            bt_ui_result &res) {
+    const float pad  = sz.x * 0.03f;
+    const float side = sz.y * 0.030f;        /* the icon's own square     */
+    const float hit  = side * 1.9f;          /* generous, for a stage jab */
+    const ImVec2 c(sz.x - pad - side * 0.5f, pad * 0.6f + side * 1.1f);
+
+    const ImVec2 lo(c.x - hit * 0.5f, c.y - hit * 0.5f);
+    const ImVec2 hi(c.x + hit * 0.5f, c.y + hit * 0.5f);
+    const ImVec2 m = ImGui::GetIO().MousePos;
+    const bool over = m.x >= lo.x && m.x <= hi.x && m.y >= lo.y && m.y <= hi.y;
+    if (over) {
+        dl->AddRectFilled(lo, hi, COL_HOVER, side * 0.22f);
+        if (ImGui::IsMouseClicked(ImGuiMouseButton_Left))
+            res.click = bt_ui_click::fullscreen;
+    }
+
+    /* Four corner brackets: out at the corners means "go bigger", pulled in
+     * towards the middle means "come back". */
+    const float half = side * 0.5f;
+    const float in   = st.fullscreen ? side * 0.17f : 0.0f;
+    const float arm  = side * 0.34f;
+    const ImU32 col  = over ? COL_TEXT : COL_DIM;
+    for (int i = 0; i < 4; i++) {
+        const float sx = (i & 1) ? 1.0f : -1.0f;
+        const float sy = (i & 2) ? 1.0f : -1.0f;
+        const ImVec2 k(c.x + sx * (half - in), c.y + sy * (half - in));
+        dl->AddLine(k, ImVec2(k.x - sx * arm, k.y), col, 2.0f);
+        dl->AddLine(k, ImVec2(k.x, k.y - sy * arm), col, 2.0f);
+    }
+}
+
 void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
                   bt_ui_result &res) {
     ImFont *f = ImGui::GetFont();
@@ -115,6 +158,8 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
                   st.setlist ? st.setlist->nsongs : 0);
     text_at(dl, f, title_sz * 0.55f,
             ImVec2(pad, pad * 0.6f + title_sz * 1.05f), COL_DIM, sub);
+
+    draw_fullscreen_button(dl, st, sz, res);
 
     const float list_top = pad * 0.6f + title_sz * 2.0f;
     const float foot_h   = sz.y * 0.10f;
