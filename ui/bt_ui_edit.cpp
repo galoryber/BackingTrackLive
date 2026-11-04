@@ -1898,7 +1898,7 @@ void draw_lighting_screen(bt_ui_edit &ed) {
     if (!ed.sl) { ImGui::TextDisabled("No set list open."); return; }
 
     ImGui::TextDisabled(
-        "Cues are added on each song's own screen: a bar, a channel and a\n"
+        "Cues are edited on each song's own screen: a bar, a channel and a\n"
         "MIDI note. This screen is the port they go out of, and what is\n"
         "coming back in.");
 
@@ -1977,14 +1977,14 @@ void draw_lighting_screen(bt_ui_edit &ed) {
     /* ---- the cue file, if there is one -------------------------------- */
     ImGui::TextUnformatted("CUE FILE");
     ImGui::SameLine();
-    ImGui::TextDisabled("lighting_cues.json beside the set list - optional, "
-                        "and it wins for any song it names");
+    ImGui::TextDisabled("lighting_cues.json beside the set list - where every "
+                        "cue lives, and what a song's screen edits");
 
     if (ed.show_why)
         ImGui::TextColored(COL_WARN, "%s", ed.show_why);
     else if (!ed.show_loaded)
-        ImGui::TextDisabled("none - every song's lighting comes from the cues "
-                            "on its own screen");
+        ImGui::TextDisabled("none yet - adding a cue on a song's screen "
+                            "creates one");
     else
         ImGui::TextColored(COL_OK,
             "loaded: %d song(s), of which %d are in this set list",

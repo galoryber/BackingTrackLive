@@ -55,6 +55,21 @@ nothing. The band may still be playing the song live, and stale light beats a
 surprise every time. The between-songs look arrives from the song's own end
 event, or because somebody pressed the button for it.
 
+**`B`, on the play screen, is that button.** It sends `specials.between_songs`
+from the cue file - §6 of the contract, which is where that note is defined,
+because this program does not know what it means any more than it knows what
+any other note means. It is the bail-out: the band has come apart from the
+click, somebody presses space to stop it, the lights hold whatever the song
+left up, and `B` puts them back to the between-songs look without anyone
+going to the laptop. Pressing it when that look is *already* up toggles it
+off instead, which is a blackout - the other thing a hand reaches for at that
+moment, and the reason this one key covers both.
+
+It is never suppressed, unlike a repeated look: being asked for twice on
+purpose is the whole point. The footer offers the key only when the cue file
+defines the special, since a key that does nothing is worse than no key, and
+`edit -> lighting` has buttons for the same thing plus `stop_all`.
+
 **Cues are sent from the UI thread, driven by the sample counter** - never
 from a wall clock, and never from the audio callback, where a syscall would
 cost a dropout. That puts them within about 16 ms of the bar.
@@ -102,6 +117,8 @@ for ever after.
 "On a rewind" is the only question beyond the three numbers, and it matters
 just when scrubbing in rehearsal. A lighting state should be put back when you
 drop into the middle of a song; a blast of fog should not go off again.
+
+![The lighting screen](images/editlight.png)
 
 **Edit mode -> lighting** has a `listen` button which shows any note arriving
 on the port. If the desk reports what it is doing, pressing a look there shows

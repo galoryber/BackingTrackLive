@@ -83,6 +83,7 @@ every set list you open uses it. It survives upgrading the program.
 | `SPACE` | play the selected song |
 | `↑` `↓` or click | choose a different song |
 | `N` | skip to the next song |
+| `B` | put the lights back to the between-songs look |
 | `E` | edit mode (blocked while playing) |
 | `F11` | full screen |
 | `ESC` | leave full screen — never quits |
@@ -91,6 +92,45 @@ When a song finishes, the screen stays put and shows what is next, so one key
 starts it.
 
 ![Between songs](docs/images/armed.png)
+
+## Lights
+
+If the band runs QLC+, BackingTrackLive can drive it. A cue file sits beside
+the set list, saying which MIDI note to send at which bar of which song; QLC+
+owns the fixtures, the looks and the DMX, and this owns the timing.
+
+![Lighting cues on a song](docs/images/editsong.png)
+
+A cue is three numbers and a note to self: the **bar**, the **channel** and the
+**MIDI note** your desk is listening for. This program has no idea what any of
+them mean and no way to find out - that mapping lives in QLC+. Look the number
+up there once, type it in here, and it goes out at that bar for ever after.
+The description is for you and is never sent.
+
+**Bar 1 is the first downbeat, after the count-in.** The count-in sends
+nothing, so the between-songs look stays up while the band hears the click.
+
+**Stopping sends nothing at all.** Not a blackout, not the between-songs look,
+nothing. The band may still be playing the song live, and a stage that goes
+dark because somebody touched the laptop is worse than lights that are simply
+out of date. That is what `B` is for: when the click has been stopped and the
+lights are wherever the song left them, one key puts them back to the
+between-songs look. If that look is already up, QLC+'s button toggles it off
+instead, which is a blackout - the other thing a hand reaches for at that
+moment.
+
+**Seeking asks one question: what should the stage look like here.** Scrubbing
+back into a song restores the look that was running at that point. Things that
+fire once and are gone - a blinder, fog - stay gone, because a blast of fog
+owed from four minutes ago is not a debt worth paying.
+
+The cue file is the one source of truth. Edits here save back into it, the
+same way song edits save into `setlist.json`. The show itself is usually built
+by a separate tool; the agreement between the two is written down in
+[docs/lighting-contract.md](docs/lighting-contract.md) and neither side
+changes it alone.
+
+**No cue file means no lights, and everything else works exactly as before.**
 
 ## Before the gig
 
@@ -125,6 +165,7 @@ cannot go wrong on stage.
 |---|---|
 | [docs/gig-laptop.md](docs/gig-laptop.md) | setting up the laptop that plays the show, and where files live |
 | [docs/asio.md](docs/asio.md) | ASIO, and why released builds do not have it |
+| [docs/lighting.md](docs/lighting.md) | driving QLC+: setting it up, editing cues, proving it without a rig |
 | [docs/roadmap.md](docs/roadmap.md) | what is planned, and what is deliberately not |
 | [docs/release-notes/](docs/release-notes/) | what changed in each version |
 | [docs/development.md](docs/development.md) | building from source, the design, the test suite |

@@ -71,6 +71,11 @@ struct bt_ui_state {
     bool     show_clock;     /* off by default: a number that invites you to
                               * read it and then tells you nothing you need */
 
+    /* Whether B will do anything: lighting is running and the cue file
+     * defines a between_songs special. The footer offers the key only when
+     * pressing it would send something. */
+    bool     between_songs_ready;
+
     /* Whether the window is fullscreen right now.
      *
      * The host owns the window; this is only what it tells the screen, so
