@@ -27,6 +27,33 @@ const ImU32 COL_GOOD     = IM_COL32(112, 206, 142, 255);
  * confused with it at a glance across a stage. */
 const ImU32 COL_SEGUE    = IM_COL32(255, 146,  48, 255);
 
+/* How long before a segue the screen starts saying so.
+ *
+ * Four bars is the phrase a band already counts in and out of, so the
+ * warning arrives on a boundary somebody is listening for rather than at an
+ * arbitrary number of seconds. At 120 in 4/4 it is eight seconds, which is
+ * enough to look up and not so long that it becomes wallpaper. */
+const float SEGUE_WARN_BARS = 4.0f;
+
+/* 0 while the segue is further off than that, rising to 1 as it lands. */
+float segue_warning(const bt_ui_state &st) {
+    if (st.segue_bars < 0.0f || st.segue_bars > SEGUE_WARN_BARS) return 0.0f;
+    const float t = 1.0f - st.segue_bars / SEGUE_WARN_BARS;
+    return t < 0.0f ? 0.0f : (t > 1.0f ? 1.0f : t);
+}
+
+/* The pulse, in time with the click.
+ *
+ * On the beat rather than at a rate of its own: something moving with the
+ * music is read as part of it instead of as an alarm, and it can be
+ * counted - four, three, two, one. The downbeat is the strong one. Squared,
+ * so it hits on the beat and falls away rather than throbbing evenly, which
+ * is what the eye reads as "now" instead of "something is flashing". */
+float beat_pulse(const bt_ui_state &st) {
+    const float p = (1.0f - st.beat_phase) * (1.0f - st.beat_phase);
+    return p * (st.beat_in_bar == 0 ? 1.0f : 0.62f);
+}
+
 void text_at(ImDrawList *dl, ImFont *font, float size, ImVec2 p, ImU32 col,
              const char *s) {
     dl->AddText(font, size, p, col, s);
@@ -408,6 +435,26 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
 void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     ImFont *f = ImGui::GetFont();
     const float pad = sz.x * 0.03f;
+    const float segue_t = segue_warning(st);
+
+    /* ---- the last bars of a song that runs into the next one ----------
+     *
+     * The badge in the corner says a segue is coming. It does not say it is
+     * coming *now*, and by the time somebody has read a word the moment has
+     * gone - so over the last few bars the screen itself warms up and a
+     * border pulses on the beat.
+     *
+     * The warmth is kept low. It says "soon" from the far side of a stage
+     * without being read as anything to do, and anything stronger would
+     * cost the legibility of the words that matter at that exact moment -
+     * which song is next, and what tuning it is in.
+     *
+     * The frame does the real work, and is drawn last, over everything. */
+    if (segue_t > 0.0f) {
+        const float a = (0.05f + 0.07f * segue_t) + 0.03f * beat_pulse(st);
+        dl->AddRectFilled(ImVec2(0, 0), sz,
+                          IM_COL32(255, 146, 48, (int)(a * 255.0f)));
+    }
     const bt_song *s = (st.setlist && st.current >= 0)
                      ? &st.setlist->song[st.current] : nullptr;
     const bool counting = st.playhead < 0;
@@ -691,15 +738,24 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
              * stage, under lights, a block of colour reads and a word does
              * not - and this is the one thing on the screen that changes what
              * the band does when the song ends. */
+            /* Counting down once it is close. A number is the one part of
+             * this that is not a matter of interpretation: the colour says
+             * soon, the frame says how soon, and this says exactly. */
+            char seg[24] = "SEGUE";
+            if (segue_t > 0.0f) {
+                int left = (int)(st.segue_bars + 0.999f);
+                if (left < 1) left = 1;
+                std::snprintf(seg, sizeof(seg), "SEGUE IN %d", left);
+            }
             const float ss  = nl * 1.25f;
-            const float tw3 = text_w(f, ss, "SEGUE");
+            const float tw3 = text_w(f, ss, seg);
             const float px  = sz.x - pad - tw3 - ss * 0.55f;
             const float py2 = fy + foot_h * 0.12f;
             dl->AddRectFilled(ImVec2(px, py2),
                               ImVec2(px + tw3 + ss * 1.1f, py2 + ss * 1.5f),
                               COL_SEGUE, ss * 0.30f);
             text_at(dl, f, ss, ImVec2(px + ss * 0.55f, py2 + ss * 0.22f),
-                    IM_COL32(26, 18, 8, 255), "SEGUE");
+                    IM_COL32(26, 18, 8, 255), seg);
         }
 
         /* The next song's tuning, which is the moment you would reach for a
@@ -731,6 +787,24 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     /* While playing, working audio needs no announcement - you can hear it.
      * Absent audio does. */
     draw_device_badge(dl, st, sz, sz.y * 0.675f, false);
+
+    /* The segue frame, over everything including the footer, because it is
+     * a frame around the screen rather than a thing on it.
+     *
+     * A border and not a flashing screen. Peripheral vision is what anybody
+     * playing has to spare, and it is good at edges and movement and poor
+     * at a slow wash of colour - so the edge of the screen is exactly where
+     * this belongs. A full-screen flash would also wash out the beat dots,
+     * which are the one thing being watched at that moment, and a monitor
+     * strobing at the tempo is not something to point at a stage. */
+    if (segue_t > 0.0f) {
+        const float w = sz.y * (0.005f + 0.013f * segue_t);
+        const float a = (0.30f + 0.70f * segue_t) *
+                        (0.35f + 0.65f * beat_pulse(st));
+        dl->AddRect(ImVec2(w * 0.5f, w * 0.5f),
+                    ImVec2(sz.x - w * 0.5f, sz.y - w * 0.5f),
+                    IM_COL32(255, 146, 48, (int)(a * 255.0f)), 0.0f, 0, w);
+    }
 }
 
 } /* namespace */

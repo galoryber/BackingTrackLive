@@ -40,6 +40,17 @@ struct bt_ui_state {
     double   bpm;
     double   elapsed_sec;
     double   total_sec;
+
+    /* Where we are inside the current beat, 0 at the beat and approaching 1
+     * just before the next. For anything that has to move in time with the
+     * click rather than at a rate of its own. */
+    float    beat_phase;
+
+    /* Bars left until this song runs into the next one, fractional, or -1
+     * when it does not: the song ends, it is the last in the set, or
+     * nothing says how long it is. The screen decides how early to start
+     * warning; this is only the distance. */
+    float    segue_bars;
     uint64_t xruns;
 
     /* The audio device, on screen rather than in the window title.
