@@ -567,6 +567,50 @@ static void test_the_format_tag_follows_the_content(void) {
     bt_lightshow_free(sh);
 }
 
+/* The inverse of bt_light_event_frame: which bar is the playhead in. What
+ * tapping a cue in by ear depends on, and the place a sign error hides. */
+static void test_which_bar_a_frame_is_in(void) {
+    bt_song s;
+    memset(&s, 0, sizeof(s));
+    s.tempo.nseg = 1;
+    s.tempo.seg[0].bpm = 120.0;
+    s.tempo.seg[0].start_beat = 0;
+    s.tempo.sig_num = 4;
+    s.count_in_bars = 2;
+    const int32_t sr = 48000;   /* 120bpm 4/4: a bar is two seconds */
+
+    /* The downbeat, and anywhere inside bar 1, is bar 1. */
+    BT_CHECK_EQI(bt_light_bar_at(&s, 0, sr), 1);
+    BT_CHECK_EQI(bt_light_bar_at(&s, sr, sr), 1);
+    BT_CHECK_EQI(bt_light_bar_at(&s, 2 * sr - 1, sr), 1);
+    BT_CHECK_EQI(bt_light_bar_at(&s, 2 * sr, sr), 2);
+    BT_CHECK_EQI(bt_light_bar_at(&s, 32 * sr, sr), 17);
+
+    /* The count-in, where truncation towards zero would be wrong: every one
+     * of these would come back as bar 1 and the taps would pile up on the
+     * downbeat. */
+    BT_CHECK_EQI(bt_light_bar_at(&s, -1, sr), 0);
+    BT_CHECK_EQI(bt_light_bar_at(&s, -sr, sr), 0);
+    BT_CHECK_EQI(bt_light_bar_at(&s, -2 * sr, sr), 0);
+    BT_CHECK_EQI(bt_light_bar_at(&s, -2 * sr - 1, sr), -1);
+    BT_CHECK_EQI(bt_light_bar_at(&s, -4 * sr, sr), -1);
+
+    /* It agrees with the forward direction, which is the property that
+     * actually matters: a cue tapped at a frame fires at or before it. */
+    for (int32_t b = -1; b <= 20; b++) {
+        bt_light_event ev;
+        memset(&ev, 0, sizeof(ev));
+        ev.bar = b;
+        const bt_frame f = bt_light_event_frame(&s, &ev, sr);
+        BT_CHECK_EQI(bt_light_bar_at(&s, f, sr), b);
+    }
+
+    /* Nonsense in, something usable out - this feeds a cue's bar field. */
+    BT_CHECK_EQI(bt_light_bar_at(NULL, 0, sr), 1);
+    BT_CHECK_EQI(bt_light_bar_at(&s, 0, 0), 1);
+    BT_CHECK(bt_light_bar_at(&s, (bt_frame)-1000000 * sr, sr) >= BT_LIGHT_MIN_BAR);
+}
+
 static void test_adding_and_removing_cues(void) {
     bt_lightshow *sh = NULL;
     const char *empty = "{\"format\":\"random-riot-lighting/1\",\"songs\":[]}";
@@ -632,6 +676,7 @@ int main(void) {
     BT_RUN(test_what_fires_between_two_playheads);
     BT_RUN(test_seeking_restores_the_look_and_not_the_hits);
     BT_RUN(test_a_bad_row_costs_one_look);
+    BT_RUN(test_which_bar_a_frame_is_in);
     BT_RUN(test_adding_and_removing_cues);
     BT_RUN(test_copying_a_songs_cues);
     BT_RUN(test_sorting_cues_by_bar);

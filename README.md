@@ -84,6 +84,7 @@ every set list you open uses it. It survives upgrading the program.
 | `↑` `↓` or click | choose a different song |
 | `N` | skip to the next song |
 | `B` | put the lights back to the between-songs look |
+| `Q` | add a light cue at this bar — only when armed in *edit → lighting* |
 | `E` | edit mode (blocked while playing) |
 | `F11` | full screen |
 | `ESC` | leave full screen — never quits |
@@ -120,6 +121,13 @@ highlighted so you can see where it went.
 **Copying a song copies its lighting.** That is most of why you would copy
 one - the same arrangement with a different vocal, or a cover played twice in
 a night.
+
+**You can tap the cues in by ear.** Finding the bar a look should change on
+means playing the song and listening for it. Arm `Q` in *edit → lighting*,
+play the song, and press it wherever the lights should change; each press
+writes a cue at the bar you are in and sends nothing at all. Stop, and they
+are saved for you to give real notes to. Arming is deliberately forgotten
+every time the program starts, so a stray `Q` at a gig does nothing.
 
 **Stopping sends nothing at all.** Not a blackout, not the between-songs look,
 nothing. The band may still be playing the song live, and a stage that goes

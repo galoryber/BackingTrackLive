@@ -746,24 +746,16 @@ void tap_cue(App &a) {
     if (song < 0 || song >= a.sl->nsongs) return;
     const bt_song &s = a.sl->song[song];
 
-    const int32_t sr  = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
-    const int32_t sig = s.tempo.sig_num > 0 ? s.tempo.sig_num : 4;
-    const int64_t beat = bt_tempo_frame_beat(&s.tempo, bt_player_playhead(a.player), sr);
-
-    /* Floor division, which is not what / does for a negative beat - and a
-     * negative beat is the count-in, where tapping is as reasonable as
-     * anywhere else. Bar 1 is beat 0, so the count-in lands on bar 0 and
-     * below, exactly as a typed-in count-in cue does. */
-    int64_t bar = beat >= 0 ? beat / sig
-                            : -(((-beat) + sig - 1) / sig);
-    bar += 1;
-    if (bar < BT_LIGHT_MIN_BAR) return;
+    const int32_t sr = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
+    /* Tapping during the count-in is as reasonable as anywhere else, and
+     * lands on bar 0 and below exactly as a typed-in count-in cue does. */
+    const int32_t bar = bt_light_bar_at(&s, bt_player_playhead(a.player), sr);
 
     bt_light_event *ev = nullptr;
     const bt_err e = bt_lightshow_add_cue(a.show, s.title, &ev);
     if (e != BT_OK || !ev) return;
 
-    ev->bar  = (int32_t)bar;
+    ev->bar  = bar;
     ev->ch   = 16;
     ev->note = 37;
     ev->kind = BT_LIGHT_LOOK;
@@ -776,7 +768,7 @@ void tap_cue(App &a) {
     const bt_light_song *ls = bt_lightshow_find(a.show, s.title);
     if (ls) {
         for (int32_t i = 0; i < ls->nev; i++) {
-            if (ls->ev[i].bar != (int32_t)bar) continue;
+            if (ls->ev[i].bar != bar) continue;
             const bt_frame f = bt_light_event_frame(&s, &ls->ev[i], sr);
             if (f > a.cue_last) a.cue_last = f;
         }
@@ -1209,7 +1201,9 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
      * the footer hides B, which is right for a laptop with no cue file and
      * wrong for a picture meant to show what the program does. */
     st.between_songs_ready = true;
-    st.tap_armed = true;
+    /* Not armed: the pictures should look like a gig, and arming is a
+     * rehearsal mode that no session starts in. */
+    st.tap_armed = false;
     /* The state worth having a picture of: the interface has gone. */
     if (!std::strcmp(state, "disconnected")) {
         st.device_live = false;

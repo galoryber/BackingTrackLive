@@ -61,6 +61,31 @@ working on stays highlighted so you can see where it went.
 **Copying a song copies its cues.** Cues are matched to a song by title and a
 copy has to take a new title, so without this the copy would come up dark.
 
+## Tapping cues in by ear
+
+Two things have to come from outside this program: which MIDI note a look is,
+which is on the desk, and which bar it changes on, which is in the song. The
+lighting screen has a way at each.
+
+For the bar: tick **Q adds a cue at the current bar** on the lighting screen,
+play the song, and press `Q` every time the lights should change. Each press
+writes a cue at the bar the playhead is in - the bar you are *in*, rounded
+down, because a person presses this having heard the change, a moment after
+the downbeat. Nothing is sent; pressing `Q` cannot alter what the stage is
+doing, which is what makes it safe to press during a song. When the song
+stops, the taps are saved.
+
+Every tapped cue arrives on channel 16, note 37 - the between-songs note -
+labelled `Added by hotkey q` so it is obvious in the table which still need
+real values. **That note is a real one**: play the song again before giving
+them their own notes and the first tapped bar will throw the stage to the
+between-songs look. These are scaffolding, meant to be filled in before the
+song is played for anyone.
+
+Arming is **off every time the program starts** and is not stored anywhere.
+The two mistakes are not equal: forgetting to arm it costs a run-through at
+rehearsal, and forgetting to disarm it puts junk into the show at a gig.
+
 **Seeking asks one question: what should the stage look like here.** The most
 recent *look* at or before the playhead is sent, and nothing else. Hits -
 blinders, fog - that were missed stay missed, because a blast of fog owed from
