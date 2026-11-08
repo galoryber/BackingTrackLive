@@ -72,7 +72,7 @@ const ImVec4 COL_SECTION_ED = ImVec4(0.290f, 0.510f, 0.780f, 1.0f);
  * and it is the cue table and the track table that benefit, since a table
  * flush with the heading above it reads as the whole screen rather than as
  * part of a section. Any more than this and it would cost real width. */
-const float SECTION_INDENT = 12.0f;
+const float SECTION_INDENT = 18.0f;
 
 /* Whether a section's indent is outstanding. One screen draws all of its
  * sections in a single pass, so the pairing lives here rather than at every

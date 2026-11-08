@@ -117,7 +117,10 @@ void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
 void draw_tap_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
                     ImVec2 at, bool from_right = false) {
     ImFont *f = ImGui::GetFont();
-    const float ts = sz.y * 0.026f;
+    /* The flash is a little larger than the mode line it replaces: one is a
+     * thing to notice from where you are standing, the other a reminder for
+     * when you look. */
+    const float ts = sz.y * (st.tap_flash ? 0.030f : 0.026f);
     if (st.tap_flash) {
         char lbl[48];
         std::snprintf(lbl, sizeof(lbl), "CUE ADDED  \xc2\xb7  BAR %d",
