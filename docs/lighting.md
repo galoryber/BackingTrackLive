@@ -61,6 +61,22 @@ working on stays highlighted so you can see where it went.
 **Copying a song copies its cues.** Cues are matched to a song by title and a
 copy has to take a new title, so without this the copy would come up dark.
 
+**Renaming a song renames its cues**, for the same reason and more urgently:
+title is the only key the cue file has, so a retitled song would otherwise be
+matched to nothing and the editor's lighting section would empty as you
+typed. The entry is renamed when you finish typing the title, not per
+keystroke. If cues already exist under the new title they are left alone and
+the song matches those instead - the editor says so, and the old ones are
+still in the file under the old name.
+
+Renaming the entry is deliberately not the same as giving each song an id.
+The cue file is written by the lighting side as well, from song titles; an id
+would have to be agreed, generated and kept in step over there too, and a
+file with two keys has two ways to disagree with the set list instead of one.
+What this does mean is that **a song renamed here has to be renamed on the
+lighting side as well** before the show is next generated, or the generator
+will write the old title back in as a second entry.
+
 **The look showing has its name on the play screen**, under the song and the
 band's own note, with the bar of the next change beside it. That is the
 `label` from the cue file - §3 calls it UI-only and this is the UI it is for.

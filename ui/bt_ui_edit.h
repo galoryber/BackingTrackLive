@@ -93,6 +93,16 @@ struct bt_ui_edit {
      * a copy has to take a new one, so nothing else would carry them.
      * Empty when no copy is waiting; the host clears it. */
     char             cloned_from[BT_MAX_NAME] = {0};
+    /* Set when a song's title was changed, holding what it was called
+     * before, so the host can carry its light cues across to the new title.
+     * Cues are matched by title and nothing else, so without this, renaming
+     * a song unhooks it from every cue it had and the editor's lighting
+     * section empties as you type. Empty when nothing is waiting; the host
+     * clears it. `title_was` is how the change is noticed: the title as it
+     * stood when the field was clicked into, compared on commit rather than
+     * per keystroke, since "Black Hole Sun" arrives one letter at a time. */
+    char             renamed_from[BT_MAX_NAME] = {0};
+    char             title_was[BT_MAX_NAME] = {0};
     /* Set when an edit changed the song but not what it sounds like, so the
      * signature moves on without asking the engine to republish. */
     bool             sig_only = false;

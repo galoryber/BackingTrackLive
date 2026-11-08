@@ -123,9 +123,11 @@ than the song actually counts in for, because that cue would never fire.
 when you finish typing the bar, not while you type it, and the row stays
 highlighted so you can see where it went.
 
-**Copying a song copies its lighting.** That is most of why you would copy
-one - the same arrangement with a different vocal, or a cover played twice in
-a night.
+**Copying a song copies its lighting, and renaming one keeps it.** Copying is
+most of why you would have a template song at all - a generic set of cues to
+start from - and the next thing you do is retitle the copy. Cues are matched
+to a song by its title, so the rename carries them across; otherwise the copy
+would go dark the moment you named it.
 
 **You can tap the cues in by ear.** Finding the bar a look should change on
 means playing the song and listening for it. Arm `Q` in *edit → lighting*,

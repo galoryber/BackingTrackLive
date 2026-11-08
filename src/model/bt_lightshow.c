@@ -242,6 +242,43 @@ bt_err bt_lightshow_copy_song(bt_lightshow *show, const char *from,
     return BT_OK;
 }
 
+bt_err bt_lightshow_rename_song(bt_lightshow *show, const char *from,
+                                const char *to) {
+    if (!show || !from || !*from || !to || !*to) return BT_ERR_RANGE;
+    if (!strcmp(from, to)) return BT_OK;
+
+    int32_t si = -1, di = -1;
+    for (int32_t i = 0; i < show->nsongs; i++) {
+        if (!strcmp(show->song[i].title, from)) si = i;
+        if (!strcmp(show->song[i].title, to))   di = i;
+    }
+    /* A song with no cues renames to nothing at all, which is right: there
+     * is no entry for it and writing one would put an empty song into a
+     * file the lighting side also reads. */
+    if (si < 0) return BT_OK;
+
+    if (di >= 0 && di != si) {
+        /* Something already lights under the new name. Taking it over would
+         * destroy a show somebody built, so refuse and leave both where
+         * they are - the song now matches the cues already filed under its
+         * new title, which is exactly what title matching means, and the
+         * old ones are still there under the old title. */
+        if (show->song[di].nev > 0) return BT_ERR_EXISTS;
+
+        /* An empty entry is not a show. It is dropped rather than renamed
+         * around, because two entries with one title is a file no reader
+         * can make sense of. */
+        free(show->song[di].ev);
+        memmove(&show->song[di], &show->song[di + 1],
+                (size_t)(show->nsongs - di - 1) * sizeof(*show->song));
+        show->nsongs--;
+        if (si > di) si--;
+    }
+
+    snprintf(show->song[si].title, sizeof(show->song[si].title), "%s", to);
+    return BT_OK;
+}
+
 int32_t bt_lightshow_sort_song(bt_lightshow *show, const char *title,
                                int32_t track) {
     bt_light_song *ls = bt_lightshow_song(show, title);
