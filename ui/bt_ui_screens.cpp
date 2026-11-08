@@ -115,23 +115,25 @@ void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
  * eye, which a changed sentence is not. Naming the bar is the part worth
  * having - it is the one thing about the press that could be wrong. */
 void draw_tap_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
-                    ImVec2 at) {
+                    ImVec2 at, bool from_right = false) {
     ImFont *f = ImGui::GetFont();
     const float ts = sz.y * 0.026f;
     if (st.tap_flash) {
         char lbl[48];
         std::snprintf(lbl, sizeof(lbl), "CUE ADDED  \xc2\xb7  BAR %d",
                       st.tap_flash_bar);
-        const float tw = text_w(f, ts, lbl);
-        dl->AddRectFilled(at, ImVec2(at.x + tw + ts * 1.1f, at.y + ts * 1.6f),
+        const float w = text_w(f, ts, lbl) + ts * 1.1f;
+        const float x = from_right ? at.x - w : at.x;
+        dl->AddRectFilled(ImVec2(x, at.y), ImVec2(x + w, at.y + ts * 1.6f),
                           COL_ACCENT_T, ts * 0.30f);
-        text_at(dl, f, ts, ImVec2(at.x + ts * 0.55f, at.y + ts * 0.28f),
+        text_at(dl, f, ts, ImVec2(x + ts * 0.55f, at.y + ts * 0.28f),
                 IM_COL32(26, 18, 8, 255), lbl);
         return;
     }
     if (!st.tap_armed) return;
-    text_at(dl, f, ts, at, COL_ACCENT_T,
-            "Q  ARMED - adds a light cue at the bar you are in");
+    const char *lbl = "Q  ARMED - adds a light cue at the bar you are in";
+    const float x = from_right ? at.x - text_w(f, ts, lbl) : at.x;
+    text_at(dl, f, ts, ImVec2(x, at.y + ts * 0.28f), COL_ACCENT_T, lbl);
 }
 
 /* ------------------------------------------------------------- stopped */
@@ -445,10 +447,15 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
                     COL_TEXT, s->cue);
     }
 
-    /* Armed to tap cues in. On this screen above all, because this is the
-     * screen you are looking at when you press it - and the screen where
-     * forgetting it is armed costs something. */
-    draw_tap_badge(dl, st, sz, ImVec2(pad, sz.y * 0.325f));
+    /* Armed to tap cues in, and what the last press wrote down.
+     *
+     * Under the bar number, on purpose: the bar is what somebody tapping
+     * cues in is watching, "did that land" is a question about a bar, and
+     * the answer belongs beside the question rather than across the screen
+     * from it. Also the one part of the screen with room, once the
+     * metronome has the middle of it. */
+    if (!st.armed)
+        draw_tap_badge(dl, st, sz, ImVec2(sz.x - pad, sz.y * 0.205f), true);
 
     /* ---- the lighting look, by name -----------------------------------
      *
@@ -462,9 +469,12 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
      * Only for a song that has cues. A set list with no lighting looks
      * exactly as it did, with nothing to explain. */
     if (st.cue_any && !st.armed) {
-        const float ly  = sz.y * 0.378f;
-        const float nsz = sz.y * 0.050f;    /* the name          */
-        const float lsz = sz.y * 0.030f;    /* label, and what is next */
+        /* Under the band's own note, above the metronome, and sized just
+         * below it: this is for the far side of the stage too, but a note
+         * somebody wrote for tonight outranks the name of a lighting look. */
+        const float ly  = sz.y * 0.322f;
+        const float nsz = sz.y * 0.044f;    /* the name          */
+        const float lsz = sz.y * 0.028f;    /* label, and what is next */
         const float drop = (nsz - lsz) * 0.78f;   /* onto one baseline */
         float x = pad;
 
