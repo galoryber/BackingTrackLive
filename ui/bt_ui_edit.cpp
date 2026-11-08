@@ -57,6 +57,42 @@ const ImVec4 COL_WARN  = ImVec4(1.000f, 0.478f, 0.416f, 1.0f);
 const ImVec4 COL_OK    = ImVec4(0.478f, 0.839f, 0.588f, 1.0f);
 const ImVec4 COL_AMBER = ImVec4(1.000f, 0.839f, 0.361f, 1.0f);
 
+/* The song screen is a long column of fields, and a long column of fields
+ * reads as one wall however carefully it is worded. These two give each
+ * group a bar of its own so the eye can find "this is the lighting" without
+ * reading anything. Light enough to separate, dark enough not to compete
+ * with the controls, which are what somebody is actually looking for. */
+const ImVec4 COL_SECTION    = ImVec4(0.125f, 0.137f, 0.165f, 1.0f);
+const ImVec4 COL_SECTION_ED = ImVec4(0.290f, 0.510f, 0.780f, 1.0f);
+
+/* A full-width header bar. Leaves the cursor on the bar's own line, just
+ * after the name, so a caller that wants a button in the header says
+ * ImGui::SameLine() and one that does not simply carries on underneath.
+ *
+ * Frame-height sizing throughout, rather than text height, so a button put
+ * in the header sits inside the bar instead of hanging out of the bottom. */
+void section_header(const char *name) {
+    ImGuiStyle &sty = ImGui::GetStyle();
+    ImGui::Spacing();
+
+    const ImVec2 p0 = ImGui::GetCursorScreenPos();
+    const float  w  = ImGui::GetContentRegionAvail().x;
+    const float  h  = ImGui::GetFrameHeight() + sty.FramePadding.y * 2.0f;
+
+    ImDrawList *dl = ImGui::GetWindowDrawList();
+    dl->AddRectFilled(p0, ImVec2(p0.x + w, p0.y + h),
+                      ImGui::GetColorU32(COL_SECTION), 5.0f);
+    /* A stripe down the left edge. The bar alone is nearly the colour of a
+     * text field; the stripe is what makes it read as a heading. */
+    dl->AddRectFilled(p0, ImVec2(p0.x + 4.0f, p0.y + h),
+                      ImGui::GetColorU32(COL_SECTION_ED), 2.0f);
+
+    ImGui::SetCursorScreenPos(ImVec2(p0.x + sty.FramePadding.x + 8.0f,
+                                     p0.y + sty.FramePadding.y));
+    ImGui::AlignTextToFramePadding();
+    ImGui::TextUnformatted(name);
+}
+
 /* ----------------------------------------------------------- utilities */
 
 /* Stems must live inside the set list folder. That is not arbitrary: the
@@ -699,7 +735,7 @@ void draw_song_screen(bt_ui_edit &ed) {
     if (ImGui::Button("next >")) ed.song++;
     ImGui::EndDisabled();
 
-    ImGui::Separator();
+    section_header("SONG");
 
     ImGui::SetNextItemWidth(360);
     if (ImGui::InputText("title", s.title, sizeof(s.title))) ed.dirty = true;
@@ -714,8 +750,13 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::SetNextItemWidth(110);
     if (ImGui::InputText("tuning", s.tuning, sizeof(s.tuning))) ed.dirty = true;
 
+    /* Called "band notes" here and `cue` in the file. The label is what
+     * needed fixing: "cue" meant two unrelated things on one screen, a note
+     * to the band and a lighting cue, and the lighting ones are numerous
+     * enough to win the word. The JSON key stays `cue` - renaming it would
+     * mean rewriting every setlist.json that exists for no gain at all. */
     ImGui::SetNextItemWidth(620);
-    if (ImGui::InputText("cue", s.cue, sizeof(s.cue))) ed.dirty = true;
+    if (ImGui::InputText("band notes", s.cue, sizeof(s.cue))) ed.dirty = true;
     ImGui::SameLine();
     ImGui::TextDisabled("shown while the song plays - \"drums in at 24\", "
                         "\"vocals B34\"");
@@ -725,7 +766,7 @@ void draw_song_screen(bt_ui_edit &ed) {
 
     /* Tempo is metadata, not analysis: it has to match what is already in the
      * stems. Saying so here is cheaper than anyone discovering it. */
-    ImGui::Spacing();
+    section_header("TIMING");
     /* Typed as text, not through InputDouble's format string: a tempo of
      * 96.515 shown as 96.52 is a different song, and this is the screen where
      * the number is the truth rather than something rounded for a stage. The
@@ -829,10 +870,8 @@ void draw_song_screen(bt_ui_edit &ed) {
         ImGui::TextColored(COL_WARN, "last song - it will stop anyway");
     }
 
-    ImGui::Spacing();
-    ImGui::Separator();
     /* Audition. Blocked on nothing: this is the point of the screen. */
-    ImGui::Separator();
+    section_header("LISTEN");
     draw_transport(ed, "song");
     ImGui::TextDisabled("nudge while it plays - you will hear it from where you are, "
                         "not from the top");
@@ -846,9 +885,7 @@ void draw_song_screen(bt_ui_edit &ed) {
      * A bar, a channel and a MIDI note: what somebody reads off their
      * lighting desk. This program never needs to know what a note means. */
     {
-        ImGui::Spacing();
-        ImGui::Separator();
-        ImGui::TextUnformatted("LIGHTING");
+        section_header("LIGHTING");
         ImGui::SameLine();
 
         if (!ed.can_edit_cues) {
@@ -861,8 +898,6 @@ void draw_song_screen(bt_ui_edit &ed) {
                             : "cues are kept beside the set list, so they need "
                               "a set list saved to a file");
         } else {
-            if (ImGui::Button("+ cue")) ed.want_add_cue = true;
-            ImGui::SameLine();
             ImGui::TextDisabled("bar 1 is the first downbeat  \xc2\xb7  bar 0 "
                                 "and below are in the count-in  \xc2\xb7  saved "
                                 "to %s",
@@ -872,15 +907,14 @@ void draw_song_screen(bt_ui_edit &ed) {
             if (ed.ncues == 0) {
                 ImGui::TextDisabled("no cues - this song's lights do not "
                                     "change");
-            } else if (ImGui::BeginTable("cues", 6,
+            } else if (ImGui::BeginTable("cues", 5,
                        ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerH |
                        ImGuiTableFlags_SizingStretchProp)) {
                 ImGui::TableSetupColumn("bar",        ImGuiTableColumnFlags_WidthFixed, 90);
                 ImGui::TableSetupColumn("channel",    ImGuiTableColumnFlags_WidthFixed, 90);
                 ImGui::TableSetupColumn("midi note",  ImGuiTableColumnFlags_WidthFixed, 100);
                 ImGui::TableSetupColumn("what it is", ImGuiTableColumnFlags_WidthStretch, 3);
-                ImGui::TableSetupColumn("on a rewind", ImGuiTableColumnFlags_WidthFixed, 150);
-                ImGui::TableSetupColumn("",           ImGuiTableColumnFlags_WidthFixed, 40);
+                ImGui::TableSetupColumn("",           ImGuiTableColumnFlags_WidthFixed, 70);
                 ImGui::TableHeadersRow();
 
                 for (int32_t i = 0; i < ed.ncues; i++) {
@@ -940,29 +974,29 @@ void draw_song_screen(bt_ui_edit &ed) {
                         ed.cue_sel = i;
                     }
 
-                    /* The one question beyond the three numbers, and only
-                     * because scrubbing in rehearsal would otherwise set the
-                     * fog off again. */
+                    /* The cue's type used to be a dropdown on every row,
+                     * which is a column of "put it back" repeated down the
+                     * screen for a choice almost nobody makes: the generator
+                     * sets it, and a cue typed in here is a look in all but
+                     * the rare case. Shown rather than edited now, and only
+                     * when it is not a plain look - so a generated fog or
+                     * end cue still announces itself instead of looking like
+                     * everything else. The value is untouched either way and
+                     * is written back out as it came in. */
                     ImGui::TableNextColumn();
-                    ImGui::SetNextItemWidth(-1);
-                    const char *kinds[] = { "put it back", "skip it", "ends the song" };
-                    int kind = (int)c.kind;
-                    if (ImGui::Combo("##kind", &kind, kinds, 3)) {
-                        c.kind = (bt_light_kind)kind;
-                        ed.cues_dirty = true;
-                        ed.cue_sel = i;
+                    if (c.kind != BT_LIGHT_LOOK) {
+                        ImGui::TextColored(COL_AMBER, "%s",
+                            c.kind == BT_LIGHT_HIT ? "hit" : "end");
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                c.kind == BT_LIGHT_HIT
+                                ? "A moment - fog, a blinder. Sent every time\n"
+                                  "it is passed, and never set off late when\n"
+                                  "you scrub back past it."
+                                : "The song's last look, the between-songs\n"
+                                  "one. Not restored by scrubbing back in.");
+                        ImGui::SameLine();
                     }
-                    if (ImGui::IsItemHovered())
-                        ImGui::SetTooltip(
-                            "What happens when you drop into the middle of\n"
-                            "the song, or scrub backwards.\n\n"
-                            "put it back    - a lighting state. The most\n"
-                            "                 recent one is sent again.\n"
-                            "skip it        - a moment, like fog or a\n"
-                            "                 blinder. Not set off late.\n"
-                            "ends the song  - the between-songs look.");
-
-                    ImGui::TableNextColumn();
                     if (ImGui::SmallButton("x")) ed.want_remove_cue = i;
                     ImGui::PopID();
                 }
@@ -993,6 +1027,22 @@ void draw_song_screen(bt_ui_edit &ed) {
                     break;
                 }
 
+            }
+
+            /* Underneath the cues rather than up in the header. In the
+             * header it sat directly below "+ add stem", so adding a light
+             * cue meant aiming at a button one row from the one that opens
+             * a file picker for a stem. Here it is at the end of the list it
+             * appends to, which is also where the eye already is after
+             * reading the cues.
+             *
+             * Outside the branch above, so there is one of it whether the
+             * song has cues or none - two buttons with one label in one
+             * function are the same widget to ImGui, and the first song
+             * with no cues would have found that out on stage. */
+            if (ImGui::Button("+ cue")) ed.want_add_cue = true;
+            if (ed.ncues > 0) {
+                ImGui::SameLine();
                 ImGui::TextDisabled("the channel and note are whatever your "
                                     "lighting desk is listening for - look "
                                     "them up there once and type them here");
@@ -1000,8 +1050,7 @@ void draw_song_screen(bt_ui_edit &ed) {
         }
     }
 
-    ImGui::Spacing();
-    ImGui::TextUnformatted("TRACKS");
+    section_header("TRACKS");
     ImGui::SameLine();
     if (ImGui::Button("+ add stem")) add_track(ed, s);
 
@@ -2022,6 +2071,40 @@ void draw_lighting_screen(bt_ui_edit &ed) {
             ImGui::TextColored(COL_AMBER,
                 "listening - nothing yet. Many desks do not send this unless "
                 "they are told to.");
+    }
+
+    ImGui::Spacing();
+    ImGui::Separator();
+
+    /* ---- tapping cues in by ear ---------------------------------------
+     *
+     * The other half of the same problem: not "what note is this look" but
+     * "which bar does it change on". Both answers are in the room rather
+     * than in this program, and both are quickest to get by playing the
+     * song and pressing something. */
+    ImGui::TextUnformatted("TAPPING CUES IN");
+    ImGui::SameLine();
+    ImGui::TextDisabled("find the bars by playing the song, not by counting");
+
+    bool armed = ed.tap_armed;
+    if (ImGui::Checkbox("Q adds a cue at the current bar", &armed))
+        ed.want_tap_toggle = true;
+    ImGui::SameLine();
+    ImGui::TextDisabled("off every launch");
+
+    if (ed.tap_armed) {
+        ImGui::TextColored(COL_AMBER,
+            "armed - Q during a song writes a cue at the bar you are in, on "
+            "channel 16, note 37, labelled so you can find it. It sends "
+            "nothing.");
+        ImGui::TextColored(COL_WARN,
+            "those cues are real once saved: play the song again before "
+            "giving them their own notes and the first one will throw the "
+            "stage to the between-songs look.");
+    } else {
+        ImGui::TextDisabled("play the song, press Q where each look should "
+                            "change, then come back and give them notes. The "
+                            "taps are saved when the song stops.");
     }
 
     ImGui::Spacing();

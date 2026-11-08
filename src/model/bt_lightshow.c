@@ -390,6 +390,22 @@ bt_frame bt_light_event_frame(const bt_song *song, const bt_light_event *ev,
     return bt_tempo_beat_frame(&song->tempo, beat, sample_rate);
 }
 
+int32_t bt_light_bar_at(const bt_song *song, bt_frame at, int32_t sample_rate) {
+    if (!song || sample_rate <= 0) return 1;
+    const int32_t sig = song->tempo.sig_num > 0 ? song->tempo.sig_num : 4;
+    const int64_t beat = bt_tempo_frame_beat(&song->tempo, at, sample_rate);
+
+    /* Floor division. For a negative beat - the count-in - truncation would
+     * round towards zero, which is up, and every count-in tap would land on
+     * bar 1 instead of the count-in bar it was played in. */
+    const int64_t bar = beat >= 0 ? beat / sig
+                                  : -(((-beat) + sig - 1) / sig);
+    const int64_t out = bar + 1;
+    if (out < BT_LIGHT_MIN_BAR) return BT_LIGHT_MIN_BAR;
+    if (out > 100000) return 100000;
+    return (int32_t)out;
+}
+
 int32_t bt_light_events_between(const bt_light_song *ls, const bt_song *song,
                                 bt_frame after, bt_frame upto,
                                 int32_t sample_rate, int32_t *out, int32_t cap) {

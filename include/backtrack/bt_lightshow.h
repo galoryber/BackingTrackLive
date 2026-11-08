@@ -159,6 +159,19 @@ bt_light_song *bt_lightshow_song(bt_lightshow *show, const char *title);
 bt_frame bt_light_event_frame(const bt_song *song, const bt_light_event *ev,
                               int32_t sample_rate);
 
+/* Which bar a frame falls in - the inverse of bt_light_event_frame, and what
+ * "put a cue where the playhead is" needs.
+ *
+ * The bar the frame is *inside*, rounded down, not the nearest one. Somebody
+ * tapping a cue in presses the key having heard the section change, a couple
+ * of hundred milliseconds after the downbeat, so the bar containing the press
+ * is the bar they meant.
+ *
+ * Rounding down has to mean down through zero as well: C division truncates
+ * towards zero, which would map the whole count-in onto bar 1 and put every
+ * count-in tap on the downbeat. */
+int32_t bt_light_bar_at(const bt_song *song, bt_frame at, int32_t sample_rate);
+
 /* Events strictly after `after` and up to and including `upto`, in order.
  * Half-open at the start so an event fires once however often this is
  * called. Returns how many indices were written. */
