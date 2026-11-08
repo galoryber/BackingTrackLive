@@ -972,7 +972,26 @@ void draw_song_screen(bt_ui_edit &ed) {
                  * than the one above it. Nothing sorted, so the only thing
                  * the program could do about a list in the wrong order was
                  * complain about it. Now the list is kept in bar order and
-                 * the condition cannot arise. */
+                 * the condition cannot arise.
+                 *
+                 * What can still arise is a count-in cue that is earlier
+                 * than the count-in. Bar 0 is its last bar, so a cue at bar
+                 * B needs 1 - B bars of count-in; with fewer, the playhead
+                 * starts after the cue and it never fires. Silent, and the
+                 * sort puts it at the top where it looks fine. Better found
+                 * at home than wondered about at the gig. */
+                for (int32_t i = 0; i < ed.ncues; i++) {
+                    if (ed.cues[i].bar >= 1) continue;
+                    const int32_t needs = 1 - ed.cues[i].bar;
+                    if (s.count_in_bars >= needs) continue;
+                    ImGui::TextColored(COL_WARN,
+                        "bar %d is before this song's count-in starts - it "
+                        "needs %d count-in bar%s and the song has %d, so it "
+                        "will never fire",
+                        ed.cues[i].bar, needs, needs == 1 ? "" : "s",
+                        s.count_in_bars);
+                    break;
+                }
 
                 ImGui::TextDisabled("the channel and note are whatever your "
                                     "lighting desk is listening for - look "
