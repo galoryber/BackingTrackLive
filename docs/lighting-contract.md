@@ -1,6 +1,6 @@
 # BackingTrackLive ↔ Random Riot Lights — Integration Contract
 
-**Format version:** `random-riot-lighting/1`
+**Format version:** `random-riot-lighting/2` (readers must also accept `/1`; see §12)
 **Lighting side (owner):** `C:\Users\rando\OneDrive\Desktop\QLC-Lights\RandomRiot\` (QLC+ 5 show, generator, tests)
 **Playback side (owner):** BackingTrackLive (`github.com/galoryber/backingtracklive`)
 
@@ -59,11 +59,18 @@ Fields BTL must use are **bold**; everything else is informational.
 }
 ```
 
-- **`format`** — refuse to use the file (log a warning, run without lights) if it isn't `random-riot-lighting/1`.
+- **`format`** — refuse to use the file (log a warning, run without lights) if it is neither `random-riot-lighting/2`
+  nor `random-riot-lighting/1`. The two differ only in whether a cue may sit in the count-in (§5), so a `/1` file is a
+  valid `/2` file that does not use the feature. **Write the lowest version that expresses the content**: a show with no
+  count-in cue is written as `/1`, so a reader that only knows `/1` keeps working until the day a file actually needs more.
 - **`midi_port`** — substring passed to `bt_midi_find()`.
 - **`velocity`** — Note On velocity. Always 127 today.
 - **`songs[].title`** — matched **exactly** against `title` in BTL's `setlist.json`. A song with no match simply has no lighting.
-- **`events[].bar`** — 1-based song bar (see §5). Events are sorted by bar; several events can share a bar.
+- **`events[].bar`** — 1-based song bar (see §5). **In `/2`, may also be 0 or negative**, placing the cue inside the
+  count-in; the floor is −64, which is a guard against a corrupt number rather than a musical limit. Events are sorted
+  by bar, ascending, count-in cues first; several events can share a bar, and events sharing a bar keep their relative
+  order, which is the order they are sent in. BTL sorts on every edit and so preserves this; a `/1` reader that meets a
+  negative bar will drop the row, which is why such a file must be tagged `/2`.
 - **`events[].ch`** — MIDI channel **1–16** (the `bt_midi_*` API convention; on the wire it's `ch-1`).
 - **`events[].note`** — 0–127.
 - `type` (`look` | `hit` | `end`) and `label` — for logs/UI only. BTL must treat every event identically.
@@ -83,8 +90,13 @@ One trigger per event. No program changes, no CCs, no clock, no "next" messages.
 
 ## 5. Timing
 
-- **Bar 1** is the first bar of the song itself, i.e. the downbeat right **after** the count-in. Count-in bars send nothing
-  (the between-songs look stays up while the band hears the click).
+- **Bar 1** is the first bar of the song itself, i.e. the downbeat right **after** the count-in.
+- **Bar 0 and below are the count-in**, counting backwards: bar 0 is the *last* count-in bar, bar −1 the one before it.
+  A cue at bar B therefore needs at least `1 - B` count-in bars; with fewer, the playhead starts after the cue and it
+  never fires. BTL warns about that in its editor rather than failing the file.
+- **With no count-in cue, the count-in sends nothing** and the between-songs look stays up while the band hears the
+  click. That remains the default and the normal case; a count-in cue is an opt-in, per song, for a build into the
+  downbeat.
 - An event for bar N fires on the **downbeat of bar N** — the same instant the click plays beat 1 of that bar.
   Use BTL's own bar math (including tempo maps); the lighting side assumes nothing about tempo.
 - Fire from the playback/transport timing path, not a UI timer. ±20 ms is fine; lights are not sample-accurate.
@@ -232,3 +244,17 @@ syscalls, allocation, locks or I/O - violating it causes dropouts, which during 
 worse than a late cue. The UI thread ticks at vsync, so cues land within ~16 ms of the
 sample-accurate bar position, inside §5's ±20 ms. If the lighting side ever needs tighter
 than that, it needs a different mechanism and we should talk.
+
+---
+
+## 12. Version history
+
+**`random-riot-lighting/2`** — adds count-in cues: `events[].bar` may be 0 or negative (§4, §5). Nothing else changed,
+and nothing that was valid in `/1` is invalid in `/2`.
+
+Both sides must **read** `/1` and `/2`, and should **write** `/1` for any show that does not use a count-in cue. The
+reason is that the change is invisible in the failure case: a `/1`-only reader meeting `bar: 0` drops that one row and
+runs happily without it, so the band loses a cue and nothing says why. Tagging only the files that need it means an
+older reader fails loudly on exactly the files it would otherwise get wrong, and not on any others.
+
+BTL implements this as of v0.1.30: it accepts both tags and picks the written tag from the content.

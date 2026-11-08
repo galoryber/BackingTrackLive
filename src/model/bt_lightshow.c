@@ -68,9 +68,16 @@ bt_err bt_lightshow_load_mem(const char *text, size_t len,
     bt_err e = bt_json_parse(text, len, &root, err_line);
     if (e != BT_OK) return e;
 
-    /* The format tag first. Everything below trusts the shape it promises. */
+    /* The format tag first. Everything below trusts the shape it promises.
+     *
+     * Two versions are accepted. They differ in one way - version 2 allows a
+     * cue inside the count-in - and a version 1 file is a version 2 file that
+     * happens not to use it, so there is nothing to translate. Refusing the
+     * older tag would have taken a working rig down at the next launch over a
+     * feature that file does not contain. */
     const char *fmt = bt_json_string(bt_json_get(root, "format"), "");
-    if (!fmt || strcmp(fmt, BT_LIGHTSHOW_FORMAT) != 0) {
+    if (!fmt || (strcmp(fmt, BT_LIGHTSHOW_FORMAT) != 0 &&
+                 strcmp(fmt, BT_LIGHTSHOW_FORMAT_V1) != 0)) {
         bt_json_free(root);
         return BT_ERR_SCHEMA;
     }
@@ -131,7 +138,7 @@ bt_err bt_lightshow_load_mem(const char *text, size_t len,
             /* A nonsense event is dropped rather than failing the file. The
              * show is somebody else's build output; one bad row should cost
              * one look, not the whole rig. */
-            if (ev->bar < 1 || ev->ch < 1 || ev->ch > 16 ||
+            if (ev->bar < BT_LIGHT_MIN_BAR || ev->ch < 1 || ev->ch > 16 ||
                 ev->note < 0 || ev->note > 127) continue;
             ls->nev++;
         }
@@ -147,24 +154,31 @@ bt_err bt_lightshow_load_mem(const char *text, size_t len,
  * adding them should hit a wall rather than eat the machine. */
 #define BT_LIGHTSHOW_MAX_CUES 512
 
+/* This song's entry, created if the show has never heard of it - which is how
+ * a set list that started without a cue file gets one. NULL only on an
+ * allocation failure, so a caller may treat it as BT_ERR_ALLOC. */
+static bt_light_song *song_entry(bt_lightshow *show, const char *title) {
+    bt_light_song *ls = bt_lightshow_song(show, title);
+    if (ls) return ls;
+
+    bt_light_song *grown = (bt_light_song *)realloc(
+        show->song, (size_t)(show->nsongs + 1) * sizeof(*show->song));
+    if (!grown) return NULL;
+    show->song = grown;
+    ls = &show->song[show->nsongs];
+    memset(ls, 0, sizeof(*ls));
+    snprintf(ls->title, sizeof(ls->title), "%s", title);
+    show->nsongs++;
+    return ls;
+}
+
 bt_err bt_lightshow_add_cue(bt_lightshow *show, const char *title,
                             bt_light_event **out) {
     if (out) *out = NULL;
     if (!show || !title || !*title) return BT_ERR_RANGE;
 
-    bt_light_song *ls = bt_lightshow_song(show, title);
-    if (!ls) {
-        /* The show has never heard of this song. Give it an entry, which is
-         * how a set list that started without a cue file gets one. */
-        bt_light_song *grown = (bt_light_song *)realloc(
-            show->song, (size_t)(show->nsongs + 1) * sizeof(*show->song));
-        if (!grown) return BT_ERR_ALLOC;
-        show->song = grown;
-        ls = &show->song[show->nsongs];
-        memset(ls, 0, sizeof(*ls));
-        snprintf(ls->title, sizeof(ls->title), "%s", title);
-        show->nsongs++;
-    }
+    bt_light_song *ls = song_entry(show, title);
+    if (!ls) return BT_ERR_ALLOC;
 
     if (ls->nev >= BT_LIGHTSHOW_MAX_CUES) return BT_ERR_RANGE;
 
@@ -196,6 +210,62 @@ bt_err bt_lightshow_remove_cue(bt_lightshow *show, const char *title, int32_t at
     return BT_OK;
 }
 
+bt_err bt_lightshow_copy_song(bt_lightshow *show, const char *from,
+                              const char *to) {
+    if (!show || !from || !*from || !to || !*to) return BT_ERR_RANGE;
+    if (!strcmp(from, to)) return BT_OK;
+
+    const bt_light_song *src = bt_lightshow_find(show, from);
+    const int32_t n = src ? src->nev : 0;
+    if (n > BT_LIGHTSHOW_MAX_CUES) return BT_ERR_RANGE;
+
+    /* Nothing to copy and nothing to clear: say so rather than writing an
+     * empty entry into a file the lighting side also reads. Copying a song
+     * that has no lighting should leave no trace at all. */
+    if (n == 0 && !bt_lightshow_find(show, to)) return BT_OK;
+
+    /* The copy is taken before the destination entry is created, because
+     * creating it may move the song array and leave `src` dangling. */
+    bt_light_event *ev = NULL;
+    if (n > 0) {
+        ev = (bt_light_event *)malloc((size_t)n * sizeof(*ev));
+        if (!ev) return BT_ERR_ALLOC;
+        memcpy(ev, src->ev, (size_t)n * sizeof(*ev));
+    }
+
+    bt_light_song *dst = song_entry(show, to);
+    if (!dst) { free(ev); return BT_ERR_ALLOC; }
+
+    free(dst->ev);
+    dst->ev  = ev;
+    dst->nev = n;
+    return BT_OK;
+}
+
+int32_t bt_lightshow_sort_song(bt_lightshow *show, const char *title,
+                               int32_t track) {
+    bt_light_song *ls = bt_lightshow_song(show, title);
+    if (!ls || ls->nev < 2) return track;
+
+    /* Insertion sort, stable, on an array that is already nearly sorted - a
+     * generated show arrives in bar order and an edit moves one cue. A
+     * sorting network would be the wrong shape for twenty events and would
+     * not be stable, which matters: two looks on one downbeat were put in
+     * that order for a reason. */
+    for (int32_t i = 1; i < ls->nev; i++) {
+        const bt_light_event held = ls->ev[i];
+        int32_t j = i;
+        while (j > 0 && ls->ev[j - 1].bar > held.bar) {
+            ls->ev[j] = ls->ev[j - 1];
+            if (track == j - 1)      track = j;
+            else if (track == j)     track = j - 1;
+            j--;
+        }
+        ls->ev[j] = held;
+    }
+    return track;
+}
+
 /* ---------------------------------------------------------------------------
  * Writing
  *
@@ -218,8 +288,18 @@ bt_err bt_lightshow_to_json(const bt_lightshow *show, char **out, size_t *len) {
     sb s;
     memset(&s, 0, sizeof(s));
 
+    /* The lowest version that can express this show, so a file the lighting
+     * side's generator could already read keeps a tag it already accepts.
+     * Only a count-in cue needs version 2, and only then does an older
+     * reader need to refuse the file rather than drop the cue. */
+    bool needs_v2 = false;
+    for (int32_t i = 0; i < show->nsongs && !needs_v2; i++)
+        for (int32_t k = 0; k < show->song[i].nev; k++)
+            if (show->song[i].ev[k].bar < 1) { needs_v2 = true; break; }
+
     bt__sb_str(&s, "{\n  \"format\": ");
-    bt__sb_json_string(&s, BT_LIGHTSHOW_FORMAT);
+    bt__sb_json_string(&s, needs_v2 ? BT_LIGHTSHOW_FORMAT
+                                    : BT_LIGHTSHOW_FORMAT_V1);
     bt__sb_str(&s, ",\n  \"midi_port\": ");
     bt__sb_json_string(&s, show->port);
     bt__sb_fmt(&s, ",\n  \"velocity\": %d", show->velocity);

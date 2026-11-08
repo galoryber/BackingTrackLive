@@ -338,11 +338,13 @@ which an earlier version had and neither of which survived contact with a real
 file.
 
 The format is a contract with the lighting project:
-`docs/lighting-contract.md`, `random-riot-lighting/1`, and **neither side
-changes it alone.** BTL round-trips keys it does not model, so a file carrying
-something new comes back unharmed; anything that genuinely changes the meaning
-of the file has to bump the version, where it is refused outright rather than
-half-understood.
+`docs/lighting-contract.md`, `random-riot-lighting/2` with `/1` still read,
+and **neither side changes it alone.** BTL round-trips keys it does not
+model, so a file carrying something new comes back unharmed; anything that
+genuinely changes the meaning of the file has to bump the version, where it
+is refused outright rather than half-understood. Version 2 is the first time
+that happened: it adds count-in cues, and is written only for a file that
+uses one, so the lighting side's generator keeps reading every other file.
 
 ### Status
 

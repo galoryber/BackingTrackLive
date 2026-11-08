@@ -5,8 +5,8 @@ DMX, and a separate project owns the show design and generates the cue file
 this reads.
 
 The split is deliberate, and it is now a written contract:
-`docs/lighting-contract.md`, format `random-riot-lighting/1`. Neither side
-changes it alone.
+`docs/lighting-contract.md`, format `random-riot-lighting/2` - and `/1`,
+which is still read. Neither side changes it alone.
 
 ## What this program knows
 
@@ -36,8 +36,30 @@ is nothing to resync.
 
 ## The rules it follows
 
-**Bar 1 is the downbeat after the count-in.** The count-in sends nothing; the
-between-songs look stays up while the band hears the click.
+**Bar 1 is the downbeat after the count-in.** By default the count-in sends
+nothing and the between-songs look stays up while the band hears the click.
+
+**A cue can sit in the count-in, if you ask for one.** Bar 0 is the last
+count-in bar, bar -1 the one before it, and so on backwards - which is enough
+for a build into the downbeat, the thing a count-in is otherwise wasted on. A
+cue needs the count-in to actually reach it: bar 0 needs one count-in bar, bar
+-1 needs two. Ask for a bar earlier than the song counts in for and the editor
+says so, because the cue would simply never fire and nothing on stage would
+tell you.
+
+This is the one difference between `random-riot-lighting/1` and `/2`. A show
+with no count-in cue is still written as `/1`, so the lighting side's
+generator keeps reading it; the tag moves to `/2` only for a file that needs
+it. Both are read.
+
+**Cues are kept in bar order**, which is also the order the contract says the
+file is in. A cue added late sorts into place when you finish typing its bar -
+when you tab away or press Enter, not while you type, or the row would walk
+across the table as "117" arrives as 1, then 11, then 117. The row you are
+working on stays highlighted so you can see where it went.
+
+**Copying a song copies its cues.** Cues are matched to a song by title and a
+copy has to take a new title, so without this the copy would come up dark.
 
 **Seeking asks one question: what should the stage look like here.** The most
 recent *look* at or before the playhead is sent, and nothing else. Hits -
@@ -103,7 +125,7 @@ and one without the other is a set that does not light right.
 
 | | |
 |---|---|
-| **bar** | 1 is the first downbeat, after the count-in |
+| **bar** | 1 is the first downbeat; 0 and below are in the count-in |
 | **channel** | 1-16, whatever the desk is listening on |
 | **MIDI note** | 0-127, whichever one the desk has bound to that look |
 | **what it is** | for you, never sent - "warm orange verse" |

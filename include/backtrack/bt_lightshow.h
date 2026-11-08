@@ -6,7 +6,8 @@
  * This file is not ours. QLC+ and its generator own what every look is, which
  * bar each section starts on, and which note number means which look; all we
  * do is send the note when the playhead reaches the bar. The contract is
- * `random-riot-lighting/1` and is written down in docs/lighting.md.
+ * `random-riot-lighting/2` - version 1 is still read - and is written
+ * down in docs/lighting.md.
  *
  * Every event is absolute - "show look number N" - rather than "advance".
  * That is the whole reason this is simpler than what it replaces: a song that
@@ -23,7 +24,26 @@
 extern "C" {
 #endif
 
-#define BT_LIGHTSHOW_FORMAT "random-riot-lighting/1"
+/* What we write, and what we accept.
+ *
+ * Version 2 adds one thing: a cue may sit at bar 0 or below, inside the
+ * count-in, which version 1 reserved for "nothing is sent". Both are read,
+ * because the band's working cue file says version 1 and refusing it would
+ * take the rig down at the next launch for a feature nobody had used yet.
+ *
+ * Which one is *written* depends on the content: a show with no count-in cue
+ * is still a valid version 1 show and is written as one, so the lighting
+ * side's generator keeps reading it untouched. The tag moves to version 2
+ * only for a file that actually needs version 2 to be understood - at which
+ * point an old reader refusing it is the correct outcome, because the
+ * alternative is silently losing the cue. */
+/* How far before the first downbeat a cue may sit. A count-in is a bar or
+ * two, so this is only a guard against a corrupt number, not a musical
+ * limit: bar 0 is the last bar of the count-in, bar -1 the one before it. */
+#define BT_LIGHT_MIN_BAR         (-64)
+
+#define BT_LIGHTSHOW_FORMAT      "random-riot-lighting/2"
+#define BT_LIGHTSHOW_FORMAT_V1   "random-riot-lighting/1"
 
 /* bt_light_kind and bt_light_event come from bt_model.h. A cue typed into a
  * song and a cue generated into this file are the same thing, which is what
@@ -94,6 +114,33 @@ bt_err bt_lightshow_add_cue(bt_lightshow *show, const char *title,
 
 /* Removes one. Indices after it shift down. */
 bt_err bt_lightshow_remove_cue(bt_lightshow *show, const char *title, int32_t at);
+
+/* Gives `to` a copy of every cue `from` has, which is what copying a song in
+ * the set list means for its lighting.
+ *
+ * Cues are matched to a song by title, so a copied song - which must take a
+ * new title, or two songs on stage are indistinguishable - starts with no
+ * lighting at all unless its cues are copied across with it. That is a
+ * silent loss: the copy looks finished and goes dark.
+ *
+ * Makes `to`'s cues match `from`'s, creating its entry if the show has never
+ * heard of it. A `from` with no cues leaves a `to` that does not exist alone
+ * rather than writing an empty entry into a file the lighting side also
+ * reads: copying a song that has no lighting should leave no trace. */
+bt_err bt_lightshow_copy_song(bt_lightshow *show, const char *from,
+                              const char *to);
+
+/* Puts one song's cues in bar order, which is the order §4 of the contract
+ * says a cue file is in. Adding a cue appends it, so this is what keeps that
+ * true after an edit; it is also the whole of "the table is sorted", since
+ * the table draws this array.
+ *
+ * Returns where the cue that was at `track` ended up, or -1 if `track` was
+ * -1, so a caller can keep following the row somebody is editing. Stable:
+ * cues sharing a bar stay in the order they were in, because two looks on
+ * the same downbeat may well have to be sent in a particular order. */
+int32_t bt_lightshow_sort_song(bt_lightshow *show, const char *title,
+                               int32_t track);
 
 bt_err bt_lightshow_save_file(const bt_lightshow *show, const char *path);
 bt_err bt_lightshow_to_json  (const bt_lightshow *show, char **out, size_t *len);

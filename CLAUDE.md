@@ -199,11 +199,11 @@ letting future work live only in a conversation.
       (`src/midi`, `btmidi`), the cue file reader (`src/model/bt_lightshow.c`)
       and the firing. The show itself belongs to a separate lighting project
       which generates `lighting_cues.json`; the agreement between the two is
-      `docs/lighting-contract.md` (`random-riot-lighting/1`) and **neither
-      side changes it alone**. What a look *is* is never decided here; the
-      cue file is the one source of truth and BTL both reads and writes it,
-      so moving a cue's bar is an edit in this program. Untested against
-      physical fixtures.
+      `docs/lighting-contract.md` (`random-riot-lighting/2`, and `/1` is
+      still read) and **neither side changes it alone**. What a look *is* is
+      never decided here; the cue file is the one source of truth and BTL
+      both reads and writes it, so moving a cue's bar is an edit in this
+      program. Untested against physical fixtures.
 
 ## Shipping
 

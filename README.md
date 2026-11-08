@@ -107,8 +107,19 @@ them mean and no way to find out - that mapping lives in QLC+. Look the number
 up there once, type it in here, and it goes out at that bar for ever after.
 The description is for you and is never sent.
 
-**Bar 1 is the first downbeat, after the count-in.** The count-in sends
-nothing, so the between-songs look stays up while the band hears the click.
+**Bar 1 is the first downbeat, after the count-in.** By default the count-in
+sends nothing, so the between-songs look stays up while the band hears the
+click. If you want a build into the downbeat, bar 0 is the last count-in bar
+and bar -1 the one before it - the editor warns if you ask for a bar earlier
+than the song actually counts in for, because that cue would never fire.
+
+**Cues are kept in bar order.** Add one you missed and it sorts into place
+when you finish typing the bar, not while you type it, and the row stays
+highlighted so you can see where it went.
+
+**Copying a song copies its lighting.** That is most of why you would copy
+one - the same arrangement with a different vocal, or a cover played twice in
+a night.
 
 **Stopping sends nothing at all.** Not a blackout, not the between-songs look,
 nothing. The band may still be playing the song live, and a stage that goes

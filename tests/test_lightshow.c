@@ -107,13 +107,73 @@ static void test_a_title_that_contains_another(void) {
 static void test_refuses_a_format_it_does_not_know(void) {
     bt_lightshow *sh = NULL;
     const char *other =
-        "{\"format\":\"random-riot-lighting/2\",\"songs\":[]}";
+        "{\"format\":\"random-riot-lighting/3\",\"songs\":[]}";
     BT_CHECK(bt_lightshow_load_mem(other, strlen(other), &sh, NULL) == BT_ERR_SCHEMA);
     BT_CHECK(sh == NULL);
 
     const char *none = "{\"songs\":[]}";
     BT_CHECK(bt_lightshow_load_mem(none, strlen(none), &sh, NULL) == BT_ERR_SCHEMA);
     BT_CHECK(sh == NULL);
+}
+
+/* Both versions of the contract load. The band's working cue file says
+ * version 1, and refusing it the day version 2 existed would have taken the
+ * rig down over a feature that file does not use. */
+static void test_reads_both_contract_versions(void) {
+    for (int v = 1; v <= 2; v++) {
+        char text[160];
+        snprintf(text, sizeof(text),
+                 "{\"format\":\"random-riot-lighting/%d\",\"songs\":"
+                 "[{\"title\":\"x\",\"events\":[{\"bar\":1,\"ch\":1,\"note\":5}]}]}", v);
+        bt_lightshow *sh = NULL;
+        BT_CHECK(bt_lightshow_load_mem(text, strlen(text), &sh, NULL) == BT_OK);
+        BT_CHECK(sh != NULL);
+        if (sh) {
+            const bt_light_song *ls = bt_lightshow_find(sh, "x");
+            BT_CHECK(ls != NULL && ls->nev == 1);
+        }
+        bt_lightshow_free(sh);
+    }
+}
+
+/* A cue in the count-in, which is what version 2 added. Bar 0 is the last bar
+ * before the downbeat, so it lands at a negative frame - the count-in lives
+ * at negative beat indices and always has. */
+static void test_a_count_in_cue_lands_before_the_downbeat(void) {
+    const char *text =
+        "{\"format\":\"random-riot-lighting/2\",\"songs\":"
+        "[{\"title\":\"x\",\"events\":["
+        "{\"bar\":-1,\"ch\":1,\"note\":3},"
+        "{\"bar\":0,\"ch\":1,\"note\":4},"
+        "{\"bar\":1,\"ch\":1,\"note\":5}]}]}";
+    bt_lightshow *sh = NULL;
+    BT_CHECK(bt_lightshow_load_mem(text, strlen(text), &sh, NULL) == BT_OK);
+    const bt_light_song *ls = bt_lightshow_find(sh, "x");
+    BT_CHECK(ls != NULL);
+    if (!ls) { bt_lightshow_free(sh); return; }
+    BT_CHECK_EQI(ls->nev, 3);
+
+    bt_song s;
+    memset(&s, 0, sizeof(s));
+    s.tempo.nseg = 1;
+    s.tempo.seg[0].bpm = 120.0;
+    s.tempo.seg[0].start_beat = 0;
+    s.tempo.sig_num = 4;
+    s.count_in_bars = 2;
+    const int32_t sr = 48000;
+
+    /* 120bpm, 4/4: a bar is two seconds. */
+    BT_CHECK_EQI((int)bt_light_event_frame(&s, &ls->ev[0], sr), -4 * sr);
+    BT_CHECK_EQI((int)bt_light_event_frame(&s, &ls->ev[1], sr), -2 * sr);
+    BT_CHECK_EQI((int)bt_light_event_frame(&s, &ls->ev[2], sr), 0);
+
+    /* And it fires: the playhead starts at the top of the count-in, so the
+     * window from there to the downbeat contains both count-in cues. */
+    int32_t idx[8];
+    const int32_t n = bt_light_events_between(ls, &s, (bt_frame)-4 * sr - 1,
+                                              0, sr, idx, 8);
+    BT_CHECK_EQI(n, 3);
+    bt_lightshow_free(sh);
 }
 
 /* Bar 1 is the downbeat after the count-in, so it is frame 0 however many
@@ -188,7 +248,7 @@ static void test_a_bad_row_costs_one_look(void) {
     const char *bad =
         "{\"format\":\"random-riot-lighting/1\",\"songs\":[{\"title\":\"x\",\"events\":["
         "{\"bar\":1,\"ch\":1,\"note\":5},"
-        "{\"bar\":0,\"ch\":1,\"note\":5},"      /* bar 0 does not exist   */
+        "{\"bar\":-500,\"ch\":1,\"note\":5},"   /* no bar 500 before the top */
         "{\"bar\":9,\"ch\":17,\"note\":5},"     /* no channel 17          */
         "{\"bar\":9,\"ch\":1,\"note\":200},"    /* no note 200            */
         "{\"bar\":17,\"ch\":1,\"note\":6}]}]}";
@@ -376,6 +436,137 @@ static void test_saving_to_disk(void) {
 
 /* Adding a cue to a song the show has never heard of, which is how a set
  * list that started with no cue file gets one. */
+/* Copying a song in the set list has to bring its lighting, or the copy looks
+ * finished and goes dark. Cues are matched by title and a copy must take a
+ * new title, so nothing else would carry them. */
+static void test_copying_a_songs_cues(void) {
+    bt_lightshow *sh = NULL;
+    const char *src =
+        "{\"format\":\"random-riot-lighting/1\",\"songs\":"
+        "[{\"title\":\"Corduroy\",\"events\":["
+        "{\"bar\":1,\"ch\":1,\"note\":5,\"label\":\"intro\"},"
+        "{\"bar\":17,\"ch\":2,\"note\":6,\"type\":\"hit\"}]}]}";
+    BT_CHECK(bt_lightshow_load_mem(src, strlen(src), &sh, NULL) == BT_OK);
+
+    BT_CHECK(bt_lightshow_copy_song(sh, "Corduroy", "Corduroy (2)") == BT_OK);
+    BT_CHECK_EQI(sh->nsongs, 2);
+
+    const bt_light_song *to = bt_lightshow_find(sh, "Corduroy (2)");
+    BT_CHECK(to != NULL);
+    if (!to) { bt_lightshow_free(sh); return; }
+    BT_CHECK_EQI(to->nev, 2);
+    BT_CHECK_EQI(to->ev[0].bar, 1);
+    BT_CHECK_EQI(to->ev[0].ch, 1);
+    BT_CHECK_EQI(to->ev[0].note, 5);
+    BT_CHECK(!strcmp(to->ev[0].label, "intro"));
+    BT_CHECK_EQI(to->ev[1].bar, 17);
+    BT_CHECK(to->ev[1].kind == BT_LIGHT_HIT);
+
+    /* Two arrays, not one: editing the copy must not reach the original. */
+    bt_lightshow_song(sh, "Corduroy (2)")->ev[0].bar = 99;
+    BT_CHECK_EQI(bt_lightshow_find(sh, "Corduroy")->ev[0].bar, 1);
+
+    /* Copying over a song that already had cues replaces them rather than
+     * appending, because the copy is meant to match its source. */
+    BT_CHECK(bt_lightshow_add_cue(sh, "Low Rider", NULL) == BT_OK);
+    BT_CHECK(bt_lightshow_copy_song(sh, "Corduroy", "Low Rider") == BT_OK);
+    BT_CHECK_EQI(bt_lightshow_find(sh, "Low Rider")->nev, 2);
+
+    /* Copying a song that has no lighting is not an error and leaves no
+     * trace: an empty entry in a file the lighting side also reads is noise
+     * somebody would have to explain. */
+    const int32_t before = sh->nsongs;
+    BT_CHECK(bt_lightshow_copy_song(sh, "Never Heard Of It", "Fresh") == BT_OK);
+    BT_CHECK(bt_lightshow_find(sh, "Fresh") == NULL);
+    BT_CHECK_EQI(sh->nsongs, before);
+
+    /* But a destination that does exist is made to match, empty source and
+     * all - the copy is meant to look like its source. */
+    BT_CHECK(bt_lightshow_copy_song(sh, "Never Heard Of It", "Low Rider") == BT_OK);
+    BT_CHECK_EQI(bt_lightshow_find(sh, "Low Rider")->nev, 0);
+
+    /* Onto itself is a no-op, not a free-then-copy of its own array. */
+    BT_CHECK(bt_lightshow_copy_song(sh, "Corduroy", "Corduroy") == BT_OK);
+    BT_CHECK_EQI(bt_lightshow_find(sh, "Corduroy")->nev, 2);
+
+    BT_CHECK(bt_lightshow_copy_song(sh, "Corduroy", "") == BT_ERR_RANGE);
+    BT_CHECK(bt_lightshow_copy_song(NULL, "a", "b") == BT_ERR_RANGE);
+    bt_lightshow_free(sh);
+}
+
+/* Cues are in bar order in the file (contract section 4), and adding one
+ * appends it, so something has to put them back in order after an edit. */
+static void test_sorting_cues_by_bar(void) {
+    bt_lightshow *sh = NULL;
+    const char *src =
+        "{\"format\":\"random-riot-lighting/1\",\"songs\":"
+        "[{\"title\":\"x\",\"events\":["
+        "{\"bar\":33,\"ch\":1,\"note\":1,\"label\":\"c\"},"
+        "{\"bar\":9,\"ch\":1,\"note\":2,\"label\":\"a\"},"
+        "{\"bar\":9,\"ch\":1,\"note\":3,\"label\":\"b\"},"
+        "{\"bar\":17,\"ch\":1,\"note\":4,\"label\":\"d\"}]}]}";
+    BT_CHECK(bt_lightshow_load_mem(src, strlen(src), &sh, NULL) == BT_OK);
+
+    /* The cue being edited is followed to wherever it lands: index 0, bar 33,
+     * is the latest, so it ends up last. */
+    BT_CHECK_EQI(bt_lightshow_sort_song(sh, "x", 0), 3);
+
+    const bt_light_song *ls = bt_lightshow_find(sh, "x");
+    BT_CHECK(ls != NULL);
+    if (!ls) { bt_lightshow_free(sh); return; }
+    BT_CHECK_EQI(ls->ev[0].bar, 9);
+    BT_CHECK_EQI(ls->ev[1].bar, 9);
+    BT_CHECK_EQI(ls->ev[2].bar, 17);
+    BT_CHECK_EQI(ls->ev[3].bar, 33);
+
+    /* Stable: the two cues on bar 9 kept the order they were written in,
+     * because two looks on one downbeat were put that way for a reason. */
+    BT_CHECK(!strcmp(ls->ev[0].label, "a"));
+    BT_CHECK(!strcmp(ls->ev[1].label, "b"));
+
+    /* Already sorted changes nothing, including the tracked index. */
+    BT_CHECK_EQI(bt_lightshow_sort_song(sh, "x", 2), 2);
+    BT_CHECK_EQI(bt_lightshow_find(sh, "x")->ev[2].bar, 17);
+
+    /* A count-in cue sorts before the downbeat, which is where it happens. */
+    bt_lightshow_song(sh, "x")->ev[3].bar = 0;
+    BT_CHECK_EQI(bt_lightshow_sort_song(sh, "x", 3), 0);
+    BT_CHECK_EQI(bt_lightshow_find(sh, "x")->ev[0].bar, 0);
+
+    /* Nothing to sort, and nothing being tracked, are both fine. */
+    BT_CHECK_EQI(bt_lightshow_sort_song(sh, "x", -1), -1);
+    BT_CHECK_EQI(bt_lightshow_sort_song(sh, "Nope", 2), 2);
+    bt_lightshow_free(sh);
+}
+
+/* The written format tag is the lowest version that can express the show, so
+ * a file the lighting side could already read keeps a tag it accepts. */
+static void test_the_format_tag_follows_the_content(void) {
+    bt_lightshow *sh = NULL;
+    const char *src =
+        "{\"format\":\"random-riot-lighting/2\",\"songs\":"
+        "[{\"title\":\"x\",\"events\":[{\"bar\":1,\"ch\":1,\"note\":5}]}]}";
+    BT_CHECK(bt_lightshow_load_mem(src, strlen(src), &sh, NULL) == BT_OK);
+
+    char  *text = NULL;
+    size_t len  = 0;
+    BT_CHECK(bt_lightshow_to_json(sh, &text, &len) == BT_OK);
+    BT_CHECK(text != NULL);
+    /* No count-in cue, so it is written as version 1 even though it arrived
+     * tagged version 2. */
+    if (text) BT_CHECK(strstr(text, "random-riot-lighting/1") != NULL);
+    free(text);
+
+    /* One count-in cue moves the tag, and has to: an older reader dropping
+     * that row silently is worse than refusing the file. */
+    bt_lightshow_song(sh, "x")->ev[0].bar = 0;
+    text = NULL;
+    BT_CHECK(bt_lightshow_to_json(sh, &text, &len) == BT_OK);
+    if (text) BT_CHECK(strstr(text, "random-riot-lighting/2") != NULL);
+    free(text);
+    bt_lightshow_free(sh);
+}
+
 static void test_adding_and_removing_cues(void) {
     bt_lightshow *sh = NULL;
     const char *empty = "{\"format\":\"random-riot-lighting/1\",\"songs\":[]}";
@@ -442,6 +633,11 @@ int main(void) {
     BT_RUN(test_seeking_restores_the_look_and_not_the_hits);
     BT_RUN(test_a_bad_row_costs_one_look);
     BT_RUN(test_adding_and_removing_cues);
+    BT_RUN(test_copying_a_songs_cues);
+    BT_RUN(test_sorting_cues_by_bar);
+    BT_RUN(test_the_format_tag_follows_the_content);
+    BT_RUN(test_reads_both_contract_versions);
+    BT_RUN(test_a_count_in_cue_lands_before_the_downbeat);
     BT_RUN(test_writing_it_back_loses_nothing);
     BT_RUN(test_saving_to_disk);
     BT_RUN(test_reading_it_off_disk);

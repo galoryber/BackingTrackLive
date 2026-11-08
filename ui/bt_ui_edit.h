@@ -88,6 +88,11 @@ struct bt_ui_edit {
      * bt_player_structural_begin/end and calls bt_ui_edit_apply_pending. */
     bt_edit_pending  pending = bt_edit_pending::none;
     int32_t          pending_arg = -1;
+    /* Set by a copy: the title the copy was made from, so the host can give
+     * the new song that song's light cues too. Cues are matched by title and
+     * a copy has to take a new one, so nothing else would carry them.
+     * Empty when no copy is waiting; the host clears it. */
+    char             cloned_from[BT_MAX_NAME] = {0};
     /* Set when an edit changed the song but not what it sounds like, so the
      * signature moves on without asking the engine to republish. */
     bool             sig_only = false;
@@ -131,6 +136,15 @@ struct bt_ui_edit {
     int32_t          ncues = 0;
     bool             cues_dirty = false; /* the cue file needs saving      */
     bool             want_add_cue = false;
+    /* The cue the person is working on, highlighted so that a row which
+     * moves when it is sorted can be followed to where it went. -1 for
+     * none. The host keeps it pointing at the same cue across a sort. */
+    int32_t          cue_sel = -1;
+    /* A bar was changed, so the cues want putting back in bar order.
+     * Deferred to the host for two reasons: sorting mid-draw would corrupt
+     * the loop that is drawing the table, and sorting on every keystroke
+     * would walk a row across the screen while somebody types "117". */
+    bool             want_sort_cues = false;
     bool             want_save_cues = false;   /* set by a save */
     int32_t          want_remove_cue = -1;
     bool             can_edit_cues = false;
