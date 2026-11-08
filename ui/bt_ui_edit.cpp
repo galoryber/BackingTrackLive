@@ -1027,9 +1027,6 @@ void draw_song_screen(bt_ui_edit &ed) {
                     break;
                 }
 
-                ImGui::TextDisabled("the channel and note are whatever your "
-                                    "lighting desk is listening for - look "
-                                    "them up there once and type them here");
             }
 
             /* Underneath the cues rather than up in the header. In the
@@ -1044,6 +1041,12 @@ void draw_song_screen(bt_ui_edit &ed) {
              * function are the same widget to ImGui, and the first song
              * with no cues would have found that out on stage. */
             if (ImGui::Button("+ cue")) ed.want_add_cue = true;
+            if (ed.ncues > 0) {
+                ImGui::SameLine();
+                ImGui::TextDisabled("the channel and note are whatever your "
+                                    "lighting desk is listening for - look "
+                                    "them up there once and type them here");
+            }
         }
     }
 
