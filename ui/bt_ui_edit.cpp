@@ -65,14 +65,38 @@ const ImVec4 COL_AMBER = ImVec4(1.000f, 0.839f, 0.361f, 1.0f);
 const ImVec4 COL_SECTION    = ImVec4(0.125f, 0.137f, 0.165f, 1.0f);
 const ImVec4 COL_SECTION_ED = ImVec4(0.290f, 0.510f, 0.780f, 1.0f);
 
+/* How far the fields under a header sit in from it.
+ *
+ * Small on purpose. The header bar already says where a group begins; what
+ * the indent adds is where it *ends*, which a bar on its own cannot say -
+ * and it is the cue table and the track table that benefit, since a table
+ * flush with the heading above it reads as the whole screen rather than as
+ * part of a section. Any more than this and it would cost real width. */
+const float SECTION_INDENT = 18.0f;
+
+/* Whether a section's indent is outstanding. One screen draws all of its
+ * sections in a single pass, so the pairing lives here rather than at every
+ * call site: an Unindent forgotten in one branch of the lighting block would
+ * push the rest of the screen sideways, and nothing would fail to build. */
+bool g_section_open = false;
+
+/* Closes whatever section was last opened. Safe to call when none is. */
+void section_end() {
+    if (!g_section_open) return;
+    ImGui::Unindent(SECTION_INDENT);
+    g_section_open = false;
+}
+
 /* A full-width header bar. Leaves the cursor on the bar's own line, just
  * after the name, so a caller that wants a button in the header says
  * ImGui::SameLine() and one that does not simply carries on underneath.
+ * Everything after it is indented until the next header or section_end().
  *
  * Frame-height sizing throughout, rather than text height, so a button put
  * in the header sits inside the bar instead of hanging out of the bottom. */
 void section_header(const char *name) {
     ImGuiStyle &sty = ImGui::GetStyle();
+    section_end();              /* the bar itself is never indented */
     ImGui::Spacing();
 
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
@@ -91,6 +115,9 @@ void section_header(const char *name) {
                                      p0.y + sty.FramePadding.y));
     ImGui::AlignTextToFramePadding();
     ImGui::TextUnformatted(name);
+
+    ImGui::Indent(SECTION_INDENT);
+    g_section_open = true;
 }
 
 /* ----------------------------------------------------------- utilities */
@@ -764,9 +791,11 @@ void draw_song_screen(bt_ui_edit &ed) {
         ImGui::SetTooltip("Shown on stage, exactly as typed.\n"
                           "Blank shows nothing.");
 
-    /* Tempo is metadata, not analysis: it has to match what is already in the
-     * stems. Saying so here is cheaper than anyone discovering it. */
-    section_header("TIMING");
+    /* Tempo, time signature, count-in and length have no header of their
+     * own. They are what a song *is*, the same as its title, and a second
+     * heading two lines under the first only made the top of the screen look
+     * busier than it is. */
+    ImGui::Spacing();
     /* Typed as text, not through InputDouble's format string: a tempo of
      * 96.515 shown as 96.52 is a different song, and this is the screen where
      * the number is the truth rather than something rounded for a stage. The
@@ -1089,6 +1118,7 @@ void draw_song_screen(bt_ui_edit &ed) {
     ImGui::Spacing();
 
     draw_tracks(ed, s);
+    section_end();
 }
 
 /* --------------------------------------------------------- align screen */

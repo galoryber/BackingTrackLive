@@ -99,18 +99,48 @@ void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
                       sz.y * 0.0025f);
 }
 
-/* Q is armed and will write to the show.
+/* Q: that it is armed, and that it just did something.
  *
- * Its own line above the hints rather than another key in them: the hint
- * line is a menu of things you may do, and this is a statement that the
- * program is in a mode. Amber, because forgetting it is on is the failure
- * worth catching, and amber is what this program uses for "look at this".
- * Only on screen while armed, which is never at the start of a session. */
+ * A line of its own rather than another key in the hints: that line is a
+ * menu of things you may do, and this is a statement that the program is in
+ * a mode. Amber, because forgetting it is on is the failure worth catching,
+ * and amber is what this program uses for "look at this". Only on screen
+ * while armed, which is never at the start of a session.
+ *
+ * `at` is the top left corner, or the top right one with from_right - the
+ * stopped screen has a whole line for this and the playing screen does not,
+ * so there it hangs off the right edge under the bar number.
+ *
+ * The press itself sends nothing and changes nothing on stage - which is
+ * what makes it safe to do mid-song, and also means this line is the only
+ * confirmation there can be that it worked. So for a bar or two the line
+ * becomes a filled block naming the bar that was written down: a block of
+ * colour arriving is visible from a few feet away out of the corner of an
+ * eye, which a changed sentence is not. Naming the bar is the part worth
+ * having - it is the one thing about the press that could be wrong. */
 void draw_tap_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
-                    ImVec2 at) {
+                    ImVec2 at, bool from_right = false) {
+    ImFont *f = ImGui::GetFont();
+    /* The flash is a little larger than the mode line it replaces: one is a
+     * thing to notice from where you are standing, the other a reminder for
+     * when you look. */
+    const float ts = sz.y * (st.tap_flash ? 0.030f : 0.026f);
+    if (st.tap_flash) {
+        char lbl[48];
+        std::snprintf(lbl, sizeof(lbl), "CUE ADDED  \xc2\xb7  BAR %d",
+                      st.tap_flash_bar);
+        const float w = text_w(f, ts, lbl) + ts * 1.1f;
+        const float x = from_right ? at.x - w : at.x;
+        dl->AddRectFilled(ImVec2(x, at.y), ImVec2(x + w, at.y + ts * 1.6f),
+                          COL_ACCENT_T, ts * 0.30f);
+        text_at(dl, f, ts, ImVec2(x + ts * 0.55f, at.y + ts * 0.28f),
+                IM_COL32(26, 18, 8, 255), lbl);
+        return;
+    }
     if (!st.tap_armed) return;
-    text_at(dl, ImGui::GetFont(), sz.y * 0.026f, at, COL_ACCENT_T,
-            "Q  ARMED - adds a light cue at the bar you are in");
+    const char *lbl = "Q  ARMED - adds a light cue at the bar you are in";
+    const float x = from_right ? at.x - text_w(f, ts, lbl) : at.x;
+    text_at(dl, f, ts, ImVec2(x, at.y), COL_ACCENT_T, lbl);
 }
 
 /* ------------------------------------------------------------- stopped */
@@ -424,10 +454,58 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
                     COL_TEXT, s->cue);
     }
 
-    /* Armed to tap cues in. On this screen above all, because this is the
-     * screen you are looking at when you press it - and the screen where
-     * forgetting it is armed costs something. */
-    draw_tap_badge(dl, st, sz, ImVec2(pad, sz.y * 0.325f));
+    /* Armed to tap cues in, and what the last press wrote down.
+     *
+     * Under the bar number, on purpose: the bar is what somebody tapping
+     * cues in is watching, "did that land" is a question about a bar, and
+     * the answer belongs beside the question rather than across the screen
+     * from it. Also the one part of the screen with room, once the
+     * metronome has the middle of it. */
+    if (!st.armed)
+        draw_tap_badge(dl, st, sz, ImVec2(sz.x - pad, sz.y * 0.205f), true);
+
+    /* ---- the lighting look, by name -----------------------------------
+     *
+     * "Chorus 1", "Bridge" - the description somebody typed beside the cue,
+     * which until now existed only in the editor. On stage it answers two
+     * questions at once: the band's "where are we in this song", and, while
+     * a show is being built, whether the change landed on the bar it was
+     * meant to. The bar it is next due on is the other half of that: a
+     * change you can see coming is one you can check.
+     *
+     * Only for a song that has cues. A set list with no lighting looks
+     * exactly as it did, with nothing to explain. */
+    if (st.cue_any && !st.armed) {
+        /* Under the band's own note, above the metronome, and sized just
+         * below it: this is for the far side of the stage too, but a note
+         * somebody wrote for tonight outranks the name of a lighting look. */
+        const float ly  = sz.y * 0.322f;
+        const float nsz = sz.y * 0.044f;    /* the name          */
+        const float lsz = sz.y * 0.028f;    /* label, and what is next */
+        const float drop = (nsz - lsz) * 0.78f;   /* onto one baseline */
+        float x = pad;
+
+        text_at(dl, f, lsz, ImVec2(x, ly + drop), COL_DIM, "LIGHTS");
+        x += text_w(f, lsz, "LIGHTS") + pad * 0.5f;
+
+        /* Before the first cue of a song there is no look to name, and a cue
+         * may have been left with no description at all. The dash says so;
+         * a label with nothing after it would read as a bug. */
+        const char *now = (st.cue_now && st.cue_now[0]) ? st.cue_now : "-";
+        text_at(dl, f, nsz, ImVec2(x, ly), COL_ACCENT, now);
+        x += text_w(f, nsz, now) + pad * 0.7f;
+
+        if (st.cue_more) {
+            char nx[BT_MAX_CUE + 32];
+            if (st.cue_next && st.cue_next[0])
+                std::snprintf(nx, sizeof(nx), "\xe2\x86\x92  bar %d  %s",
+                              st.cue_next_bar, st.cue_next);
+            else
+                std::snprintf(nx, sizeof(nx), "\xe2\x86\x92  bar %d",
+                              st.cue_next_bar);
+            text_at(dl, f, lsz, ImVec2(x, ly + drop), COL_DIM, nx);
+        }
+    }
 
     /* ---- bar number: kept, demoted ------------------------------------
      * Useful for finding your place, and not what the eye should land on. */

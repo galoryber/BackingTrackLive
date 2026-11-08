@@ -106,7 +106,12 @@ A cue is three numbers and a note to self: the **bar**, the **channel** and the
 **MIDI note** your desk is listening for. This program has no idea what any of
 them mean and no way to find out - that mapping lives in QLC+. Look the number
 up there once, type it in here, and it goes out at that bar for ever after.
-The description is for you and is never sent.
+
+**The description is shown on stage.** It is never sent anywhere - it is a
+note to yourself - but while that look is up its name sits under the song,
+with the bar the next change is due on beside it. "Chorus 1" on the screen is
+worth having for the band, and it is the quickest way to see that a cue you
+placed lands where you thought it would.
 
 **Bar 1 is the first downbeat, after the count-in.** By default the count-in
 sends nothing, so the between-songs look stays up while the band hears the
@@ -125,9 +130,12 @@ a night.
 **You can tap the cues in by ear.** Finding the bar a look should change on
 means playing the song and listening for it. Arm `Q` in *edit → lighting*,
 play the song, and press it wherever the lights should change; each press
-writes a cue at the bar you are in and sends nothing at all. Stop, and they
-are saved for you to give real notes to. Arming is deliberately forgotten
-every time the program starts, so a stray `Q` at a gig does nothing.
+writes a cue at the bar you are in, says so on screen for a bar or two, and
+sends nothing at all. Stop, and they are saved for you to give real notes to.
+Arming is deliberately forgotten every time the program starts, so a stray `Q`
+at a gig does nothing.
+
+![Tapping a cue in](docs/images/tapped.png)
 
 **Stopping sends nothing at all.** Not a blackout, not the between-songs look,
 nothing. The band may still be playing the song live, and a stage that goes

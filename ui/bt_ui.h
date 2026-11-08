@@ -76,6 +76,36 @@ struct bt_ui_state {
      * pressing it would send something. */
     bool     between_songs_ready;
 
+    /* Where the lighting show thinks the song is.
+     *
+     * The description somebody typed - "Chorus 1", "Bridge" - which until now
+     * existed only in the editor. On stage it answers two questions at once:
+     * the band's "where are we", and, while a show is being built, whether
+     * the change landed on the bar it was meant to.
+     *
+     * Derived from the playhead rather than from what was last sent, so it is
+     * right after a seek, right with no MIDI port open at all, and cannot
+     * drift away from what the stage is doing.
+     *
+     * cue_now is the look showing: hits and ends are not looks and do not
+     * take the line over, because fog at bar 49 does not mean the band left
+     * the chorus. NULL before the first cue of the song, or for a cue whose
+     * description was left blank. */
+    const char *cue_now;
+    bool        cue_any;        /* this song has cues: draw the line at all */
+    bool        cue_more;       /* and one of them is still to come         */
+    const char *cue_next;       /* its description, or NULL if it has none  */
+    int32_t     cue_next_bar;   /* read only when cue_more                  */
+
+    /* Q has just written a cue down, and this says so for a bar or two.
+     *
+     * Pressing Q sends nothing and changes nothing on stage, which is what
+     * makes it safe mid-song and also means the screen is the only possible
+     * confirmation that it worked. Timed in frames by the host, from the
+     * sample counter like everything else here. */
+    bool     tap_flash;
+    int32_t  tap_flash_bar;
+
     /* Q is armed to tap cues in. Shown on the play screen because it is a
      * mode that writes to the show: a key that quietly adds cues is fine
      * while that is what you are doing and alarming if you have forgotten

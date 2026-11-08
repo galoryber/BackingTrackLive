@@ -179,6 +179,12 @@ int32_t bt_light_events_between(const bt_light_song *ls, const bt_song *song,
                                 bt_frame after, bt_frame upto,
                                 int32_t sample_rate, int32_t *out, int32_t cap);
 
+/* The next event due strictly after `at`, or -1 when the song has none left.
+ * The earliest one, not the first in the array, so an out-of-order file still
+ * answers correctly. */
+int32_t bt_light_next_at(const bt_light_song *ls, const bt_song *song,
+                         bt_frame at, int32_t sample_rate);
+
 /* The last look at or before `at`, or -1. This is the whole of seeking: the
  * stage should look like whatever the most recent look says, and the hits
  * that were missed on the way stay missed. */

@@ -61,6 +61,18 @@ working on stays highlighted so you can see where it went.
 **Copying a song copies its cues.** Cues are matched to a song by title and a
 copy has to take a new title, so without this the copy would come up dark.
 
+**The look showing has its name on the play screen**, under the song and the
+band's own note, with the bar of the next change beside it. That is the
+`label` from the cue file - §3 calls it UI-only and this is the UI it is for.
+It is worked out from the playhead every frame rather than remembered from
+whatever was last sent, so it is right after a jump, right with no MIDI port
+open at all, and cannot drift out of step with the stage. A song the cue file
+does not name shows nothing at all.
+
+Hits and ends do not take the line over: fog at bar 49 does not mean the band
+left the chorus, and the between-songs note at the end of a song is not a
+section. The name is the last *look*, which is the same question seeking asks.
+
 ## Tapping cues in by ear
 
 Two things have to come from outside this program: which MIDI note a look is,
@@ -74,6 +86,12 @@ down, because a person presses this having heard the change, a moment after
 the downbeat. Nothing is sent; pressing `Q` cannot alter what the stage is
 doing, which is what makes it safe to press during a song. When the song
 stops, the taps are saved.
+
+Because nothing is sent, the screen is the only confirmation there can be, so
+for a bar or two after each press it says what was written down and at which
+bar - under the bar number, which is what you are watching anyway.
+
+![Q armed, just after a press](images/tapped.png)
 
 Every tapped cue arrives on channel 16, note 37 - the between-songs note -
 labelled `Added by hotkey q` so it is obvious in the table which still need
@@ -153,8 +171,13 @@ and one without the other is a set that does not light right.
 | **bar** | 1 is the first downbeat; 0 and below are in the count-in |
 | **channel** | 1-16, whatever the desk is listening on |
 | **MIDI note** | 0-127, whichever one the desk has bound to that look |
-| **what it is** | for you, never sent - "warm orange verse" |
+| **what it is** | never sent, but shown on stage while that look is up |
 | **on a rewind** | whether dropping into the middle of the song puts this back |
+
+"What it is" is the only one of the four that is purely yours. It goes
+nowhere near the wire - and it is on the play screen for as long as that look
+is up, so it is worth writing what you would want to read from across a
+stage. "Chorus 1" beats "cue 4".
 
 The channel and the note are **looked up on the lighting desk**. This program
 has no idea what any note means and no way to find out: that mapping exists
