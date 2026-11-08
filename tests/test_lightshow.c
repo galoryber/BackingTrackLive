@@ -543,6 +543,91 @@ static void test_copying_a_songs_cues(void) {
 
 /* Cues are in bar order in the file (contract section 4), and adding one
  * appends it, so something has to put them back in order after an edit. */
+/* Renaming a song in the set list has to take its cues with it, or typing a
+ * new title silently unhooks a song from every cue it had - the file still
+ * holds them, under a name nothing matches any more. */
+static void test_renaming_a_song(void) {
+    bt_lightshow *sh = NULL;
+    const char *src =
+        "{\"format\":\"random-riot-lighting/1\",\"songs\":"
+        "[{\"title\":\"Generic\",\"events\":["
+        "{\"bar\":1,\"ch\":1,\"note\":5,\"label\":\"intro\"},"
+        "{\"bar\":17,\"ch\":2,\"note\":6,\"type\":\"hit\"}]}]}";
+    BT_CHECK(bt_lightshow_load_mem(src, strlen(src), &sh, NULL) == BT_OK);
+
+    BT_CHECK(bt_lightshow_rename_song(sh, "Generic", "Black Hole Sun") == BT_OK);
+    BT_CHECK_EQI(sh->nsongs, 1);
+    BT_CHECK(bt_lightshow_find(sh, "Generic") == NULL);
+    const bt_light_song *ls = bt_lightshow_find(sh, "Black Hole Sun");
+    BT_CHECK(ls != NULL);
+    if (!ls) { bt_lightshow_free(sh); return; }
+    BT_CHECK_EQI(ls->nev, 2);
+    BT_CHECK(!strcmp(ls->ev[0].label, "intro"));
+
+    /* A song with no cues has no entry, and renaming it writes none: an
+     * empty song in a file the lighting side also reads is noise. */
+    const int32_t before = sh->nsongs;
+    BT_CHECK(bt_lightshow_rename_song(sh, "Never Heard Of It", "Fresh") == BT_OK);
+    BT_CHECK(bt_lightshow_find(sh, "Fresh") == NULL);
+    BT_CHECK_EQI(sh->nsongs, before);
+
+    /* An empty entry under the new name is dropped rather than renamed
+     * around: two entries with one title is a file no reader can use. */
+    BT_CHECK(bt_lightshow_add_cue(sh, "Spoonman", NULL) == BT_OK);
+    BT_CHECK(bt_lightshow_remove_cue(sh, "Spoonman", 0) == BT_OK);
+    BT_CHECK_EQI(sh->nsongs, 2);
+    BT_CHECK(bt_lightshow_rename_song(sh, "Black Hole Sun", "Spoonman") == BT_OK);
+    BT_CHECK_EQI(sh->nsongs, 1);
+    BT_CHECK_EQI(bt_lightshow_find(sh, "Spoonman")->nev, 2);
+
+    /* A new name that already has cues of its own is refused outright. The
+     * song matches those now - that is what title matching means - and
+     * destroying them to make room would be the worse of the two. */
+    BT_CHECK(bt_lightshow_add_cue(sh, "Rusty Cage", NULL) == BT_OK);
+    BT_CHECK(bt_lightshow_rename_song(sh, "Spoonman", "Rusty Cage")
+             == BT_ERR_EXISTS);
+    BT_CHECK_EQI(bt_lightshow_find(sh, "Rusty Cage")->nev, 1);
+    BT_CHECK_EQI(bt_lightshow_find(sh, "Spoonman")->nev, 2);
+
+    /* The same, with the empty entry *before* the song being renamed: it is
+     * dropped out of the array first, so the song has moved down a slot by
+     * the time it is given its new name. Getting that wrong renames the
+     * wrong song, and nothing about the file would look broken. */
+    {
+        bt_lightshow *sh2 = NULL;
+        const char *two =
+            "{\"format\":\"random-riot-lighting/1\",\"songs\":"
+            "[{\"title\":\"Placeholder\",\"events\":[]},"
+            "{\"title\":\"Generic\",\"events\":[{\"bar\":4,\"ch\":1,\"note\":7}]}]}";
+        BT_CHECK(bt_lightshow_load_mem(two, strlen(two), &sh2, NULL) == BT_OK);
+        BT_CHECK_EQI(sh2->nsongs, 2);
+        BT_CHECK(bt_lightshow_rename_song(sh2, "Generic", "Placeholder") == BT_OK);
+        BT_CHECK_EQI(sh2->nsongs, 1);
+        BT_CHECK(!strcmp(sh2->song[0].title, "Placeholder"));
+        BT_CHECK_EQI(sh2->song[0].nev, 1);
+        BT_CHECK_EQI(sh2->song[0].ev[0].bar, 4);
+        bt_lightshow_free(sh2);
+    }
+
+    /* Onto itself, and nonsense. */
+    BT_CHECK(bt_lightshow_rename_song(sh, "Spoonman", "Spoonman") == BT_OK);
+    BT_CHECK_EQI(bt_lightshow_find(sh, "Spoonman")->nev, 2);
+    BT_CHECK(bt_lightshow_rename_song(sh, "Spoonman", "") == BT_ERR_RANGE);
+    BT_CHECK(bt_lightshow_rename_song(NULL, "a", "b") == BT_ERR_RANGE);
+
+    /* And the rename survives the round trip, which is the only part of it
+     * that reaches the next launch. */
+    char *text = NULL; size_t len = 0;
+    BT_CHECK(bt_lightshow_to_json(sh, &text, &len) == BT_OK);
+    bt_lightshow *back = NULL;
+    BT_CHECK(bt_lightshow_load_mem(text, len, &back, NULL) == BT_OK);
+    BT_CHECK(bt_lightshow_find(back, "Generic") == NULL);
+    BT_CHECK_EQI(bt_lightshow_find(back, "Spoonman")->nev, 2);
+    free(text);
+    bt_lightshow_free(back);
+    bt_lightshow_free(sh);
+}
+
 static void test_sorting_cues_by_bar(void) {
     bt_lightshow *sh = NULL;
     const char *src =
@@ -728,6 +813,7 @@ int main(void) {
     BT_RUN(test_adding_and_removing_cues);
     BT_RUN(test_copying_a_songs_cues);
     BT_RUN(test_sorting_cues_by_bar);
+    BT_RUN(test_renaming_a_song);
     BT_RUN(test_the_format_tag_follows_the_content);
     BT_RUN(test_reads_both_contract_versions);
     BT_RUN(test_a_count_in_cue_lands_before_the_downbeat);

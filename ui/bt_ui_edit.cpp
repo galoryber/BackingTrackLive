@@ -766,6 +766,20 @@ void draw_song_screen(bt_ui_edit &ed) {
 
     ImGui::SetNextItemWidth(360);
     if (ImGui::InputText("title", s.title, sizeof(s.title))) ed.dirty = true;
+    /* A renamed song keeps its lighting. Cues are matched to a song by title
+     * and nothing else, so the moment this field changes the song is matched
+     * to nothing - which is exactly what copying a song to use as a starting
+     * point runs into, since the next thing you do is retitle it.
+     *
+     * On commit, not per keystroke: typing "Low Rider" would otherwise walk
+     * the cue entry through "L", "Lo", "Low"..., and any one of those could
+     * collide with a real title. */
+    if (ImGui::IsItemActivated())
+        std::snprintf(ed.title_was, sizeof(ed.title_was), "%s", s.title);
+    if (ImGui::IsItemDeactivatedAfterEdit() && ed.title_was[0] && s.title[0] &&
+        std::strcmp(ed.title_was, s.title) != 0)
+        std::snprintf(ed.renamed_from, sizeof(ed.renamed_from), "%s",
+                      ed.title_was);
     ImGui::SameLine();
     ImGui::SetNextItemWidth(300);
     if (ImGui::InputText("artist", s.artist, sizeof(s.artist))) ed.dirty = true;

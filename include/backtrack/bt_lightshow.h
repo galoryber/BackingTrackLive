@@ -130,6 +130,27 @@ bt_err bt_lightshow_remove_cue(bt_lightshow *show, const char *title, int32_t at
 bt_err bt_lightshow_copy_song(bt_lightshow *show, const char *from,
                               const char *to);
 
+/* Carries a song's cues across to a new title, which is what renaming a song
+ * in the set list means for its lighting.
+ *
+ * Cues are matched to a song by title and nothing else - §3 of the contract -
+ * so without this, typing a new title into the editor silently unhooks the
+ * song from every cue it had. That is the whole bug: the cues are still in
+ * the file, under a name no song has any more.
+ *
+ * Renaming the entry rather than giving songs an id is deliberate. The cue
+ * file is written by the lighting side as well, from song titles; an id
+ * would have to be agreed, generated and kept in step over there too, and a
+ * file with two keys has two ways to disagree with the set list instead of
+ * one.
+ *
+ * A `from` with no entry is not an error - a song with no lighting renames
+ * like any other. BT_ERR_EXISTS means `to` already has cues of its own: they
+ * are left alone, which leaves the song matched to them.
+ */
+bt_err bt_lightshow_rename_song(bt_lightshow *show, const char *from,
+                                const char *to);
+
 /* Puts one song's cues in bar order, which is the order §4 of the contract
  * says a cue file is in. Adding a cue appends it, so this is what keeps that
  * true after an edit; it is also the whole of "the table is sorted", since

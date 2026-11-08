@@ -426,12 +426,33 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
 
     if (s) {
         const float title_sz = sz.y * 0.105f;
-        text_at(dl, f, title_sz, ImVec2(pad, sz.y * 0.075f), COL_TEXT, s->title);
+        const float sub_sz   = sz.y * 0.055f;
+        const float title_y  = sz.y * 0.075f;
+        text_at(dl, f, title_sz, ImVec2(pad, title_y), COL_TEXT, s->title);
         float ay = sz.y * 0.195f;
         float ax = pad;
         if (s->artist[0]) {
-            text_at(dl, f, sz.y * 0.055f, ImVec2(ax, ay), COL_DIM, s->artist);
-            ax += text_w(f, sz.y * 0.055f, s->artist) + pad * 0.8f;
+            /* Beside the title, not under it: "song by artist" is one
+             * answer to one question and reads faster on one line - and it
+             * leaves the line below to the tuning, which is the thing
+             * somebody actually has to act on.
+             *
+             * Unless it does not fit. The bar number owns the top right
+             * corner, and a long title plus a long artist would run
+             * underneath it; then the artist goes back to its own line,
+             * which is only where it used to live. */
+            const float x = pad + text_w(f, title_sz, s->title) + pad * 0.6f;
+            const float room = sz.x - pad * 2.0f
+                             - text_w(f, sz.y * 0.110f, "000");
+            if (x + text_w(f, sub_sz, s->artist) < room) {
+                /* Onto the title's baseline rather than its top edge. */
+                text_at(dl, f, sub_sz,
+                        ImVec2(x, title_y + (title_sz - sub_sz) * 0.78f),
+                        COL_DIM, s->artist);
+            } else {
+                text_at(dl, f, sub_sz, ImVec2(ax, ay), COL_DIM, s->artist);
+                ax += text_w(f, sub_sz, s->artist) + pad * 0.8f;
+            }
         }
         /* Beside the artist, in the warm colour it has everywhere else, so
          * glancing up mid-song answers "am I on the right guitar". */
@@ -443,7 +464,7 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
              * a stage. Nudged down by the difference so the two still sit on
              * one baseline rather than one appearing to float. */
             const float tun_sz = sz.y * 0.065f;
-            text_at(dl, f, tun_sz, ImVec2(ax, ay - (tun_sz - sz.y * 0.055f)),
+            text_at(dl, f, tun_sz, ImVec2(ax, ay - (tun_sz - sub_sz)),
                     COL_ACCENT_T, lbl);
         }
         /* Whatever you wrote to read mid-song. Under the title line, in plain
@@ -480,17 +501,17 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
          * below it: this is for the far side of the stage too, but a note
          * somebody wrote for tonight outranks the name of a lighting look. */
         const float ly  = sz.y * 0.322f;
-        const float nsz = sz.y * 0.044f;    /* the name          */
-        const float lsz = sz.y * 0.028f;    /* label, and what is next */
+        const float nsz = sz.y * 0.044f;    /* the name        */
+        const float lsz = sz.y * 0.028f;    /* what is next    */
         const float drop = (nsz - lsz) * 0.78f;   /* onto one baseline */
         float x = pad;
 
-        text_at(dl, f, lsz, ImVec2(x, ly + drop), COL_DIM, "LIGHTS");
-        x += text_w(f, lsz, "LIGHTS") + pad * 0.5f;
-
-        /* Before the first cue of a song there is no look to name, and a cue
+        /* No "LIGHTS" in front of it. The blue is what says which line this
+         * is, and a word repeated on screen all night is clutter.
+         *
+         * Before the first cue of a song there is no look to name, and a cue
          * may have been left with no description at all. The dash says so;
-         * a label with nothing after it would read as a bug. */
+         * an empty space where a name goes reads as a bug. */
         const char *now = (st.cue_now && st.cue_now[0]) ? st.cue_now : "-";
         text_at(dl, f, nsz, ImVec2(x, ly), COL_ACCENT, now);
         x += text_w(f, nsz, now) + pad * 0.7f;
