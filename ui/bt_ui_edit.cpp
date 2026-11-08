@@ -171,8 +171,12 @@ void add_song(bt_ui_edit &ed) {
  * unloaded instead and the loader fills it from the same files, which is both
  * correct and what somebody expects: it is a different song in the set now.
  *
- * Everything else comes along, cues included, which is the point. Copying a
- * song to reuse its lighting is the shortest way there is. */
+ * Everything else comes along. Light cues are the exception that needs help:
+ * they live in the cue file keyed by song title, and a copy has to take a new
+ * title or two songs on stage are indistinguishable - so the cues cannot
+ * simply follow the struct. The source title is recorded here and the host
+ * copies them across, because reusing a song's lighting is most of why
+ * anybody copies a song. */
 void clone_song(bt_ui_edit &ed, int32_t idx) {
     if (idx < 0 || idx >= ed.sl->nsongs) return;
 
@@ -215,6 +219,10 @@ void clone_song(bt_ui_edit &ed, int32_t idx) {
     ed.sl->cap    = n + 1;
     ed.song  = at;
     ed.dirty = true;
+
+    /* For the host, which owns the cue file. */
+    std::snprintf(ed.cloned_from, sizeof(ed.cloned_from), "%s",
+                  ed.sl->song[idx].title);
     set_status(ed, "copied - the stems are shared, everything else is its own");
 }
 
@@ -855,8 +863,9 @@ void draw_song_screen(bt_ui_edit &ed) {
         } else {
             if (ImGui::Button("+ cue")) ed.want_add_cue = true;
             ImGui::SameLine();
-            ImGui::TextDisabled("bar 1 is the first downbeat, after the "
-                                "count-in  \xc2\xb7  saved to %s",
+            ImGui::TextDisabled("bar 1 is the first downbeat  \xc2\xb7  bar 0 "
+                                "and below are in the count-in  \xc2\xb7  saved "
+                                "to %s",
                                 ed.cue_file_name ? ed.cue_file_name
                                                  : "lighting_cues.json");
 
@@ -879,28 +888,57 @@ void draw_song_screen(bt_ui_edit &ed) {
                     ImGui::PushID(3000 + i);
                     ImGui::TableNextRow();
 
+                    /* The row being worked on, marked so that a cue which
+                     * moves when the bar changes can be followed to where
+                     * it went instead of simply vanishing from under the
+                     * cursor. */
+                    if (i == ed.cue_sel)
+                        ImGui::TableSetBgColor(ImGuiTableBgTarget_RowBg0,
+                            ImGui::GetColorU32(ImVec4(0.26f, 0.40f, 0.58f, 0.55f)));
+
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     int bar = c.bar;
                     if (ImGui::InputInt("##bar", &bar, 0, 0))
-                        if (bar >= 1 && bar <= 10000) { c.bar = bar; ed.cues_dirty = true; }
+                        if (bar >= BT_LIGHT_MIN_BAR && bar <= 10000) {
+                            c.bar = bar; ed.cues_dirty = true; ed.cue_sel = i;
+                        }
+                    /* Sorted when the edit is finished, not as it is typed:
+                     * "117" arrives as 1, then 11, then 117, and a table
+                     * that reordered three times while somebody typed a bar
+                     * number would be unusable. */
+                    if (ImGui::IsItemDeactivatedAfterEdit()) {
+                        ed.want_sort_cues = true;
+                        ed.cue_sel = i;
+                    }
+                    if (ImGui::IsItemHovered() && c.bar < 1)
+                        ImGui::SetTooltip(
+                            "In the count-in. Bar 0 is the last count-in bar,\n"
+                            "bar -1 the one before it. Needs a count-in at\n"
+                            "least that long, or the cue never comes round.");
 
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     int ch = c.ch;
                     if (ImGui::InputInt("##ch", &ch, 0, 0))
-                        if (ch >= 1 && ch <= 16) { c.ch = ch; ed.cues_dirty = true; }
+                        if (ch >= 1 && ch <= 16) {
+                            c.ch = ch; ed.cues_dirty = true; ed.cue_sel = i;
+                        }
 
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
                     int note = c.note;
                     if (ImGui::InputInt("##note", &note, 0, 0))
-                        if (note >= 0 && note <= 127) { c.note = note; ed.cues_dirty = true; }
+                        if (note >= 0 && note <= 127) {
+                            c.note = note; ed.cues_dirty = true; ed.cue_sel = i;
+                        }
 
                     ImGui::TableNextColumn();
                     ImGui::SetNextItemWidth(-1);
-                    if (ImGui::InputText("##what", c.label, sizeof(c.label)))
+                    if (ImGui::InputText("##what", c.label, sizeof(c.label))) {
                         ed.cues_dirty = true;
+                        ed.cue_sel = i;
+                    }
 
                     /* The one question beyond the three numbers, and only
                      * because scrubbing in rehearsal would otherwise set the
@@ -912,6 +950,7 @@ void draw_song_screen(bt_ui_edit &ed) {
                     if (ImGui::Combo("##kind", &kind, kinds, 3)) {
                         c.kind = (bt_light_kind)kind;
                         ed.cues_dirty = true;
+                        ed.cue_sel = i;
                     }
                     if (ImGui::IsItemHovered())
                         ImGui::SetTooltip(
@@ -929,16 +968,11 @@ void draw_song_screen(bt_ui_edit &ed) {
                 }
                 ImGui::EndTable();
 
-                /* Out of order is not wrong - every cue is absolute - but it
-                 * is almost certainly a typo, and it makes the column
-                 * unreadable. */
-                for (int32_t i = 1; i < ed.ncues; i++)
-                    if (ed.cues[i].bar < ed.cues[i - 1].bar) {
-                        ImGui::TextColored(COL_AMBER,
-                            "cue %d is earlier than cue %d - probably a typo",
-                            i + 1, i);
-                        break;
-                    }
+                /* There used to be a warning here that a cue was earlier
+                 * than the one above it. Nothing sorted, so the only thing
+                 * the program could do about a list in the wrong order was
+                 * complain about it. Now the list is kept in bar order and
+                 * the condition cannot arise. */
 
                 ImGui::TextDisabled("the channel and note are whatever your "
                                     "lighting desk is listening for - look "

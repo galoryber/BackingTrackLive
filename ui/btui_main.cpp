@@ -1240,6 +1240,7 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
          * bt_song::light_cue, the migration-only array the editor stopped
          * reading when the cue file became the source of truth. */
         static bt_light_event shot_cues[] = {
+            {   0,  1,  9, BT_LIGHT_LOOK, "count-in build"    },
             {   1,  1,  0, BT_LIGHT_LOOK, "warm orange verse" },
             {  17,  1,  1, BT_LIGHT_LOOK, "blue, drums in"    },
             {  33,  1,  2, BT_LIGHT_LOOK, "chorus - full"     },
@@ -1250,6 +1251,7 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         ed.cues          = shot_cues;
         ed.ncues         = (int32_t)(sizeof(shot_cues) / sizeof(shot_cues[0]));
         ed.can_edit_cues = true;
+        ed.cue_sel       = 2;   /* the highlight a sort leaves behind */
 
         /* Give the shot something to show: the demo songs carry no stems. */
         if (ed.song >= 0 && ed.song < sl->nsongs) {
@@ -1618,6 +1620,9 @@ int main(int argc, char **argv) {
                     g_edit.ncues   = ls->nev;
                 }
             }
+            /* The highlight belongs to one song's table. Switching songs
+             * leaves it pointing at a row that is somebody else's. */
+            if (g_edit.cue_sel >= g_edit.ncues) g_edit.cue_sel = -1;
             if (!g_edit.midi_dirty)
                 std::snprintf(g_edit.midi_port, sizeof(g_edit.midi_port), "%s",
                               g_app.dev.midi_out);
@@ -1668,7 +1673,13 @@ int main(int argc, char **argv) {
                 g_edit.want_add_cue = false;
                 const char *title = g_app.sl->song[g_edit.song].title;
                 bt_err ae = bt_lightshow_add_cue(g_app.show, title, nullptr);
-                if (ae == BT_OK) g_edit.cues_dirty = true;
+                if (ae == BT_OK) {
+                    g_edit.cues_dirty = true;
+                    /* Highlighted where it landed - at the end, until it is
+                     * given a bar that sorts it somewhere else. */
+                    const bt_light_song *ls = bt_lightshow_find(g_app.show, title);
+                    g_edit.cue_sel = ls ? ls->nev - 1 : -1;
+                }
                 else std::snprintf(g_edit.status, sizeof(g_edit.status),
                                    "could not add a cue: %s", bt_strerror(ae));
             }
@@ -1677,8 +1688,28 @@ int main(int argc, char **argv) {
                 const int32_t at = g_edit.want_remove_cue;
                 g_edit.want_remove_cue = -1;
                 if (bt_lightshow_remove_cue(
-                        g_app.show, g_app.sl->song[g_edit.song].title, at) == BT_OK)
+                        g_app.show, g_app.sl->song[g_edit.song].title, at) == BT_OK) {
                     g_edit.cues_dirty = true;
+                    /* The highlight followed a row that is gone. */
+                    if (g_edit.cue_sel == at)     g_edit.cue_sel = -1;
+                    else if (g_edit.cue_sel > at) g_edit.cue_sel--;
+                }
+            }
+
+            /* Back into bar order, which is the order the contract says a cue
+             * file is in and the order anybody reading the table expects.
+             * The cue being edited is followed to where it ends up, so a row
+             * that moves can be seen moving rather than appearing to vanish. */
+            if (g_edit.want_sort_cues && g_app.show && g_app.sl &&
+                g_edit.song >= 0 && g_edit.song < g_app.sl->nsongs) {
+                g_edit.want_sort_cues = false;
+                g_edit.cue_sel = bt_lightshow_sort_song(
+                    g_app.show, g_app.sl->song[g_edit.song].title,
+                    g_edit.cue_sel);
+                /* The lights are on a cue list whose order just changed. */
+                g_app.cue_song = -1;
+            } else {
+                g_edit.want_sort_cues = false;
             }
 
             /* Saved with the set list, because they are edited together and
@@ -1726,6 +1757,36 @@ int main(int argc, char **argv) {
                 /* The engine was torn down and rebuilt, so nothing is
                  * playing and the lighting has no idea where it is. */
                 g_app.cue_song = -1;
+            }
+
+            /* A copy takes a new title, and cues are matched by title, so the
+             * copy would come up dark unless its lighting is copied too.
+             * Here rather than in the editor because the cue file is the
+             * host's, and after the structural change because the copy's
+             * title is only settled once it exists. */
+            if (g_edit.cloned_from[0]) {
+                const char *from = g_edit.cloned_from;
+                if (g_app.show && g_app.sl && !g_app.show_broken &&
+                    g_edit.song >= 0 && g_edit.song < g_app.sl->nsongs &&
+                    bt_lightshow_find(g_app.show, from)) {
+                    const char *to = g_app.sl->song[g_edit.song].title;
+                    bt_err ce = bt_lightshow_copy_song(g_app.show, from, to);
+                    if (ce == BT_OK) {
+                        const bt_light_song *ls = bt_lightshow_find(g_app.show, to);
+                        if (ls && ls->nev > 0) {
+                            g_edit.cues_dirty = true;
+                            std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                          "copied - and its %d light cue%s came "
+                                          "along; save to keep them",
+                                          ls->nev, ls->nev == 1 ? "" : "s");
+                        }
+                    } else {
+                        std::snprintf(g_edit.status, sizeof(g_edit.status),
+                                      "copied, but its light cues did not: %s",
+                                      bt_strerror(ce));
+                    }
+                }
+                g_edit.cloned_from[0] = 0;
             }
 
             if (g_edit.want_reload) {

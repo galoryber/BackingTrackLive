@@ -132,6 +132,20 @@ static void work_lightshow_write(void) {
     bt_lightshow_free(sh);
 }
 
+/* Editing the show: the song array grows, a cue array grows, and a copy
+ * allocates a second cue array it has to free if the entry it is going into
+ * cannot be made. Three allocations with three different things to unwind. */
+static void work_lightshow_edit(void) {
+    bt_lightshow *sh = NULL;
+    if (bt_lightshow_load_mem(LIGHT_JSON, strlen(LIGHT_JSON), &sh, NULL) != BT_OK)
+        return;
+    bt_lightshow_add_cue(sh, "A brand new song", NULL);
+    bt_lightshow_add_cue(sh, "A brand new song", NULL);
+    bt_lightshow_copy_song(sh, "A brand new song", "A copy of it");
+    bt_lightshow_sort_song(sh, "A copy of it", 0);
+    bt_lightshow_free(sh);
+}
+
 static void work_setlist(void) {
     bt_setlist *sl = NULL;
     int line = 0;
@@ -304,6 +318,7 @@ static void test_every_allocation_failure(void) {
     sweep(work_setlist_write,  "bt_setlist_to_json");
     sweep(work_lightshow,      "bt_lightshow_load_mem");
     sweep(work_lightshow_write, "bt_lightshow_to_json");
+    sweep(work_lightshow_edit, "bt_lightshow_add_cue/copy_song");
     sweep(work_wav_decode,     "bt_wav_decode");
     sweep(work_resample,       "bt_resample_planar");
     sweep(work_peaks,          "bt_peaks_build");
