@@ -23,8 +23,12 @@ Click a song, it plays. Click another, that one plays.
 in-ears on one pair of outputs and the backing tracks to the desk on another.
 Set it up once on screen; it is remembered.
 
-**Songs can run straight into the next one.** Mark a song to segue and it does,
-counting in at the new tempo if you want it to.
+**Songs can run straight into the next one.** Mark a song to segue and it
+does, counting in at the new tempo if you want it to. Over the last four bars
+the screen warms up and a border pulses on the beat, so nobody has to be
+reading the screen to know it is coming - and the badge counts the bars down.
+
+![Four bars from a segue](docs/images/segue.png)
 
 **You can see what you are about to play.** Song, artist, tempo — and the
 tuning, if you keep your guitars in different ones.

@@ -19,7 +19,8 @@ H=810
 OUT=docs/images
 
 mkdir -p "$OUT"
-for state in stopped playing tapped editalign editsong editaudio editlight armed; do
+for state in stopped playing tapped segue editalign editsong editaudio \
+             editlight armed; do
     "$EXE" --shot "shot_$state.raw" --w "$W" --h "$H" --state "$state"
     python3 "$RAW2PNG" "shot_$state.raw" "$OUT/$state.png" "$W" "$H"
     rm -f "shot_$state.raw"

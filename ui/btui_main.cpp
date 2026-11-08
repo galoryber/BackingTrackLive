@@ -383,8 +383,38 @@ void fill_state(bt_ui_state &st, App &a) {
         st.tap_flash_bar = a.tap_flash_bar;
     }
 
+    /* Where we are inside the current beat. From the two beat positions
+     * either side of the playhead, which is the arithmetic the click is
+     * generated with - never a wall clock, and never accumulated. */
+    {
+        const bt_frame b0 = bt_tempo_beat_frame(&s.tempo, st.beat, st.sample_rate);
+        const bt_frame b1 = bt_tempo_beat_frame(&s.tempo, st.beat + 1,
+                                                st.sample_rate);
+        st.beat_phase = b1 > b0 ? (float)((double)(st.playhead - b0) /
+                                          (double)(b1 - b0))
+                                : 0.0f;
+        if (st.beat_phase < 0.0f) st.beat_phase = 0.0f;
+        if (st.beat_phase > 1.0f) st.beat_phase = 1.0f;
+    }
+
     st.elapsed_sec = (double)st.playhead / st.sample_rate;
     st.total_sec   = (double)bt_song_length(&s, st.sample_rate) / st.sample_rate;
+
+    /* How far off the segue is, for the warning the screen gives.
+     *
+     * Only for a song that actually runs into another one: on_end says
+     * segue, there is a next song to run into - the last song in a set
+     * stops whatever it says - and something says where this one ends. A
+     * click-only song with no length has no end to count towards, and
+     * counting towards one that does not exist is how you get a warning
+     * that never arrives. */
+    st.segue_bars = -1.0f;
+    if (st.playing && st.playhead >= 0 && st.total_sec > 0.0 &&
+        s.on_end == BT_ON_END_NEXT && cur + 1 < a.sl->nsongs && st.bpm > 0.0) {
+        const double bar_sec = st.beats_per_bar * 60.0 / st.bpm;
+        const double left    = (st.total_sec - st.elapsed_sec) / bar_sec;
+        if (left >= 0.0 && left < 1000.0) st.segue_bars = (float)left;
+    }
     st.xruns       = a.live ? bt_device_xruns(a.device) : a.xruns_seen;
     st.device_live = a.live;
     st.device_name = a.dev_name[0] ? a.dev_name : nullptr;
@@ -1281,6 +1311,20 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         st.playing = true;
         st.playhead = (bt_frame)(st.elapsed_sec * st.sample_rate);
         st.beat = (int64_t)(st.elapsed_sec * st.bpm / 60.0);
+    } else if (!std::strcmp(state, "segue")) {
+        /* A bar and a bit from the end of a song that runs into the next
+         * one, on the downbeat, which is when the frame is brightest. The
+         * clock and the progress bar are moved to match: a picture of the
+         * last bars with the progress bar at 45%% would be a picture of
+         * something that cannot happen. */
+        st.playing     = true;
+        st.elapsed_sec = 300.2;
+        st.playhead    = (bt_frame)(st.elapsed_sec * st.sample_rate);
+        st.beat        = (int64_t)(st.elapsed_sec * st.bpm / 60.0);
+        st.beat_in_bar = 0;
+        st.beat_phase  = 0.12f;
+        st.segue_bars  = 1.4f;
+        sl->song[song].on_end = BT_ON_END_NEXT;
     } else if (!std::strcmp(state, "tapped")) {
         /* Mid-song with Q armed, a bar or two after a press: the one state
          * of the tap-in workflow worth a picture, because it is the only
@@ -1465,9 +1509,9 @@ int usage() {
         "         built-in demo set, which can be edited but not saved.\n"
         "\n"
         "       btui --shot <out.raw> [--w N] [--h N]\n"
-        "            [--state start|firstrun|stopped|playing|tapped|countin|\n"
-"                     disconnected|edit|editsong|editalign|editaudio|\n"
-"                     editlight|check]\n"
+        "            [--state start|firstrun|stopped|playing|tapped|segue|\n"
+"                     countin|disconnected|edit|editsong|editalign|\n"
+"                     editaudio|editlight|check]\n"
         "            [--song N] [--bar N]\n");
     return 2;
 }
