@@ -150,6 +150,12 @@ struct bt_ui_edit {
     bool             can_edit_cues = false;
     const char      *cue_file_name = nullptr;
     bool             want_learn = false;             /* listen for a note   */
+    /* Tapping cues in with Q while the song plays. The host owns the mode,
+     * because the key is pressed on the play screen; this is the lighting
+     * screen's view of it and its way of asking for it to change. Never
+     * saved anywhere - every launch starts disarmed. */
+    bool             tap_armed = false;              /* host fills in       */
+    bool             want_tap_toggle = false;        /* host acts and clears*/
     int32_t          learned_ch = -1, learned_note = -1;
     const char      *song_has_light = nullptr;       /* per set list song  */
 

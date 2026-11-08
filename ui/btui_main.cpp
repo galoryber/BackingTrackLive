@@ -140,6 +140,16 @@ struct App {
     char          cue_label[BT_MAX_CUE] = {0};
     bt_light_song own_cues = {};     /* a view onto a song's own cue array */
 
+    /* Q taps a cue in at the current bar, armed from the lighting screen.
+     *
+     * Deliberately not saved anywhere. Every launch starts disarmed, because
+     * the cost of the two states is lopsided: forgetting to arm it wastes a
+     * run-through at rehearsal, and forgetting to disarm it puts junk cues
+     * into the show during a gig. Machine config this is not - it is a mode
+     * you are in for ten minutes. */
+    bool          tap_cues = false;
+    int32_t       tapped = 0;        /* taps not yet written to the file  */
+
     /* Open only while somebody is using "learn" on the lighting screen. The
      * answer to "what note is this look?" is in the desk, and the quickest
      * way to get it out is to press the thing and listen. */
@@ -294,6 +304,7 @@ void fill_state(bt_ui_state &st, App &a) {
      * this and would not be visible here. */
     st.between_songs_ready =
         a.midi && a.show && bt_lightshow_special(a.show, "between_songs") != nullptr;
+    st.tap_armed = a.tap_cues;
     st.sample_rate = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
     st.playing     = transport_playing(a);
     st.armed       = a.armed && !st.playing;
@@ -709,6 +720,69 @@ void lighting_tick(App &a) {
     a.cue_last = now;
 }
 
+/* Q on the play screen: a cue at the bar the playhead is in.
+ *
+ * The bar you are *in*, rounded down, not the nearest one. A person presses
+ * this having heard the section change, which is a couple of hundred
+ * milliseconds after the downbeat - so the bar containing the press is the
+ * bar they meant, and rounding to nearest would put half the taps a bar
+ * early.
+ *
+ * Channel 16, note 37 and a label saying where it came from: the between
+ * songs note, which is a real note on the desk rather than a placeholder
+ * that would fail silently. That does mean playing the song again before
+ * giving these cues real notes will throw the stage to the between-songs
+ * look at the first tapped bar. These exist to be edited, and the label says
+ * so in the table.
+ *
+ * Nothing is sent here. The new cue's frame is at or before the playhead, so
+ * cue_last is pushed past it to keep the next tick from firing the thing
+ * that was just written down. */
+void tap_cue(App &a) {
+    if (!a.show || a.show_broken || !a.sl || !a.player) return;
+    if (!transport_playing(a)) return;
+
+    const int32_t song = bt_player_current(a.player);
+    if (song < 0 || song >= a.sl->nsongs) return;
+    const bt_song &s = a.sl->song[song];
+
+    const int32_t sr  = a.dev.sample_rate > 0 ? a.dev.sample_rate : 48000;
+    const int32_t sig = s.tempo.sig_num > 0 ? s.tempo.sig_num : 4;
+    const int64_t beat = bt_tempo_frame_beat(&s.tempo, bt_player_playhead(a.player), sr);
+
+    /* Floor division, which is not what / does for a negative beat - and a
+     * negative beat is the count-in, where tapping is as reasonable as
+     * anywhere else. Bar 1 is beat 0, so the count-in lands on bar 0 and
+     * below, exactly as a typed-in count-in cue does. */
+    int64_t bar = beat >= 0 ? beat / sig
+                            : -(((-beat) + sig - 1) / sig);
+    bar += 1;
+    if (bar < BT_LIGHT_MIN_BAR) return;
+
+    bt_light_event *ev = nullptr;
+    const bt_err e = bt_lightshow_add_cue(a.show, s.title, &ev);
+    if (e != BT_OK || !ev) return;
+
+    ev->bar  = (int32_t)bar;
+    ev->ch   = 16;
+    ev->note = 37;
+    ev->kind = BT_LIGHT_LOOK;
+    std::snprintf(ev->label, sizeof(ev->label), "Added by hotkey q");
+
+    bt_lightshow_sort_song(a.show, s.title, -1);
+    a.tapped++;
+
+    /* Do not fire what was just written down. */
+    const bt_light_song *ls = bt_lightshow_find(a.show, s.title);
+    if (ls) {
+        for (int32_t i = 0; i < ls->nev; i++) {
+            if (ls->ev[i].bar != (int32_t)bar) continue;
+            const bt_frame f = bt_light_event_frame(&s, &ls->ev[i], sr);
+            if (f > a.cue_last) a.cue_last = f;
+        }
+    }
+}
+
 /* Load a set list and bring up audio for it. device.json defaults to sitting
  * beside the set list, which is where the folder-is-one-unit rule puts it. */
 bool open_set(HWND hwnd, const char *setlist_path, const char *device_path) {
@@ -1019,6 +1093,24 @@ void on_key(HWND hwnd, WPARAM key) {
          * itself. */
         lighting_special(a, "between_songs");
         break;
+    case 'Q':
+        /* Tap a cue in where you are, while the band plays it.
+         *
+         * Finding the bar a look should change on means playing the song and
+         * listening for it; typing bar numbers into a table afterwards means
+         * guessing, or counting bars off a stopwatch. This puts a cue at the
+         * bar the playhead is in, so a run-through leaves behind the
+         * skeleton of a show to give real notes to later.
+         *
+         * It sends nothing. The cue is an entry in the file, not a trigger -
+         * pressing this during a song must not change what the stage is
+         * doing, which is the whole reason it is safe to press.
+         *
+         * Off unless armed on the lighting screen, and armed is never
+         * remembered across a launch: an unarmed stray press at a gig is a
+         * key that does nothing, which is what it should be. */
+        if (a.tap_cues) tap_cue(a);
+        break;
     case 'C':
         a.show_clock = !a.show_clock;
         break;
@@ -1117,6 +1209,7 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
      * the footer hides B, which is right for a laptop with no cue file and
      * wrong for a picture meant to show what the program does. */
     st.between_songs_ready = true;
+    st.tap_armed = true;
     /* The state worth having a picture of: the interface has gone. */
     if (!std::strcmp(state, "disconnected")) {
         st.device_live = false;
@@ -1558,6 +1651,28 @@ int main(int argc, char **argv) {
             bt_tick_result t = BT_TICK_IDLE;
             bt_player_tick(g_app.player, &t);
             if (transport_playing(g_app)) lighting_tick(g_app);
+
+            /* Tapped cues reach the file when the song stops, never during
+             * it. The write is atomic and lands on the UI thread, but it is
+             * still a file write, and a song in progress is the one moment
+             * this program does not spend time on anything it can defer.
+             * Stopping covers every way out - space, the end of the song, a
+             * skip to the next one. */
+            if (g_app.tapped > 0 && !transport_playing(g_app)) {
+                const int32_t n = g_app.tapped;
+                g_app.tapped = 0;
+                if (g_app.show && g_app.show_path[0] && !g_app.show_broken) {
+                    const bt_err se = bt_lightshow_save_file(g_app.show,
+                                                             g_app.show_path);
+                    std::snprintf(g_app.note, sizeof(g_app.note),
+                                  se == BT_OK
+                                  ? "%d cue%s tapped in and saved - give them "
+                                    "notes in edit mode"
+                                  : "%d cue%s tapped in but the file would not "
+                                    "save",
+                                  n, n == 1 ? "" : "s");
+                }
+            }
             if (t == BT_TICK_ADVANCED) g_app.selected = bt_player_current(g_app.player);
 
             /* A song that stops holds the screen instead of dropping to the
@@ -1623,6 +1738,12 @@ int main(int argc, char **argv) {
             /* The highlight belongs to one song's table. Switching songs
              * leaves it pointing at a row that is somebody else's. */
             if (g_edit.cue_sel >= g_edit.ncues) g_edit.cue_sel = -1;
+            g_edit.tap_armed = g_app.tap_cues;
+            if (g_edit.want_tap_toggle) {
+                g_edit.want_tap_toggle = false;
+                g_app.tap_cues = !g_app.tap_cues;
+                g_edit.tap_armed = g_app.tap_cues;
+            }
             if (!g_edit.midi_dirty)
                 std::snprintf(g_edit.midi_port, sizeof(g_edit.midi_port), "%s",
                               g_app.dev.midi_out);

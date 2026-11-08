@@ -76,6 +76,12 @@ struct bt_ui_state {
      * pressing it would send something. */
     bool     between_songs_ready;
 
+    /* Q is armed to tap cues in. Shown on the play screen because it is a
+     * mode that writes to the show: a key that quietly adds cues is fine
+     * while that is what you are doing and alarming if you have forgotten
+     * it is on, and the footer is where the other keys already are. */
+    bool     tap_armed;
+
     /* Whether the window is fullscreen right now.
      *
      * The host owns the window; this is only what it tells the screen, so

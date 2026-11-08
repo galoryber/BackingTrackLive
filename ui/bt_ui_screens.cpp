@@ -99,6 +99,21 @@ void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
                       sz.y * 0.0025f);
 }
 
+/* Q is armed and will write to the show.
+ *
+ * Its own line above the hints rather than another key in them: the hint
+ * line is a menu of things you may do, and this is a statement that the
+ * program is in a mode. Amber, because forgetting it is on is the failure
+ * worth catching, and amber is what this program uses for "look at this".
+ * Only on screen while armed, which is never at the start of a session. */
+void draw_tap_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
+                    float pad, float fy) {
+    if (!st.tap_armed) return;
+    const float h = sz.y * 0.026f;
+    text_at(dl, ImGui::GetFont(), h, ImVec2(pad, fy - h * 1.5f), COL_ACCENT_T,
+            "Q  ARMED - adds a light cue at the bar you are in");
+}
+
 /* ------------------------------------------------------------- stopped */
 
 /* The fullscreen corner.
@@ -355,6 +370,7 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
         }
     }
 
+    draw_tap_badge(dl, st, sz, pad, fy);
     draw_device_badge(dl, st, sz, fy + foot_h * 0.5f, true);
 }
 
@@ -393,12 +409,19 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
         if (s->tuning[0]) {
             char lbl[48];
             std::snprintf(lbl, sizeof(lbl), "TUNING  %s", s->tuning);
-            text_at(dl, f, sz.y * 0.055f, ImVec2(ax, ay), COL_ACCENT_T, lbl);
+            /* Larger than the artist it sits beside, because it is the one
+             * thing here somebody has to act on, and it is read from across
+             * a stage. Nudged down by the difference so the two still sit on
+             * one baseline rather than one appearing to float. */
+            const float tun_sz = sz.y * 0.065f;
+            text_at(dl, f, tun_sz, ImVec2(ax, ay - (tun_sz - sz.y * 0.055f)),
+                    COL_ACCENT_T, lbl);
         }
         /* Whatever you wrote to read mid-song. Under the title line, in plain
-         * white - it is a note to yourself, not a status. */
+         * white - it is a note to yourself, not a status. Sized for the far
+         * side of a stage rather than for the person at the laptop. */
         if (s->cue[0])
-            text_at(dl, f, sz.y * 0.042f, ImVec2(pad, sz.y * 0.265f),
+            text_at(dl, f, sz.y * 0.052f, ImVec2(pad, sz.y * 0.262f),
                     COL_TEXT, s->cue);
     }
 
@@ -407,7 +430,7 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     if (!counting && !st.armed) {
         char bar[16];
         std::snprintf(bar, sizeof(bar), "%d", st.bar);
-        const float bar_sz = sz.y * 0.095f;
+        const float bar_sz = sz.y * 0.110f;
         float bw = text_w(f, bar_sz, bar);
         text_at(dl, f, bar_sz, ImVec2(sz.x - pad - bw, sz.y * 0.060f),
                 COL_TEXT, bar);
