@@ -450,10 +450,11 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
      * which song is next, and what tuning it is in.
      *
      * The frame does the real work, and is drawn last, over everything. */
+    ImU32 segue_tint = 0;
     if (segue_t > 0.0f) {
         const float a = (0.05f + 0.07f * segue_t) + 0.03f * beat_pulse(st);
-        dl->AddRectFilled(ImVec2(0, 0), sz,
-                          IM_COL32(255, 146, 48, (int)(a * 255.0f)));
+        segue_tint = IM_COL32(255, 146, 48, (int)(a * 255.0f));
+        dl->AddRectFilled(ImVec2(0, 0), sz, segue_tint);
     }
     const bt_song *s = (st.setlist && st.current >= 0)
                      ? &st.setlist->song[st.current] : nullptr;
@@ -720,6 +721,11 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     const float foot_h = sz.y * 0.155f;
     float fy = sz.y - foot_h;
     dl->AddRectFilled(ImVec2(0, fy), ImVec2(sz.x, sz.y), COL_PANEL);
+    /* The footer has its own panel colour, painted over the warmth above -
+     * so it takes the same tint again, or the screen warms up everywhere
+     * except the strip holding the song you are warming up for. */
+    if (segue_tint)
+        dl->AddRectFilled(ImVec2(0, fy), ImVec2(sz.x, sz.y), segue_tint);
 
     const float nl = foot_h * 0.26f;
     text_at(dl, f, nl, ImVec2(pad, fy + foot_h * 0.16f), COL_DIM, "NEXT");
