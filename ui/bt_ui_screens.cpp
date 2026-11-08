@@ -107,10 +107,9 @@ void draw_device_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
  * worth catching, and amber is what this program uses for "look at this".
  * Only on screen while armed, which is never at the start of a session. */
 void draw_tap_badge(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
-                    float pad, float fy) {
+                    ImVec2 at) {
     if (!st.tap_armed) return;
-    const float h = sz.y * 0.026f;
-    text_at(dl, ImGui::GetFont(), h, ImVec2(pad, fy - h * 1.5f), COL_ACCENT_T,
+    text_at(dl, ImGui::GetFont(), sz.y * 0.026f, at, COL_ACCENT_T,
             "Q  ARMED - adds a light cue at the bar you are in");
 }
 
@@ -370,7 +369,7 @@ void draw_setlist(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz,
         }
     }
 
-    draw_tap_badge(dl, st, sz, pad, fy);
+    draw_tap_badge(dl, st, sz, ImVec2(pad, fy - sz.y * 0.039f));
     draw_device_badge(dl, st, sz, fy + foot_h * 0.5f, true);
 }
 
@@ -424,6 +423,11 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
             text_at(dl, f, sz.y * 0.052f, ImVec2(pad, sz.y * 0.262f),
                     COL_TEXT, s->cue);
     }
+
+    /* Armed to tap cues in. On this screen above all, because this is the
+     * screen you are looking at when you press it - and the screen where
+     * forgetting it is armed costs something. */
+    draw_tap_badge(dl, st, sz, ImVec2(pad, sz.y * 0.325f));
 
     /* ---- bar number: kept, demoted ------------------------------------
      * Useful for finding your place, and not what the eye should land on. */
