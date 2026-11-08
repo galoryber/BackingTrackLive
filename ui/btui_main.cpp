@@ -150,6 +150,17 @@ struct App {
     bool          tap_cues = false;
     int32_t       tapped = 0;        /* taps not yet written to the file  */
 
+    /* What Q just did, held on screen for a bar or two. Measured in frames
+     * off the sample counter, like everything else with a duration here: a
+     * wall clock would be a second source of time for no reason, and "two
+     * bars" is the unit the person pressing the key is thinking in anyway.
+     *
+     * Tied to the song it was tapped in, and cleared by stopping, so a
+     * restart cannot bring an old flash back at the bar it was pressed. */
+    bt_frame      tap_flash_until = 0;
+    int32_t       tap_flash_bar   = 0;
+    int32_t       tap_flash_song  = -1;
+
     /* Open only while somebody is using "learn" on the lighting screen. The
      * answer to "what note is this look?" is in the desk, and the quickest
      * way to get it out is to press the thing and listen. */
@@ -188,6 +199,7 @@ void close_show(App &a);
 void reopen_show(App &a, const char *setlist_path);
 void lighting_resync(App &a, int32_t song_index, bt_frame at);
 void lighting_tick(App &a);
+const bt_light_song *lighting_song(App &a, int32_t song_index);
 
 bool file_exists(const char *path) {
     DWORD a = GetFileAttributesA(path);
@@ -207,6 +219,8 @@ void audio_cb(float *const *out, int32_t nframes, void *user) {
  * behaviour for the engine and the wrong behaviour for a UI, so the UI asks
  * whether the song is resident first and keeps asking until it is. */
 void transport_start(App &a, bool count_in) {
+    /* Whatever Q last wrote belongs to the run that is over. */
+    a.tap_flash_song = -1;
     if (a.live && a.player && !bt_player_song_resident(a.player, a.selected)) {
         /* Ask for it. Without this the wait below never ends: the preload
          * window holds the current song and the next, so one played earlier
@@ -277,6 +291,7 @@ void queue_selected(App &a) {
 void transport_stop(App &a) {
     a.pending_start = false;
     a.note[0] = '\0';
+    a.tap_flash_song = -1;
     if (a.live) bt_player_stop(a.player);
     else        a.sim_playing = false;
 }
@@ -339,6 +354,33 @@ void fill_state(bt_ui_state &st, App &a) {
     } else {
         st.bar         = (int32_t)(st.beat / st.beats_per_bar) + 1;
         st.beat_in_bar = (int32_t)(st.beat % st.beats_per_bar);
+    }
+
+    /* Lighting, for the play screen: the look showing and the change coming.
+     *
+     * Worked out from the playhead every frame rather than remembered from
+     * what was last sent. Two reasons. It is then right after a seek and
+     * right for a laptop with no MIDI port open at all - somebody building a
+     * show at the kitchen table sees the same labels they will see on stage.
+     * And a derived value cannot drift out of step with the stage the way a
+     * second copy of the same fact eventually does. */
+    const bt_light_song *ls = lighting_song(a, cur);
+    if (ls && ls->nev > 0) {
+        st.cue_any = true;
+        const int32_t look = bt_light_look_at(ls, &s, st.playhead, st.sample_rate);
+        if (look >= 0 && ls->ev[look].label[0]) st.cue_now = ls->ev[look].label;
+        const int32_t next = bt_light_next_at(ls, &s, st.playhead, st.sample_rate);
+        if (next >= 0) {
+            st.cue_more     = true;
+            st.cue_next_bar = ls->ev[next].bar;
+            if (ls->ev[next].label[0]) st.cue_next = ls->ev[next].label;
+        }
+    }
+
+    /* A tap is confirmed for two bars of this song's own tempo. */
+    if (a.tap_flash_song == cur && st.playing && st.playhead < a.tap_flash_until) {
+        st.tap_flash     = true;
+        st.tap_flash_bar = a.tap_flash_bar;
     }
 
     st.elapsed_sec = (double)st.playhead / st.sample_rate;
@@ -763,6 +805,16 @@ void tap_cue(App &a) {
 
     bt_lightshow_sort_song(a.show, s.title, -1);
     a.tapped++;
+
+    /* Say so on screen. Two bars at this song's tempo: long enough to read
+     * while playing, short enough that the next press is plainly a new one
+     * rather than the same message still sitting there. */
+    const double bpm = s.tempo.nseg ? s.tempo.seg[0].bpm : 120.0;
+    const int32_t sig = s.tempo.sig_num > 0 ? s.tempo.sig_num : 4;
+    a.tap_flash_bar   = bar;
+    a.tap_flash_song  = song;
+    a.tap_flash_until = bt_player_playhead(a.player)
+                      + (bt_frame)(2.0 * sig * 60.0 / bpm * sr);
 
     /* Do not fire what was just written down. */
     const bt_light_song *ls = bt_lightshow_find(a.show, s.title);
@@ -1202,8 +1254,16 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
      * wrong for a picture meant to show what the program does. */
     st.between_songs_ready = true;
     /* Not armed: the pictures should look like a gig, and arming is a
-     * rehearsal mode that no session starts in. */
+     * rehearsal mode that no session starts in. The "tapped" shot is the
+     * exception, since the whole point of it is that mode. */
     st.tap_armed = false;
+    /* The lighting labels the play screen names, matching the cue list the
+     * edit shots use below - so the two pictures tell the same story. */
+    st.cue_any      = true;
+    st.cue_now      = "chorus - full";
+    st.cue_more     = true;
+    st.cue_next     = "fog";
+    st.cue_next_bar = 49;
     /* The state worth having a picture of: the interface has gone. */
     if (!std::strcmp(state, "disconnected")) {
         st.device_live = false;
@@ -1221,6 +1281,16 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
         st.playing = true;
         st.playhead = (bt_frame)(st.elapsed_sec * st.sample_rate);
         st.beat = (int64_t)(st.elapsed_sec * st.bpm / 60.0);
+    } else if (!std::strcmp(state, "tapped")) {
+        /* Mid-song with Q armed, a bar or two after a press: the one state
+         * of the tap-in workflow worth a picture, because it is the only
+         * feedback the press has. */
+        st.playing   = true;
+        st.playhead  = (bt_frame)(st.elapsed_sec * st.sample_rate);
+        st.beat      = (int64_t)(st.elapsed_sec * st.bpm / 60.0);
+        st.tap_armed = true;
+        st.tap_flash = true;
+        st.tap_flash_bar = bar;
     } else if (!std::strcmp(state, "countin")) {
         st.playing = true;
         st.playhead = -(bt_frame)(1.5 * st.sample_rate);
@@ -1395,8 +1465,9 @@ int usage() {
         "         built-in demo set, which can be edited but not saved.\n"
         "\n"
         "       btui --shot <out.raw> [--w N] [--h N]\n"
-        "            [--state start|firstrun|stopped|playing|countin|disconnected|\n"
-"                     edit|editsong|editalign|editaudio|editlight|check]\n"
+        "            [--state start|firstrun|stopped|playing|tapped|countin|\n"
+"                     disconnected|edit|editsong|editalign|editaudio|\n"
+"                     editlight|check]\n"
         "            [--song N] [--bar N]\n");
     return 2;
 }

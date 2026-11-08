@@ -241,6 +241,53 @@ static void test_seeking_restores_the_look_and_not_the_hits(void) {
     bt_lightshow_free(sh);
 }
 
+/* What the play screen asks: which change is coming. Strictly after the
+ * playhead, because a cue exactly on it has already gone out. */
+static void test_the_next_cue_due(void) {
+    bt_lightshow *sh = NULL;
+    BT_CHECK(bt_lightshow_load_mem(SHOW, strlen(SHOW), &sh, NULL) == BT_OK);
+    const bt_light_song *ls = bt_lightshow_find(sh, "Corduroy");
+    bt_song s = a_song();
+    const int32_t sr = 48000;
+
+    /* In the count-in, everything is still to come. */
+    BT_CHECK_EQI(bt_light_next_at(ls, &s, -4 * sr, sr), 0);
+
+    /* Standing exactly on bar 1 - which has fired - the next one is bar 17.
+     * Off by one here and the screen names the look already showing as the
+     * one coming, which is the whole point of the line. */
+    BT_CHECK_EQI(bt_light_next_at(ls, &s, 0, sr), 1);
+    BT_CHECK_EQI(bt_light_next_at(ls, &s, -1, sr), 0);
+
+    /* Mid-song, the hit at bar 33 counts: it is a change that is coming. */
+    bt_light_event at20 = { 20, 1, 0, BT_LIGHT_LOOK, "" };
+    BT_CHECK_EQI(bt_light_next_at(ls, &s, bt_light_event_frame(&s, &at20, sr), sr), 2);
+
+    /* Past the last event there is nothing left, which is not an error. */
+    BT_CHECK_EQI(bt_light_next_at(ls, &s, (bt_frame)sr * 600, sr), -1);
+    BT_CHECK_EQI(bt_light_next_at(NULL, &s, 0, sr), -1);
+    BT_CHECK_EQI(bt_light_next_at(ls, &s, 0, 0), -1);
+
+    /* The earliest one due, not the first in the array: this reads a file
+     * somebody else generated and bar order is their side of the contract. */
+    {
+        bt_light_song ooo;
+        bt_light_event ev[3];
+        int32_t i;
+        ev[0].bar = 50; ev[1].bar = 9; ev[2].bar = 30;
+        for (i = 0; i < 3; i++) {
+            ev[i].ch = 1; ev[i].note = i;
+            ev[i].kind = BT_LIGHT_LOOK; ev[i].label[0] = '\0';
+        }
+        memset(&ooo, 0, sizeof(ooo));
+        snprintf(ooo.title, sizeof(ooo.title), "Corduroy");
+        ooo.ev = ev;
+        ooo.nev = 3;
+        BT_CHECK_EQI(bt_light_next_at(&ooo, &s, 0, sr), 1);
+    }
+    bt_lightshow_free(sh);
+}
+
 /* The file is somebody else's build output. One bad row should cost one
  * look, not the whole rig. */
 static void test_a_bad_row_costs_one_look(void) {
@@ -675,6 +722,7 @@ int main(void) {
     BT_RUN(test_bar_one_is_the_downbeat);
     BT_RUN(test_what_fires_between_two_playheads);
     BT_RUN(test_seeking_restores_the_look_and_not_the_hits);
+    BT_RUN(test_the_next_cue_due);
     BT_RUN(test_a_bad_row_costs_one_look);
     BT_RUN(test_which_bar_a_frame_is_in);
     BT_RUN(test_adding_and_removing_cues);

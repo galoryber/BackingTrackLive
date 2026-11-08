@@ -418,6 +418,28 @@ int32_t bt_light_events_between(const bt_light_song *ls, const bt_song *song,
     return n;
 }
 
+/* The next cue due, which is what "is the change landing where I expect"
+ * needs on the play screen. Strictly after `at`, matching the half-open rule
+ * bt_light_events_between fires by: a cue exactly on the playhead has already
+ * gone out and is not still coming.
+ *
+ * The earliest such cue rather than the first one found, so this answers
+ * correctly for a file whose cues are not in bar order. They are supposed to
+ * be - §4 of the contract - but this is a read of somebody else's file and
+ * the cost of not assuming it is one comparison. */
+int32_t bt_light_next_at(const bt_light_song *ls, const bt_song *song,
+                         bt_frame at, int32_t sample_rate) {
+    if (!ls || !song || sample_rate <= 0) return -1;
+    int32_t  best = -1;
+    bt_frame best_f = 0;
+    for (int32_t i = 0; i < ls->nev; i++) {
+        const bt_frame f = bt_light_event_frame(song, &ls->ev[i], sample_rate);
+        if (f <= at) continue;
+        if (best < 0 || f < best_f) { best = i; best_f = f; }
+    }
+    return best;
+}
+
 int32_t bt_light_look_at(const bt_light_song *ls, const bt_song *song,
                          bt_frame at, int32_t sample_rate) {
     if (!ls || !song || sample_rate <= 0) return -1;
