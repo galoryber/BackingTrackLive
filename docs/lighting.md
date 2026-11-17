@@ -77,8 +77,8 @@ What this does mean is that **a song renamed here has to be renamed on the
 lighting side as well** before the show is next generated, or the generator
 will write the old title back in as a second entry.
 
-**The look showing has its name on the play screen**, under the song and the
-band's own note, with the bar of the next change beside it. That is the
+**The look showing has its name on the play screen**, in the top right under
+the bar number, with the bar of the next change under that. That is the
 `label` from the cue file - §3 calls it UI-only and this is the UI it is for.
 It is worked out from the playhead every frame rather than remembered from
 whatever was last sent, so it is right after a jump, right with no MIDI port

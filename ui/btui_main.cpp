@@ -1276,6 +1276,12 @@ int run_shot(const char *out, int w, int h, const char *state, int song, int bar
     st.bpm = sl->song[song].tempo.seg[0].bpm;
     st.bar = bar; st.beat_in_bar = 2;
     st.elapsed_sec = 134.0; st.total_sec = 303.0;
+    /* No segue in sight unless a state below says there is. Zero means "the
+     * segue is now", not "there is none", and a zeroed struct would have put
+     * a full-strength warning border around every picture of the play
+     * screen - which is exactly what happened the first time these were
+     * regenerated after the warning was built. */
+    st.segue_bars  = -1.0f;
     st.device_live = true;
     st.device_name = "OUT 1-4 (BEHRINGER UMC 404HD)  \xc2\xb7  Windows WASAPI";
     st.xruns       = 0;

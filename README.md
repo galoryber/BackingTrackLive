@@ -25,8 +25,9 @@ Set it up once on screen; it is remembered.
 
 **Songs can run straight into the next one.** Mark a song to segue and it
 does, counting in at the new tempo if you want it to. Over the last four bars
-the screen warms up and a border pulses on the beat, so nobody has to be
-reading the screen to know it is coming - and the badge counts the bars down.
+a border pulses on the beat, brighter and thicker as it closes, so nobody has
+to be reading the screen to know it is coming - and the badge counts the bars
+down.
 
 ![Four bars from a segue](docs/images/segue.png)
 
@@ -112,10 +113,11 @@ them mean and no way to find out - that mapping lives in QLC+. Look the number
 up there once, type it in here, and it goes out at that bar for ever after.
 
 **The description is shown on stage.** It is never sent anywhere - it is a
-note to yourself - but while that look is up its name sits under the song,
-with the bar the next change is due on beside it. "Chorus 1" on the screen is
-worth having for the band, and it is the quickest way to see that a cue you
-placed lands where you thought it would.
+note to yourself - but while that look is up its name sits in the top right
+corner, under the bar you are in, with the bar the next change is due on under
+that. "Bar 17, chorus, and it moves at 49" is one glance at one corner: worth
+having for the band, and the quickest way to see that a cue you placed lands
+where you thought it would.
 
 **Bar 1 is the first downbeat, after the count-in.** By default the count-in
 sends nothing, so the between-songs look stays up while the band hears the

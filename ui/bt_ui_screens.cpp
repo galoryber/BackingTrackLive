@@ -437,28 +437,66 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     const float pad = sz.x * 0.03f;
     const float segue_t = segue_warning(st);
 
-    /* ---- the last bars of a song that runs into the next one ----------
+    /* The last bars of a song that runs into the next one are warned about
+     * by a border, pulsing on the beat, drawn at the very end of this
+     * function - see there for why it is a border and nothing else.
      *
-     * The badge in the corner says a segue is coming. It does not say it is
-     * coming *now*, and by the time somebody has read a word the moment has
-     * gone - so over the last few bars the screen itself warms up and a
-     * border pulses on the beat.
-     *
-     * The warmth is kept low. It says "soon" from the far side of a stage
-     * without being read as anything to do, and anything stronger would
-     * cost the legibility of the words that matter at that exact moment -
-     * which song is next, and what tuning it is in.
-     *
-     * The frame does the real work, and is drawn last, over everything. */
-    ImU32 segue_tint = 0;
-    if (segue_t > 0.0f) {
-        const float a = (0.05f + 0.07f * segue_t) + 0.03f * beat_pulse(st);
-        segue_tint = IM_COL32(255, 146, 48, (int)(a * 255.0f));
-        dl->AddRectFilled(ImVec2(0, 0), sz, segue_tint);
-    }
+     * An earlier version also warmed the whole screen behind it, orange at
+     * five to twelve percent. On a real stage it turned out to add nothing
+     * the border was not already saying, and a wash across the whole screen
+     * is paid for in the legibility of everything on it. The border is the
+     * warning; the screen underneath it stays the colour it always is. */
     const bt_song *s = (st.setlist && st.current >= 0)
                      ? &st.setlist->song[st.current] : nullptr;
     const bool counting = st.playhead < 0;
+
+    /* ---- the top right column, measured before anything is drawn ------
+     *
+     * The bar you are in, the lighting look that is up, and the bar the next
+     * one is due on. One stack, right-aligned, in that order, because they
+     * are one thought: where am I, what is the rig doing, when does it
+     * change. Read as a column they answer each other - "bar 19, chorus, and
+     * it moves at 23" - which is a different and more useful sentence than
+     * any of the three alone, and it is why the bar number is worth size
+     * again after a release of being deliberately small.
+     *
+     * Measured first because the left side has to know how much room is
+     * left: a long song title or a long note would otherwise run underneath
+     * a column that is now several lines deep. */
+    char  bar_txt[16]            = "";
+    char  next_txt[BT_MAX_CUE + 32] = "";
+    const char *now_txt          = nullptr;
+    const float bar_sz           = sz.y * 0.145f;
+    const float bar_lbl_sz       = sz.y * 0.032f;
+    const float now_sz           = sz.y * 0.060f;
+    const float next_sz          = sz.y * 0.042f;
+    float right_w = 0.0f;
+
+    if (!counting && !st.armed) {
+        std::snprintf(bar_txt, sizeof(bar_txt), "%d", st.bar);
+        right_w = text_w(f, bar_sz, bar_txt);
+    }
+    /* Only for a song that has cues. A set list with no lighting looks
+     * exactly as it did, with nothing to explain. */
+    if (st.cue_any && !st.armed) {
+        /* Before the first cue of a song there is no look to name, and a cue
+         * may have been left with no description at all. The dash says so;
+         * an empty space where a name goes reads as a bug. */
+        now_txt = (st.cue_now && st.cue_now[0]) ? st.cue_now : "-";
+        const float nw = text_w(f, now_sz, now_txt);
+        if (nw > right_w) right_w = nw;
+        if (st.cue_more) {
+            if (st.cue_next && st.cue_next[0])
+                std::snprintf(next_txt, sizeof(next_txt),
+                              "\xe2\x86\x92  bar %d  %s",
+                              st.cue_next_bar, st.cue_next);
+            else
+                std::snprintf(next_txt, sizeof(next_txt), "\xe2\x86\x92  bar %d",
+                              st.cue_next_bar);
+            const float xw = text_w(f, next_sz, next_txt);
+            if (xw > right_w) right_w = xw;
+        }
+    }
 
     /* ---- header: what is playing, large ------------------------------
      *
@@ -488,10 +526,14 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
              * Unless it does not fit. The bar number owns the top right
              * corner, and a long title plus a long artist would run
              * underneath it; then the artist goes back to its own line,
-             * which is only where it used to live. */
+             * which is only where it used to live.
+             *
+             * Measured against the bar number alone rather than the whole
+             * right column: the column's lower lines start below this one,
+             * and reserving their width here would push the artist onto its
+             * own line for titles that fit perfectly well. */
             const float x = pad + text_w(f, title_sz, s->title) + pad * 0.6f;
-            const float room = sz.x - pad * 2.0f
-                             - text_w(f, sz.y * 0.110f, "000");
+            const float room = sz.x - pad * 2.0f - text_w(f, bar_sz, "000");
             if (x + text_w(f, sub_sz, s->artist) < room) {
                 /* Onto the title's baseline rather than its top edge. */
                 text_at(dl, f, sub_sz,
@@ -517,79 +559,70 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
         }
         /* Whatever you wrote to read mid-song. Under the title line, in plain
          * white - it is a note to yourself, not a status. Sized for the far
-         * side of a stage rather than for the person at the laptop. */
-        if (s->cue[0])
-            text_at(dl, f, sz.y * 0.052f, ImVec2(pad, sz.y * 0.262f),
-                    COL_TEXT, s->cue);
+         * side of a stage rather than for the person at the laptop.
+         *
+         * This is the one free-form sentence on the screen, and it shares a
+         * row with the right-hand column, so it is the one that yields:
+         * shrunk to whatever room the column leaves rather than drawn
+         * straight through it. Down to a floor, because a note too small to
+         * read from where you are standing is the same as no note. */
+        if (s->cue[0]) {
+            float cs = sz.y * 0.052f;
+            const float room = sz.x - pad * 2.0f - right_w - pad * 0.8f;
+            const float cw   = text_w(f, cs, s->cue);
+            if (cw > room && room > 0.0f) {
+                cs *= room / cw;
+                if (cs < sz.y * 0.032f) cs = sz.y * 0.032f;
+            }
+            text_at(dl, f, cs, ImVec2(pad, sz.y * 0.262f), COL_TEXT, s->cue);
+        }
+    }
+
+    /* ---- the top right column, drawn ---------------------------------
+     *
+     * Right-aligned, all three on the same edge, so the eye has one place to
+     * go rather than three. */
+    if (bar_txt[0]) {
+        const char *lbl = "BAR";
+        text_at(dl, f, bar_lbl_sz,
+                ImVec2(sz.x - pad - text_w(f, bar_lbl_sz, lbl), sz.y * 0.028f),
+                COL_DIM, lbl);
+        text_at(dl, f, bar_sz,
+                ImVec2(sz.x - pad - text_w(f, bar_sz, bar_txt), sz.y * 0.052f),
+                COL_TEXT, bar_txt);
+    }
+
+    /* "Chorus 1", "Bridge" - the description typed beside the cue, which
+     * until recently existed only in the editor. On stage it answers two
+     * questions at once: the band's "where are we in this song", and, while
+     * a show is being built, whether the change landed on the bar it was
+     * meant to. The bar the next one is due on is the other half of that: a
+     * change you can see coming is one you can check.
+     *
+     * No "LIGHTS" in front of it. The blue is what says which line this is,
+     * and a word repeated on screen all night is clutter. */
+    if (now_txt) {
+        text_at(dl, f, now_sz,
+                ImVec2(sz.x - pad - text_w(f, now_sz, now_txt), sz.y * 0.206f),
+                COL_ACCENT, now_txt);
+        if (next_txt[0])
+            text_at(dl, f, next_sz,
+                    ImVec2(sz.x - pad - text_w(f, next_sz, next_txt),
+                           sz.y * 0.278f),
+                    COL_DIM, next_txt);
     }
 
     /* Armed to tap cues in, and what the last press wrote down.
      *
-     * Under the bar number, on purpose: the bar is what somebody tapping
-     * cues in is watching, "did that land" is a question about a bar, and
-     * the answer belongs beside the question rather than across the screen
-     * from it. Also the one part of the screen with room, once the
-     * metronome has the middle of it. */
+     * At the foot of that same column, on purpose: the bar is what somebody
+     * tapping cues in is watching, "did that land" is a question about a
+     * bar, and the answer belongs under the bar rather than across the
+     * screen from it. It sits where the column ends, which is higher up when
+     * the song has no cues to list. */
     if (!st.armed)
-        draw_tap_badge(dl, st, sz, ImVec2(sz.x - pad, sz.y * 0.205f), true);
-
-    /* ---- the lighting look, by name -----------------------------------
-     *
-     * "Chorus 1", "Bridge" - the description somebody typed beside the cue,
-     * which until now existed only in the editor. On stage it answers two
-     * questions at once: the band's "where are we in this song", and, while
-     * a show is being built, whether the change landed on the bar it was
-     * meant to. The bar it is next due on is the other half of that: a
-     * change you can see coming is one you can check.
-     *
-     * Only for a song that has cues. A set list with no lighting looks
-     * exactly as it did, with nothing to explain. */
-    if (st.cue_any && !st.armed) {
-        /* Under the band's own note, above the metronome, and sized just
-         * below it: this is for the far side of the stage too, but a note
-         * somebody wrote for tonight outranks the name of a lighting look. */
-        const float ly  = sz.y * 0.322f;
-        const float nsz = sz.y * 0.044f;    /* the name        */
-        const float lsz = sz.y * 0.028f;    /* what is next    */
-        const float drop = (nsz - lsz) * 0.78f;   /* onto one baseline */
-        float x = pad;
-
-        /* No "LIGHTS" in front of it. The blue is what says which line this
-         * is, and a word repeated on screen all night is clutter.
-         *
-         * Before the first cue of a song there is no look to name, and a cue
-         * may have been left with no description at all. The dash says so;
-         * an empty space where a name goes reads as a bug. */
-        const char *now = (st.cue_now && st.cue_now[0]) ? st.cue_now : "-";
-        text_at(dl, f, nsz, ImVec2(x, ly), COL_ACCENT, now);
-        x += text_w(f, nsz, now) + pad * 0.7f;
-
-        if (st.cue_more) {
-            char nx[BT_MAX_CUE + 32];
-            if (st.cue_next && st.cue_next[0])
-                std::snprintf(nx, sizeof(nx), "\xe2\x86\x92  bar %d  %s",
-                              st.cue_next_bar, st.cue_next);
-            else
-                std::snprintf(nx, sizeof(nx), "\xe2\x86\x92  bar %d",
-                              st.cue_next_bar);
-            text_at(dl, f, lsz, ImVec2(x, ly + drop), COL_DIM, nx);
-        }
-    }
-
-    /* ---- bar number: kept, demoted ------------------------------------
-     * Useful for finding your place, and not what the eye should land on. */
-    if (!counting && !st.armed) {
-        char bar[16];
-        std::snprintf(bar, sizeof(bar), "%d", st.bar);
-        const float bar_sz = sz.y * 0.110f;
-        float bw = text_w(f, bar_sz, bar);
-        text_at(dl, f, bar_sz, ImVec2(sz.x - pad - bw, sz.y * 0.060f),
-                COL_TEXT, bar);
-        const char *lbl = "BAR";
-        float ls = sz.y * 0.030f;
-        text_at(dl, f, ls, ImVec2(sz.x - pad - text_w(f, ls, lbl), sz.y * 0.030f),
-                COL_DIM, lbl);
-    }
+        draw_tap_badge(dl, st, sz,
+                       ImVec2(sz.x - pad, sz.y * (st.cue_any ? 0.330f : 0.215f)),
+                       true);
 
     /* ---- stopped, holding here -----------------------------------------
      *
@@ -721,11 +754,6 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     const float foot_h = sz.y * 0.155f;
     float fy = sz.y - foot_h;
     dl->AddRectFilled(ImVec2(0, fy), ImVec2(sz.x, sz.y), COL_PANEL);
-    /* The footer has its own panel colour, painted over the warmth above -
-     * so it takes the same tint again, or the screen warms up everywhere
-     * except the strip holding the song you are warming up for. */
-    if (segue_tint)
-        dl->AddRectFilled(ImVec2(0, fy), ImVec2(sz.x, sz.y), segue_tint);
 
     const float nl = foot_h * 0.26f;
     text_at(dl, f, nl, ImVec2(pad, fy + foot_h * 0.16f), COL_DIM, "NEXT");
@@ -797,12 +825,14 @@ void draw_playing(ImDrawList *dl, const bt_ui_state &st, ImVec2 sz) {
     /* The segue frame, over everything including the footer, because it is
      * a frame around the screen rather than a thing on it.
      *
-     * A border and not a flashing screen. Peripheral vision is what anybody
-     * playing has to spare, and it is good at edges and movement and poor
-     * at a slow wash of colour - so the edge of the screen is exactly where
-     * this belongs. A full-screen flash would also wash out the beat dots,
-     * which are the one thing being watched at that moment, and a monitor
-     * strobing at the tempo is not something to point at a stage. */
+     * A border and nothing else. Peripheral vision is what anybody playing
+     * has to spare, and it is good at edges and movement and poor at a slow
+     * wash of colour - so the edge of the screen is exactly where this
+     * belongs. A full-screen flash would also wash out the beat dots, which
+     * are the one thing being watched at that moment, and a monitor strobing
+     * at the tempo is not something to point at a stage. Pulsing on the beat
+     * instead of at a rate of its own is what makes it countable - four,
+     * three, two, one - rather than an alarm. */
     if (segue_t > 0.0f) {
         const float w = sz.y * (0.005f + 0.013f * segue_t);
         const float a = (0.30f + 0.70f * segue_t) *
